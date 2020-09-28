@@ -4,9 +4,8 @@
 extern crate clap;
 
 use clap::{App, ArgMatches};
-use env_logger::{Env, from_env};
 use std::error::Error;
-
+use env_logger::{Env, from_env};
 use bandsocks_runtime::Reference;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -17,8 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     from_env(Env::default().default_filter_or(log_level)).init();
 
     let run_args = string_values(&matches, "run_args");
-    let image_reference: Reference = matches.value_of("image_reference")
-        .unwrap().parse().expect("expected a valid OCI image reference");
+    let image_reference: Reference = matches.value_of("image_reference").unwrap().parse()?;
 
     println!("{:?} {:?}", image_reference, run_args);
 
