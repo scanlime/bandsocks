@@ -1,0 +1,11 @@
+[package]
+name = "bandsocks-runtime"
+version = "0.1.0"
+authors = ["Micah Elizabeth Scott <micah@scanlime.org>"]
+edition = "2018"
+
+[dependencies]
+
+log = "0.4.11"
+vfs = "0.4.0"
+oci-distribution = "0.4.0"

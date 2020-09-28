@@ -1,0 +1,6 @@
+target/
+Dockerfile
+*.md
+*.sh
+*.txt
+*.log

@@ -1,0 +1,24 @@
+name: bandsocks
+version: "0.1.0"
+author: scanlime
+about: experimental container runtime
+args:
+    - log_level:
+        short: l
+        long: log-level
+        value_name: FILTER
+        takes_value: true
+        default_value: info
+        help: default log filter, superceded by RUST_LOG environment variable
+    - image_reference:
+        index: 1
+        required: true
+        value_name: IMAGE
+        takes_value: true
+        help: image to run, in <registry>/<repository>[:<tag>][@digest] format>
+    - run_args:
+        index: 2
+        multiple: true
+        value_name: ARGS
+        takes_value: true
+        help: arguments passed to the container's entry point
