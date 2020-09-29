@@ -8,4 +8,10 @@ edition = "2018"
 
 log = "0.4.11"
 vfs = "0.4.0"
-oci-distribution = "0.4.0"
+pentacle = "0.2.0"
+pete = "0.3.0"
+dkregistry = { git = "https://github.com/camallo/dkregistry-rs.git" }
+libc = "0.2.77"
+tokio = "0.2.22"
+thiserror = "1.0"
+
