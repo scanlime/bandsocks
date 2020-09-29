@@ -25,4 +25,7 @@ pub enum ImageError {
 
     #[error("only v2 image manifests are supported")]
     UnsupportedManifestType,
+
+    #[error("unsupported type for runtime config, {0}")]
+    UnsupportedRuntimeConfigType(String),
 }

@@ -10,6 +10,7 @@ mod errors;
 mod client;
 mod storage;
 mod image;
+mod manifest;
 
 pub use dkregistry::reference::Reference;
 

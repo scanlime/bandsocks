@@ -3,10 +3,11 @@
 use crate::Reference;
 use crate::errors::ImageError;
 use crate::image::Image;
+use crate::manifest::{Manifest, RuntimeConfig, Link, RUNTIME_CONFIG_TYPE};
 use crate::storage::{FileStorage, StorageKey};
+
 use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
-use dkregistry::v2::manifest::Manifest;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use memmap::Mmap;
@@ -60,7 +61,7 @@ impl Client {
     async fn registry_client_for<'a>(&'a mut self, image: &Reference) -> Result<&'a RegistryClient, ImageError> {
         let is_reusable = match &self.registry_client {
             None => false,
-            Some((prev_image, client)) => {
+            Some((prev_image, _)) => {
                 prev_image.registry() == image.registry()
                     && prev_image.repository() == image.repository()
             }
@@ -88,28 +89,57 @@ impl Client {
         })
     }
 
-    async fn cached_manifest(&mut self, image: &Reference) -> Result<Arc<Mmap>, ImageError> {
+    async fn manifest(&mut self, image: &Reference) -> Result<Manifest, ImageError> {
         let key = StorageKey::Manifest(image.clone());
-        match self.storage.get(&key)? {
+        let mmap = match self.storage.get(&key)? {
             Some(arc) => Ok(arc),
             None => {
                 let rc = self.registry_client_for(image).await?;
                 match rc.get_manifest(&image.repository(), &image.version()).await? {
-                    Manifest::S2(schema) => {
+                    dkregistry::v2::manifest::Manifest::S2(schema) => {
                         let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
                         self.storage.insert(&key, spec_data).await
                     }
                     _ => Err(ImageError::UnsupportedManifestType)
                 }
             }
+        }?;
+        let slice = &mmap[..];
+        log::debug!("raw json manifest, {}", String::from_utf8_lossy(slice));
+        Ok(serde_json::from_slice(slice)?)
+    }
+
+    async fn blob(&mut self, image: &Reference, link: &Link) -> Result<Arc<Mmap>, ImageError> {
+        let key = StorageKey::Blob(link.digest.clone());
+        match self.storage.get(&key)? {
+            Some(arc) => Ok(arc),
+            None => {
+                let rc = self.registry_client_for(image).await?;
+                let blob_data = rc.get_blob(&image.repository(), &link.digest).await?;
+                self.storage.insert(&key, blob_data).await
+            }
+        }
+    }
+    
+    async fn runtime_config(&mut self, image: &Reference, link: &Link) -> Result<RuntimeConfig, ImageError> {
+        if link.media_type == RUNTIME_CONFIG_TYPE {
+            let mmap = self.blob(image, link).await?;
+            let slice = &mmap[..];
+            log::debug!("raw json runtime config, {}", String::from_utf8_lossy(slice));
+            Ok(serde_json::from_slice(slice)?)
+        } else {
+            Err(ImageError::UnsupportedRuntimeConfigType(link.media_type.clone()))
         }
     }
     
     pub async fn pull_async(&mut self, image: &Reference) -> Result<Image, ImageError> {
-        let manifest = self.cached_manifest(image).await?;
+        let manifest = self.manifest(image).await?;
+        log::info!("manifest: {:?}", manifest);
 
+        let config = self.runtime_config(image, &manifest.config).await?;
+        log::info!("runtime config: {:?}", config);
+        
         Ok(Image {
         })
     }
 }
-

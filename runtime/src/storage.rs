@@ -154,15 +154,15 @@ impl StorageKey {
             StorageKey::Blob(digest) => {
                 let mut path = base_dir.to_path_buf();
                 push_checked_path(&mut path, "blobs")?;
-                push_checked_path(&mut path, digest)?;
+                push_checked_path(&mut path, &digest.replace(":", "_"))?;
                 Ok(path)
             },
             StorageKey::Manifest(reference) => {
                 let mut path = base_dir.to_path_buf();
                 push_checked_path(&mut path, "manifest")?;
                 push_checked_path(&mut path, &reference.registry())?;
-                push_checked_path(&mut path, &reference.repository().replace("/","_"))?;
-                push_checked_path(&mut path, &reference.version().replace("@","").replace(":",""))?;
+                push_checked_path(&mut path, &reference.repository().replace("/", "_"))?;
+                push_checked_path(&mut path, &reference.version().replace("@", "").replace(":", ""))?;
                 Ok(path)
             },
         }

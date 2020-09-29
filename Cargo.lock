@@ -97,6 +97,7 @@ dependencies = [
  "pentacle",
  "pete",
  "regex",
+ "serde",
  "serde_json",
  "tar",
  "thiserror",
