@@ -11,6 +11,9 @@ pub enum ImageError {
     #[error("storage io error: {0}")]
     Storage(#[from] std::io::Error),
 
+    #[error("json error: {0}")]
+    JSON(#[from] serde_json::Error),
+    
     #[error("unallowed storage path segment, {0}")]
     BadStoragePath(String),
 
@@ -19,4 +22,7 @@ pub enum ImageError {
     
     #[error("can't determine where to cache image files")]
     NoDefaultCacheDir,
+
+    #[error("only v2 image manifests are supported")]
+    UnsupportedManifestType,
 }

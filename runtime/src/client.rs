@@ -6,6 +6,7 @@ use crate::image::Image;
 use crate::storage::{FileStorage, StorageKey};
 use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
+use dkregistry::v2::manifest::Manifest;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use memmap::Mmap;
@@ -66,7 +67,7 @@ impl Client {
         };
 
         if !is_reusable {
-            let client = dkregistry::v2::Client::configure()
+            let client = RegistryClient::configure()
                 .registry(&image.registry())
                 .insecure_registry(false)
                 .username(None)
@@ -93,9 +94,13 @@ impl Client {
             Some(arc) => Ok(arc),
             None => {
                 let rc = self.registry_client_for(image).await?;
-                let manifest = rc.get_manifest(&image.repository(), &image.version()).await?;
-                let data = b"bbb".to_vec();
-                self.storage.insert(&key, data).await
+                match rc.get_manifest(&image.repository(), &image.version()).await? {
+                    Manifest::S2(schema) => {
+                        let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
+                        self.storage.insert(&key, spec_data).await
+                    }
+                    _ => Err(ImageError::UnsupportedManifestType)
+                }
             }
         }
     }
