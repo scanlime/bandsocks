@@ -6,7 +6,7 @@ extern crate clap;
 use clap::{App, ArgMatches};
 use std::error::Error;
 use env_logger::{Env, from_env};
-use bandsocks_runtime::{Reference, ImageCache};
+use bandsocks_runtime::{Reference, CacheBuilder};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let yaml = load_yaml!("cli.yml");
@@ -17,10 +17,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let run_args = string_values(&matches, "run_args");
     let image_reference: Reference = matches.value_of("image_reference").unwrap().parse()?;
-
+    let cache = CacheBuilder::new().build();
+   
     println!("{:?} {:?}", image_reference, run_args);
 
-    let result = ImageCache::new().pull_sync(&image_reference);
+    let result = cache.pull(&image_reference);
 
     println!("{:?}", result);
 

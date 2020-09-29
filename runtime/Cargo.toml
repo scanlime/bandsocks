@@ -11,7 +11,8 @@ vfs = "0.4.0"
 pentacle = "0.2.0"
 pete = "0.3.0"
 dkregistry = { git = "https://github.com/camallo/dkregistry-rs.git" }
+memmap = "0.7.0"
 libc = "0.2.77"
+tar = "0.4.30"
 tokio = "0.2.22"
 thiserror = "1.0"
-
