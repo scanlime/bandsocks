@@ -44,7 +44,7 @@ pub struct ImageConfig {
     #[serde(rename = "WorkingDir")]
     pub working_dir: String,
     #[serde(rename = "Entrypoint")]
-    pub entrypoint: Option<String>,
+    pub entrypoint: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
