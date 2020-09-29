@@ -4,8 +4,12 @@
 mod linux;
 
 mod errors;
+mod client;
+mod storage;
 mod image;
 
 pub use dkregistry::reference::Reference;
-pub use image::{Image, Cache, CacheBuilder};
-pub use errors::{ImageError};
+
+pub use crate::image::Image;
+pub use crate::client::Client;
+pub use crate::errors::ImageError;

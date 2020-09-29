@@ -10,3 +10,5 @@ The intended API for this package is fairly high-level:
 - download/unpack docker images into an emulated filesystem
 - attach streams to emulated files for I/O
 - run commands in the container
+
+Non-goals include storage and networking. Networking will be fully disabled, and the virtual filesystem will be mostly in an immutable ramdisk made from images downloaded through a regsitry. Complete syscall support is also not a priority, as long as it can run computational workloads like media codecs.
