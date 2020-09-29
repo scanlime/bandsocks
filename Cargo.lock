@@ -90,11 +90,13 @@ version = "0.1.0"
 dependencies = [
  "directories-next",
  "dkregistry",
+ "lazy_static",
  "libc",
  "log",
  "memmap",
  "pentacle",
  "pete",
+ "regex",
  "tar",
  "thiserror",
  "tokio",

@@ -1,5 +1,8 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
+#[macro_use]
+extern crate lazy_static;
+
 #[cfg(any(target_os="android", target_os="linux"))]
 mod linux;
 

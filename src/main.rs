@@ -17,13 +17,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let run_args = string_values(&matches, "run_args");
     let image_reference: Reference = matches.value_of("image_reference").unwrap().parse()?;
-    let client = Client::new()?;
+    let mut client = Client::new()?;
     
-    println!("{:?} {:?}", image_reference, run_args);
+    log::info!("pull args: {:?} {:?}", image_reference, run_args);
 
     let result = client.pull(&image_reference)?;
 
-    println!("{:?}", result);
+    log::info!("pull result: {:?}", result);
 
     Ok(())
 }
