@@ -5,7 +5,7 @@ use crate::errors::ImageError;
 use crate::image::Image;
 use crate::manifest::{Manifest, RuntimeConfig, Link, media_types, FS_TYPE};
 use crate::storage::{FileStorage, StorageKey};
-use crate::filesystem::Filesystem;
+use crate::filesystem::{tar, vfs};
 
 use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
@@ -203,9 +203,9 @@ impl Client {
             }
         }?;
 
-        let mut filesystem = Filesystem::new();
+        let mut filesystem = vfs::Filesystem::new();
         for layer in &content {
-            filesystem.add_tar_overlay(layer)?;
+            tar::extract_metadata(&mut filesystem, layer)?;
         }
         
         Ok(Image {

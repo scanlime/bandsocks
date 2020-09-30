@@ -1,6 +1,5 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
-use crate::errors::ImageError;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,10 +20,6 @@ impl Filesystem {
                 content: Node::Directory( Directory::new() )
             }))]
         }
-    }
-
-    pub fn add_tar_overlay(&mut self, archive: &Arc<Mmap>) -> Result<(), ImageError> {
-        Ok(())
     }
 }
 
