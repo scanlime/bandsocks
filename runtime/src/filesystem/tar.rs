@@ -3,36 +3,37 @@
 use crate::filesystem::vfs::Filesystem;
 use crate::filesystem::mmap::MapRef;
 use crate::errors::ImageError;
-use basic_tar::{U64Ext, BasicTarError, Header, raw};
-use std::io::{Read, Seek, Cursor, SeekFrom};
+use tar::{Archive, Header};
+use std::io::Cursor;
 use std::sync::Arc;
-use std::convert::TryInto;
 use memmap::Mmap;
 
-pub fn extract_metadata(fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<(), ImageError> {
-    let mut cursor = Cursor::new(&archive[..]);
-    while (cursor.position() as usize) < archive.len() {
-        
-        let mut header_raw = raw::header::raw();
-        cursor.read_exact(&mut header_raw)?;
-        
-        match Header::parse(header_raw) {
-            Err(BasicTarError::EmptyHeader) => {
-                // Ignored; this is normal at the end of the archive
-            },
-            Err(e) => Err(e)?,
-            Ok(header) => {
-                let payload = MapRef::new(archive, cursor.position().try_into()?, header.size.try_into()?);
-                cursor.seek(SeekFrom::Current(header.size.ceil_to_multiple_of(raw::BLOCK_LEN as u64) as i64))?;
-                extract_file_metadata(fs, header, payload);
-            }
-        }
+const BLOCK_LEN: usize = 512;
+
+fn pad_to_block_multiple(size: usize) -> usize{
+    let rem = size % BLOCK_LEN;
+    if rem == 0 {
+        size
+    } else {
+        size + (BLOCK_LEN - rem)
+    }
+}
+
+pub fn extract_metadata(mut fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<(), ImageError> {
+    let mut offset: usize = 0;
+    while let Some(entry) = Archive::new(Cursor::new(&archive[offset..])).entries()?.next() {
+        let entry = entry?;
+        let file_begin = offset + (entry.raw_file_position() as usize);
+        let file_end = file_begin + (entry.size() as usize);
+        let file = MapRef::new(archive, file_begin, file_end);
+        offset = pad_to_block_multiple(file_end);
+        extract_file_metadata(&mut fs, entry.header(), &file);
     }
     Ok(())
 }
 
 
-pub fn extract_file_metadata(fs: &mut Filesystem, header: Header, payload: MapRef) -> Result<(), ImageError> {
-    log::info!("{} {:?}", header.path, payload);
+pub fn extract_file_metadata(fs: &mut Filesystem, header: &Header, file: &MapRef) -> Result<(), ImageError> {
+    log::info!("{:?} {:?}", header, file);
     Ok(())
 }

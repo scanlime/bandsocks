@@ -15,8 +15,9 @@ impl Filesystem {
         Filesystem {
             inodes: vec![ Some( Arc::new( INode {
                 mode: 0o755,
-                user_id: 0,
-                group_id: 0,
+                uid: 0,
+                gid: 0,
+                mtime: 0,
                 content: Node::Directory( BTreeMap::new() )
             }))]
         }
@@ -26,8 +27,9 @@ impl Filesystem {
 #[derive(Debug, Clone)]
 struct INode {
     mode: u64,
-    user_id: u64,
-    group_id: u64,
+    uid: u64,
+    gid: u64,
+    mtime: u64,
     content: Node,
 }
 

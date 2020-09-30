@@ -13,12 +13,6 @@ pub enum ImageError {
 
     #[error("json error: {0}")]
     JSON(#[from] serde_json::Error),
-
-    #[error("tar format error: {0}")]
-    TAR(#[from] basic_tar::BasicTarError),
-
-    #[error("integer range error: {0}")]
-    IntError(#[from] std::num::TryFromIntError),
     
     #[error("unallowed storage path segment, {0}")]
     BadStoragePath(String),
