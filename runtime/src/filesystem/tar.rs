@@ -8,17 +8,6 @@ use std::io::Cursor;
 use std::sync::Arc;
 use memmap::Mmap;
 
-const BLOCK_LEN: usize = 512;
-
-fn pad_to_block_multiple(size: usize) -> usize{
-    let rem = size % BLOCK_LEN;
-    if rem == 0 {
-        size
-    } else {
-        size + (BLOCK_LEN - rem)
-    }
-}
-
 pub fn extract_metadata(mut fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<(), ImageError> {
     let mut offset: usize = 0;
     while let Some(entry) = Archive::new(Cursor::new(&archive[offset..])).entries()?.next() {
@@ -30,6 +19,16 @@ pub fn extract_metadata(mut fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<
         extract_file_metadata(&mut fs, entry.header(), &file);
     }
     Ok(())
+}
+
+fn pad_to_block_multiple(size: usize) -> usize{
+    const BLOCK_LEN: usize = 512;
+    let rem = size % BLOCK_LEN;
+    if rem == 0 {
+        size
+    } else {
+        size + (BLOCK_LEN - rem)
+    }
 }
 
 
