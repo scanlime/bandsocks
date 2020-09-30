@@ -45,14 +45,19 @@ fn extract_file_metadata(fs: &mut Filesystem, header: &Header, file: MapRef) -> 
         EntryType::Regular => fsw.write_file_mapping(&path, file, stat)?,
         EntryType::Directory => fsw.write_directory_metadata(&path, stat)?,
         EntryType::Symlink => {
+            log::info!("symlink {:?} {:?}", header, file);
         },
         EntryType::Link => {
+            log::info!("hard link {:?} {:?}", header, file);
         },
         EntryType::Char => {
+            log::info!("char dev {:?} {:?}", header, file);
         },
         EntryType::Block => {
+            log::info!("block dev {:?} {:?}", header, file);
         },
         EntryType::Fifo => {
+            log::info!("fifo {:?} {:?}", header, file);
         },
         _ => log::error!("skipping unsupported tar file entry type, {:?}", header),
     }

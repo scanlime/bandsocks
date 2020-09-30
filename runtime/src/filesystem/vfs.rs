@@ -18,14 +18,14 @@ pub struct Filesystem {
 
 impl fmt::Debug for Filesystem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let dir = self.root;
-        debug_filesystem_listing(self, f, PathBuf::new(), dir);
+        //let dir = self.root;
+        //debug_filesystem_listing(self, f, PathBuf::new(), dir);
         //  To do: should this be iterative or recursive? seems like iterative.
-        let mut path = PathBuf::new();
-        let mut dir = self.root;
+        // let mut path = PathBuf::new();
+        //let mut dir = self.root;
                     
-        self.
-        f.write_fmt(format_args!())
+        //self.
+        //f.write_fmt(format_args!())
         Ok(())
     }
 }
