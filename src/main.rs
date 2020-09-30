@@ -15,15 +15,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let log_level = matches.value_of("log_level").unwrap();
     from_env(Env::default().default_filter_or(log_level)).init();
 
-    let run_args = string_values(&matches, "run_args");
+    let _run_args = string_values(&matches, "run_args");
     let image_reference: Reference = matches.value_of("image_reference").unwrap().parse()?;
     let mut client = Client::new()?;
     
-    log::info!("pull args: {:?} {:?}", image_reference, run_args);
-
-    let result = client.pull(&image_reference)?;
-
-    log::info!("pull result: {:?}", result);
+    let _image = client.pull(&image_reference)?;
 
     Ok(())
 }

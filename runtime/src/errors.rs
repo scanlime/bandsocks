@@ -38,8 +38,14 @@ pub enum ImageError {
 pub enum VFSError {
     #[error("expected a directory, found another node type")]
     DirectoryExpected,
+    #[error("expected a file, found another node type")]
+    FileExpected,
     #[error("unallocated node")]
     UnallocNode,
     #[error("not found")]
     NotFound,
+    #[error("too many nested path segments")]
+    PathSegmentLimitExceeded,
+    #[error("too many nested symbolic links")]
+    SymbolicLinkLimitExceeded,
 }
