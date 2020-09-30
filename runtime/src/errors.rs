@@ -66,6 +66,9 @@ pub enum VFSError {
 
     #[error("too many nested symbolic links")]
     SymbolicLinkLimitExceeded,
+
+    #[error("inode reference count error")]
+    INodeRefCountError,
 }
 
 #[derive(Error, Debug)]

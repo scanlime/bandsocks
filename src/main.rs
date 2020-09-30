@@ -18,11 +18,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let run_args = string_values(&matches, "run_args");
     let image_reference = matches.value_of("image_reference").unwrap().parse()?;
 
-    Container::pull(&image_reference)?
+    let c = Container::pull(&image_reference)?
         .args(run_args)
         .spawn()?;
 
-    Ok(())
+    log::info!("container:\n{:?}", c);
+    Ok(())        
 }
 
 fn string_values<S: AsRef<str>>(matches: &ArgMatches, name: S) -> Vec<String> {

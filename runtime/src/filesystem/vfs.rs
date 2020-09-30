@@ -16,6 +16,7 @@ pub struct Stat {
     pub uid: u64,
     pub gid: u64,
     pub mtime: u64,
+    pub nlink: u64,
 }
 
 #[derive(Clone)]
@@ -178,26 +179,52 @@ impl<'a> VFSWriter<'a> {
         self.put_inode(num, INode {
             stat: Stat{
                 mode: 0o755,
+                nlink: 1,
                 ..Default::default()
             },
             data: Node::Directory(map)
         });
     }
 
-    fn add_child_to_directory(&mut self, parent: INodeNum, child_name: &OsStr, child_value: INodeNum) -> Result<(), VFSError> {
-        match &mut self.get_inode_mut(parent)?.data {
-            Node::Directory(map) => {
-                map.insert(child_name.to_os_string(), child_value);
+    fn inode_incref(&mut self, num: INodeNum) -> Result<(), VFSError> {
+        let mut stat = &mut self.get_inode_mut(num)?.stat;
+        match stat.nlink.checked_add(1) {
+            None => Err(VFSError::INodeRefCountError),
+            Some(count) => {
+                stat.nlink = count;
                 Ok(())
             }
+        }
+    }
+
+    fn inode_decref(&mut self, num: INodeNum) -> Result<(), VFSError> {
+        let mut stat = &mut self.get_inode_mut(num)?.stat;
+        match stat.nlink.checked_sub(1) {
+            None => Err(VFSError::INodeRefCountError),
+            Some(count) => {
+                stat.nlink = count;
+                Ok(())
+            }
+        }
+    }
+
+    fn add_child_to_directory(&mut self, parent: INodeNum, child_name: &OsStr, child_value: INodeNum) -> Result<(), VFSError> {
+        log::trace!("add_child_to_directory, parent {}, child {:?} {}", parent, child_name, child_value);
+        self.inode_incref(child_value)?;        
+        let previous = match &mut self.get_inode_mut(parent)?.data {
+            Node::Directory(map) => map.insert(child_name.to_os_string(), child_value),
             _ => Err(VFSError::DirectoryExpected)?,
+        };
+        match previous {
+            None => Ok(()),
+            Some(prev_child) => self.inode_decref(prev_child)
         }
     }
     
     fn alloc_child_directory(&mut self, parent: INodeNum, name: &OsStr) -> Result<INodeNum, VFSError> {
         let num = self.alloc_inode_number();
-        self.add_child_to_directory(parent, name, num)?;
         self.put_directory(num);
+        self.add_child_to_directory(parent, name, num)?;
         self.add_child_to_directory(num, &OsString::from(".."), parent)?;
         Ok(num)
     }
@@ -223,11 +250,11 @@ impl<'a> VFSWriter<'a> {
             None => Err(VFSError::NotFound)?,
             Some(name) => {
                 let num = self.alloc_inode_number();
-                self.add_child_to_directory(dir, name, num)?;
                 self.put_inode(num, INode {
                     stat,
                     data: Node::NormalFile(data)
                 });
+                self.add_child_to_directory(dir, name, num)?;
                 Ok(())
             }
         }
@@ -243,11 +270,28 @@ impl<'a> VFSWriter<'a> {
             None => Err(VFSError::NotFound)?,
             Some(name) => {
                 let num = self.alloc_inode_number();
-                self.add_child_to_directory(dir, name, num)?;
                 self.put_inode(num, INode {
                     stat,
                     data: Node::SymbolicLink(link_to.to_path_buf())
                 });
+                self.add_child_to_directory(dir, name, num)?;
+                Ok(())
+            }
+        }
+    }
+    
+    pub fn write_hardlink(&mut self, path: &Path, link_to: &Path, stat: Stat) -> Result<(), VFSError> {
+        let dir = if let Some(parent) = path.parent() {
+            self.resolve_or_create_path(parent)?
+        } else {
+            self.workdir
+        };
+        let mut limits = Limits::reset();
+        let link_to_node = self.fs.resolve_path(&mut limits, self.workdir, link_to)?;
+        match path.file_name() {
+            None => Err(VFSError::NotFound)?,
+            Some(name) => {
+                self.add_child_to_directory(dir, name, link_to_node)?;
                 Ok(())
             }
         }
@@ -273,7 +317,8 @@ impl<'a> VFSWriter<'a> {
 
 impl fmt::Debug for Stat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{:o} {}:{} @{}", self.mode, self.uid, self.gid, self.mtime))
+        f.write_fmt(format_args!("{:o} {}:{} @{} {}",
+                                 self.mode, self.uid, self.gid, self.mtime, self.nlink))
     }
 }
 

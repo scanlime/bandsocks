@@ -50,7 +50,11 @@ fn extract_file_metadata<'a, R: Read> (fs: &mut Filesystem, entry: Entry<'a, R>,
             Some(link_name) => fsw.write_symlink(&path, &link_name, stat)?,
             None => Err(ImageError::TARFileError)?,
         },
-        _ => log::error!("skipping unsupported tar file entry type, {:?}", entry.header()),
+        EntryType::Link => match link_name {
+            Some(link_name) => fsw.write_hardlink(&path, &link_name, stat)?,
+            None => Err(ImageError::TARFileError)?,
+        },
+        _ => log::error!("skipping unsupported tar file entry type {:?}, {:?}", kind, entry.header()),
     }
 
     Ok(())
