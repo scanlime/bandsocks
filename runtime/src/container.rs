@@ -175,9 +175,24 @@ impl Container {
 
         log::info!("starting, {:?} in dir={:?} env={:?}", argv, dir, env);
 
-        Ok(Container {
+        let container = Container {
             filesystem, argv, env, dir
-        })
+        };
+        container.exec()?;
+
+        Ok(container)
     }
 
+    fn exec(&self) -> Result<(), RuntimeError> {
+
+        let arg0 = match self.argv.first() {
+            None => Err(RuntimeError::NoEntryPoint),
+            Some(s) => Ok(s),
+        }?;
+
+        let image = self.filesystem.get_file_data(Path::new(arg0))?;
+        log::info!("binary image, {:?}", image);
+
+        Ok(())
+    }
 }

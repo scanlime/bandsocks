@@ -104,6 +104,7 @@ impl Filesystem {
 
     fn resolve_symlinks(&self, mut limits: &mut Limits, mut node: INodeNum) -> Result<INodeNum, VFSError> {
         while let Node::SymbolicLink(path) = &self.get_inode(node)?.data {
+            log::trace!("following symlink, {:?} -> {:?}", node, path);
             limits.take_symbolic_link()?;
             node = self.resolve_path(&mut limits, node, path)?;
         }
@@ -111,24 +112,28 @@ impl Filesystem {
     }
 
     fn resolve_path_segment(&self, mut limits: &mut Limits, workdir: INodeNum, part: &OsStr) -> Result<INodeNum, VFSError> {
-        let mut node = workdir;
         limits.take_path_segment()?;
-        loop {
-            node = self.resolve_symlinks(&mut limits, node)?;
-            match &self.get_inode(node)?.data {
-                Node::Directory(map) => {
-                    match map.get(part) {
-                        None => Err(VFSError::NotFound)?,
-                        Some(child_node) => {
-                            node = *child_node;
-                            break;
+        if part == "/" {
+            Ok(self.root)
+        } else {
+            let mut node = workdir;
+            loop {
+                node = self.resolve_symlinks(&mut limits, node)?;
+                match &self.get_inode(node)?.data {
+                    Node::Directory(map) => {
+                        match map.get(part) {
+                            None => Err(VFSError::NotFound)?,
+                            Some(child_node) => {
+                                node = *child_node;
+                                break;
+                            }
                         }
-                    }
-                },
-                _ => Err(VFSError::DirectoryExpected)?,
+                    },
+                    _ => Err(VFSError::DirectoryExpected)?,
+                }
             }
+            Ok(node)
         }
-        Ok(node)
     }
                 
     fn resolve_path(&self, mut limits: &mut Limits, workdir: INodeNum, path: &Path) -> Result<INodeNum, VFSError> {
@@ -140,6 +145,7 @@ impl Filesystem {
     }
 
     pub fn get_file_data(&self, path: &Path) -> Result<MapRef, VFSError> {
+        log::trace!("get_file_data, {:?}", path);
         let mut limits = Limits::reset();
         let node = self.resolve_path(&mut limits, self.root, path)?;
         let node = self.resolve_symlinks(&mut limits, node)?;
