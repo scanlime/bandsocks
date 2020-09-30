@@ -4,12 +4,14 @@ use crate::Reference;
 use crate::image::Image;
 use crate::client::Client;
 use crate::filesystem::vfs::Filesystem;
-use crate::errors::{ImageError, RuntimeError};
+use crate::filesystem::mmap::MapRef;
+use crate::errors::{ImageError, RuntimeError, VFSError};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::ffi::{OsStr, OsString};
 use std::default::Default;
+use osstrtools::OsStrTools;
 
 #[derive(Default)]
 pub struct ContainerBuilder {
@@ -184,15 +186,50 @@ impl Container {
         Ok(container)
     }
 
+    fn program_image_for_execp(&self, argv0: &OsStr) -> Result<MapRef, RuntimeError> {
+        
+        // Following the convention of execvp() and friends, the PATH is searched
+        // if and only if argv0 has no slash characters in it.
+
+        let absolute_paths = if argv0.contains("/") {
+            vec![ Path::new(argv0).to_path_buf() ]
+        } else {
+            let env_path = self.env.get(&OsString::from("PATH"));
+            env_path.as_ref()
+                .map(|env_path| env_path.split(":"))
+                .unwrap_or_else(Vec::new)
+                .iter()
+                .map(|env_path_item| Path::new(env_path_item).join(argv0))
+                .collect()
+        };
+        log::info!("searching paths, {:?}", absolute_paths);
+        match absolute_paths.iter()
+            .map(|path_buf| {
+                self.filesystem.get_file_data(path_buf)
+            })
+            .skip_while(|result| {
+                if let Err(VFSError::NotFound) = result {
+                    true
+                } else {
+                    false
+                }
+            })
+            .next() {
+                None => Err(VFSError::NotFound)?,
+                Some(Err(other)) => Err(other)?,
+                Some(Ok(mmap)) => Ok(mmap),
+            }
+    }
+
     fn exec(&self) -> Result<(), RuntimeError> {
 
-        let arg0 = match self.argv.first() {
+        let argv0 = match self.argv.first() {
             None => Err(RuntimeError::NoEntryPoint),
             Some(s) => Ok(s),
         }?;
 
-        let image = self.filesystem.get_file_data(Path::new(arg0))?;
-        log::info!("binary image, {:?}", image);
+        let program = self.program_image_for_execp(argv0);
+        log::info!("program image, {:?}", program);
 
         Ok(())
     }
