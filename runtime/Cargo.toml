@@ -8,7 +8,7 @@ edition = "2018"
 
 directories-next = "1.0.1"
 dkregistry = { git = "https://github.com/camallo/dkregistry-rs.git" }
-flate2 = { version = "1.0.17", features = ["zlib-ng-compat"], default-features = false }
+flate2 = "1.0.17"
 lazy_static = "1.4.0"
 libc = "0.2.77"
 log = "0.4.11"
