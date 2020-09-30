@@ -3,12 +3,26 @@
 use crate::filesystem::mmap::MapRef;
 use crate::errors::VFSError;
 use std::fmt;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 type INodeNum = usize;
+
+#[derive(Clone, Default)]
+pub struct Stat {
+    pub mode: u32,
+    pub uid: u64,
+    pub gid: u64,
+    pub mtime: u64,
+}
+
+impl fmt::Debug for Stat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{:o} {}:{} @{}", self.mode, self.uid, self.gid, self.mtime))
+    }
+}
 
 #[derive(Clone)]
 pub struct Filesystem {
@@ -18,14 +32,52 @@ pub struct Filesystem {
 
 impl fmt::Debug for Filesystem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        //let dir = self.root;
-        //debug_filesystem_listing(self, f, PathBuf::new(), dir);
-        //  To do: should this be iterative or recursive? seems like iterative.
-        // let mut path = PathBuf::new();
-        //let mut dir = self.root;
-                    
-        //self.
-        //f.write_fmt(format_args!())
+        let mut stack = vec![( PathBuf::new(), self.root )];        
+        let mut memo = HashSet::new();
+        while let Some((path, dir)) = stack.pop() {
+            memo.insert(dir);
+            match self.get_inode(dir) {
+                Ok(inode) => match &inode.data {
+                    Node::Directory(map) => {
+                        for (name, child) in map.iter() {
+                            let child_path = path.join(name);
+                            match self.get_inode(*child) {
+                                Ok(child_node) => {
+                                    match &child_node.data {
+                                        Node::Directory(_) => {
+                                            if !memo.contains(child) {
+                                                stack.push((child_path, *child));
+                                            }
+                                        },
+                                        Node::NormalFile(file) => {
+                                            f.write_fmt(format_args!("{:30} {:8}  /{}\n",
+                                                                     format!("{:?}", child_node.stat),
+                                                                     file.len(),
+                                                                     child_path.to_string_lossy()))?;
+                                        },
+                                        other => {
+                                            f.write_fmt(format_args!("{:30} {:?}  /{}\n",
+                                                                     format!("{:?}", child_node.stat),
+                                                                     other,
+                                                                     child_path.to_string_lossy()))?;
+                                        }
+                                    }
+                                },
+                                other => {
+                                    f.write_fmt(format_args!("<<ERROR>>, failed to read child inode, {:?}", other))?;
+                                }
+                            }
+                        }
+                    }
+                    other => {
+                        f.write_fmt(format_args!("<<ERROR>>, expected directory at inode {}, found: {:?}", dir, other))?;
+                    }
+                },
+                other => {
+                    f.write_fmt(format_args!("<<ERROR>>, failed to read directory inode {}, {:?}", dir, other))?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -192,14 +244,6 @@ impl<'a> VFSWriter<'a> {
 struct INode {
     stat: Stat,
     data: Node,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Stat {
-    pub mode: u32,
-    pub uid: u64,
-    pub gid: u64,
-    pub mtime: u64,
 }
 
 #[derive(Debug, Clone)]
