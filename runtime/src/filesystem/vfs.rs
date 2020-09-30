@@ -106,6 +106,16 @@ impl<'a> VFSWriter<'a> {
         });
     }
 
+    fn put_normal_file(&mut self, num: INodeNum, data: MapRef) {
+        self.put_inode(num, INode {
+            stat: Stat{
+                mode: 0o644,
+                ..Default::default()
+            },
+            data: Node::NormalFile(data)
+        });
+    }
+    
     fn modify_directory(&mut self, parent: INodeNum, child_name: &OsStr, child_value: INodeNum) -> Result<(), VFSError> {
         match &mut self.get_inode_mut(parent)?.data {
             Node::Directory(map) => {
@@ -120,9 +130,31 @@ impl<'a> VFSWriter<'a> {
         let num = self.alloc_inode_number();
         self.modify_directory(parent, name, num)?;
         self.put_directory(num);
+        self.modify_directory(num, &OsString::from(".."), parent)?;
         Ok(num)
     }
 
+    fn alloc_file(&mut self, parent: INodeNum, name: &OsStr, data: MapRef) -> Result<INodeNum, VFSError> {
+        let num = self.alloc_inode_number();
+        self.modify_directory(parent, name, num)?;
+        self.put_normal_file(num, data);
+        Ok(num)
+    }
+
+    pub fn write_normal_file(&mut self, path: &Path, data: MapRef) -> Result<(), VFSError> {
+        let mut dir = self.workdir;
+        if let Some(parent) = path.parent() {
+            dir = self.fs.resolve_path(dir, parent)?;
+        }
+        match path.file_name() {
+            None => Err(VFSError::NotFound)?,
+            Some(name) => {
+                self.alloc_file(dir, name, data)?;
+                Ok(())
+            }
+        }
+    }
+    
     pub fn mkdirp(&mut self, path: &Path) -> Result<(), VFSError> {
         let mut dir = self.workdir;
         for part in path.iter() {

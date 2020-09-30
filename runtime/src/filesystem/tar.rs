@@ -13,9 +13,8 @@ pub fn extract_metadata(mut fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<
     while let Some(entry) = Archive::new(Cursor::new(&archive[offset..])).entries()?.next() {
         let entry = entry?;
         let file_begin = offset + (entry.raw_file_position() as usize);
-        let file_end = file_begin + (entry.size() as usize);
-        let file = MapRef::new(archive, file_begin, file_end);
-        offset = pad_to_block_multiple(file_end);
+        let file = MapRef::new(archive, file_begin, entry.size() as usize);
+        offset = pad_to_block_multiple(file_begin + entry.size() as usize);
         extract_file_metadata(&mut fs, entry.header(), file);
     }
     Ok(())
@@ -33,13 +32,16 @@ fn pad_to_block_multiple(size: usize) -> usize{
 
 fn extract_file_metadata(fs: &mut Filesystem, header: &Header, file: MapRef) -> Result<(), ImageError> {
 
-    for path_component in header.path()?.components() {
-        println!("{:?}", path_component);
-    }
+    let mut writer = fs.writer();
+    let path = header.path()?;
     
+    if let Some(parent) = path.parent() {
+        writer.mkdirp(parent)?;
+    }
+
     match header.entry_type() {
         EntryType::Regular => {
-            
+            writer.write_normal_file(&path, file)?;
         },
         EntryType::Directory => {
         },
