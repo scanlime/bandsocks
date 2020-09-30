@@ -10,7 +10,9 @@ use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::io::Read;
 use memmap::Mmap;
+use flate2::read::GzDecoder;
 
 pub struct ClientBuilder {
     cache_dir: Option<PathBuf>,
@@ -160,7 +162,13 @@ impl Client {
         }
     }
 
-    fn decompress_layer(&mut self, data: &[u8]) -> Result<(), ImageError> {
+    async fn decompress_layer(&mut self, data: &[u8]) -> Result<(), ImageError> {
+        let mut decoder = GzDecoder::new(data);
+        let mut output = vec![];
+        decoder.read_to_end(&mut output)?;
+        let key = StorageKey::from_blob_data(&output);
+        log::info!("decompressed {} bytes into {} bytes, {:?}", data.len(), output.len(), key);
+        self.storage.insert(&key, output).await?;
         Ok(())
     }
     
@@ -179,7 +187,7 @@ impl Client {
                 for link in &manifest.layers {
                     if link.media_type == media_types::LAYER_TAR_GZIP {
                         let tar_gzip = self.pull_blob(image, link).await?;
-                        self.decompress_layer(&tar_gzip[..])?;
+                        self.decompress_layer(&tar_gzip[..]).await?;
                     } else {
                         Err(ImageError::UnsupportedLayerType(link.media_type.clone()))?;
                     }

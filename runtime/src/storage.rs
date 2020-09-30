@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use sha2::{Digest, Sha256};
 use memmap::{Mmap, MmapOptions};
 use regex::Regex;
 use tokio::io::AsyncWriteExt;
@@ -89,6 +90,12 @@ impl FileStorage {
 pub enum StorageKey {
     Blob(String),
     Manifest(Reference),
+}
+
+impl StorageKey {
+    pub fn from_blob_data(data: &[u8]) -> StorageKey {
+        StorageKey::Blob(format!("sha256:{:x}", Sha256::digest(data)))
+    }
 }
 
 impl Eq for StorageKey {}
