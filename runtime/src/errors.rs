@@ -81,4 +81,7 @@ pub enum RuntimeError {
 
     #[error("container has no configured image")]
     NoImage,
+
+    #[error("container has no configured entry point")]
+    NoEntryPoint,
 }

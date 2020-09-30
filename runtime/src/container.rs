@@ -17,6 +17,7 @@ pub struct ContainerBuilder {
     arg_list: Vec<OsString>,
     env_list: Vec<EnvBuilder>,
     current_dir: Option<OsString>,
+    entrypoint: Option<OsString>,
 }
 
 enum EnvBuilder {
@@ -37,12 +38,14 @@ impl ContainerBuilder {
         // this is a shallow copy of the image's reference filesystem, which the container can modify
         let filesystem = image.filesystem.clone();
 
+        // working directory is the configured one joined with an optional relative or absolute override
         let mut dir = PathBuf::new();
         dir.push(&image.config.config.working_dir);
         if let Some(dir_override) = &self.current_dir {
             dir.push(dir_override);
         }
 
+        // merge the environment, allowing arbitrary overrides to the configured environment
         let mut env = BTreeMap::new();
         for configured_env in &image.config.config.env {
             let mut iter = configured_env.splitn(2, "=");
@@ -61,19 +64,27 @@ impl ContainerBuilder {
                 EnvBuilder::Set(key, value) => { env.insert(key.clone(), value.clone()); },
             }
         }        
-        
-        log::info!("running container,");
-        log::info!("using image: {}", image.digest);
-        log::info!("args: {:?}", self.arg_list);
-        log::info!("cmd: {:?}", image.config.config.cmd);
-        log::info!("entrypoint: {:?}", image.config.config.entrypoint);
-        log::info!("env: {:?}", env);
-        log::info!("dir: {:?}", dir);
 
-        Ok(Container {
-            image,
-            filesystem
-        })
+        // merge the command line arguments, allowing an "entry point" binary from either the config
+        // or our local overrides, followed by additional "cmd" args that can be taken exactly as configured
+        // or replaced entirely with the arguments given to this invocation.
+        let mut argv = match &self.entrypoint {
+            Some(path) => vec![ path.clone() ],
+            None => match &image.config.config.entrypoint {
+                Some(arg_list) => arg_list.iter().map(OsString::from).collect(),
+                None => vec![],
+            }
+        };
+        if self.arg_list.is_empty() {
+            argv.extend(image.config.config.cmd.iter().map(OsString::from));
+        } else {
+            argv.extend(self.arg_list.clone());
+        }
+        if argv.is_empty() {
+            Err(RuntimeError::NoEntryPoint)?
+        }
+
+        Ok(Container::startup(filesystem, argv, env, dir)?)
     }
 
     pub fn image(&mut self, image: &Arc<Image>) -> &mut Self {
@@ -99,6 +110,11 @@ impl ContainerBuilder {
 
     pub fn current_dir<P: AsRef<Path>>(&mut self, dir: P) -> &mut Self {
         self.current_dir = Some(dir.as_ref().as_os_str().to_os_string());
+        self
+    }
+
+    pub fn entrypoint<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
+        self.entrypoint = Some(path.as_ref().as_os_str().to_os_string());
         self
     }
     
@@ -137,8 +153,10 @@ impl ContainerBuilder {
 
 #[derive(Debug)]
 pub struct Container {
-    image: Arc<Image>,
-    filesystem: Filesystem
+    filesystem: Filesystem,
+    dir: PathBuf,
+    argv: Vec<OsString>,
+    env: BTreeMap<OsString, OsString>,
 }
 
 impl Container {
@@ -151,4 +169,15 @@ impl Container {
         builder.image(&Client::new()?.pull(image_reference)?);
         Ok(builder)
     }
+
+    fn startup(filesystem: Filesystem, argv: Vec<OsString>, env: BTreeMap<OsString, OsString>, dir: PathBuf)
+               -> Result<Container, RuntimeError> {
+
+        log::info!("starting, {:?} in dir={:?} env={:?}", argv, dir, env);
+
+        Ok(Container {
+            filesystem, argv, env, dir
+        })
+    }
+
 }
