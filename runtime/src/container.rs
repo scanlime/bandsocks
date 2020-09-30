@@ -173,8 +173,9 @@ impl Container {
     fn startup(filesystem: Filesystem, argv: Vec<OsString>, env: BTreeMap<OsString, OsString>, dir: PathBuf)
                -> Result<Container, RuntimeError> {
 
+        log::trace!("emulated filesystem contents at startup,\n{:?}", filesystem);
         log::info!("starting, {:?} in dir={:?} env={:?}", argv, dir, env);
-
+        
         let container = Container {
             filesystem, argv, env, dir
         };

@@ -37,6 +37,12 @@ struct INode {
 }
 
 #[derive(Debug, Clone)]
+struct DirEntryRef {
+    parent: INodeNum,
+    child: INodeNum,
+}
+
+#[derive(Clone)]
 enum Node {
     Directory(BTreeMap<OsString, INodeNum>),
     NormalFile(MapRef),
@@ -102,54 +108,86 @@ impl Filesystem {
         }
     }
 
-    fn resolve_symlinks(&self, mut limits: &mut Limits, mut node: INodeNum) -> Result<INodeNum, VFSError> {
-        while let Node::SymbolicLink(path) = &self.get_inode(node)?.data {
-            log::trace!("following symlink, {:?} -> {:?}", node, path);
+    fn resolve_symlinks(&self, mut limits: &mut Limits, mut entry: DirEntryRef) -> Result<DirEntryRef, VFSError> {
+        while let Node::SymbolicLink(path) = &self.get_inode(entry.child)?.data {
+            log::trace!("following symlink, {:?} -> {:?}", entry, path);
             limits.take_symbolic_link()?;
-            node = self.resolve_path(&mut limits, node, path)?;
+            entry = self.resolve_path(&mut limits, entry.parent, path)?;
         }
-        Ok(node)
+        Ok(entry)
     }
 
-    fn resolve_path_segment(&self, mut limits: &mut Limits, workdir: INodeNum, part: &OsStr) -> Result<INodeNum, VFSError> {
+    fn resolve_path_segment(&self, limits: &mut Limits, parent: INodeNum, part: &OsStr) -> Result<DirEntryRef, VFSError> {
+        log::trace!("resolving part {:?} in parent {}", part, parent);
         limits.take_path_segment()?;
         if part == "/" {
-            Ok(self.root)
+            log::trace!("absolute path segment");
+            Ok(DirEntryRef {
+                parent: self.root,
+                child: self.root,
+            })
         } else {
-            let mut node = workdir;
-            loop {
-                node = self.resolve_symlinks(&mut limits, node)?;
-                match &self.get_inode(node)?.data {
-                    Node::Directory(map) => {
-                        match map.get(part) {
-                            None => Err(VFSError::NotFound)?,
-                            Some(child_node) => {
-                                node = *child_node;
-                                break;
-                            }
+            match &self.get_inode(parent)?.data {
+                Node::Directory(map) => {
+                    match map.get(part) {
+                        None => {
+                            log::trace!("not found");
+                            Err(VFSError::NotFound)
+                        },
+                        Some(child) => {
+                            let entry = DirEntryRef {
+                                parent,
+                                child: *child
+                            };
+                            log::trace!("resolved to {:?}", entry);
+                            Ok(entry)
                         }
-                    },
-                    _ => Err(VFSError::DirectoryExpected)?,
+                    }
+                },
+                other => {
+                    log::trace!("failed to resolve path segment in non-directory node, {:?}", other);
+                    Err(VFSError::DirectoryExpected)
                 }
             }
-            Ok(node)
         }
     }
                 
-    fn resolve_path(&self, mut limits: &mut Limits, workdir: INodeNum, path: &Path) -> Result<INodeNum, VFSError> {
-        let mut node = workdir;
-        for part in path.iter() {
-            node = self.resolve_path_segment(&mut limits, node, part)?;
-        }
-        Ok(node)
+    fn resolve_path(&self, mut limits: &mut Limits, parent: INodeNum, path: &Path) -> Result<DirEntryRef, VFSError> {
+        log::trace!("resolving path {:?} in {}", path, parent);
+
+        // resolve symlinks in-between steps but not before the first step
+        // (workdir must be a directory and not a symlink) or after the
+        // last step (the result itself might be a link).
+
+        let mut iter = path.iter();
+        let result = if let Some(part) = iter.next() {
+
+            let mut entry = self.resolve_path_segment(&mut limits, parent, part)?;
+
+            while let Some(part) = iter.next() {
+                entry = self.resolve_symlinks(&mut limits, entry)?;
+                entry = self.resolve_path_segment(&mut limits, entry.child, part)?;
+            }
+
+            log::trace!("path {:?} resolved to {:?}", path, entry);
+            Ok(entry)
+        } else {
+            Ok(DirEntryRef {
+                parent,
+                child: parent
+            })
+        };
+        
+        log::trace!("resolved path {:?} in {} -> {:?}", path, parent, result);
+        result
     }
 
     pub fn get_file_data(&self, path: &Path) -> Result<MapRef, VFSError> {
         log::trace!("get_file_data, {:?}", path);
         let mut limits = Limits::reset();
-        let node = self.resolve_path(&mut limits, self.root, path)?;
-        let node = self.resolve_symlinks(&mut limits, node)?;
-        match &self.get_inode(node)?.data {
+        let entry = self.resolve_path(&mut limits, self.root, path)?;
+        let entry = self.resolve_symlinks(&mut limits, entry)?;
+        match &self.get_inode(entry.child)?.data {
             Node::NormalFile(mmap) => Ok(mmap.clone()),
             _ => Err(VFSError::FileExpected),
         }
@@ -219,7 +257,10 @@ impl<'a> VFSWriter<'a> {
         self.inode_incref(child_value)?;        
         let previous = match &mut self.get_inode_mut(parent)?.data {
             Node::Directory(map) => map.insert(child_name.to_os_string(), child_value),
-            _ => Err(VFSError::DirectoryExpected)?,
+            other => {
+                log::trace!("failed to add a child to a non-directory node, {:?}", other);
+                Err(VFSError::DirectoryExpected)?
+            }
         };
         match previous {
             None => Ok(()),
@@ -234,90 +275,111 @@ impl<'a> VFSWriter<'a> {
         self.add_child_to_directory(num, &OsString::from(".."), parent)?;
         Ok(num)
     }
-    
+
+    fn resolve_or_create_parent<'b>(&mut self, mut limits: &mut Limits, path: &'b Path) -> Result<(INodeNum, &'b OsStr), VFSError> {
+        let dir = if let Some(parent) = path.parent() {
+            let entry = self.resolve_or_create_path(&mut limits, self.workdir, parent)?;
+            let entry = self.fs.resolve_symlinks(&mut limits, entry)?;
+            entry.child
+        } else {
+            self.workdir
+        };
+        match path.file_name() {
+            None => Err(VFSError::NotFound),
+            Some(name) => Ok((dir, name))
+        }
+    }
+
     pub fn write_directory_metadata(&mut self, path: &Path, stat: Stat) -> Result<(), VFSError> {
-        let dir = self.resolve_or_create_path(path)?;
-        let inode = self.get_inode_mut(dir)?;
+        let mut limits = Limits::reset();
+        let entry = self.resolve_or_create_path(&mut limits, self.workdir, path)?;
+        let entry = self.fs.resolve_symlinks(&mut limits, entry)?;
+        let inode = self.get_inode_mut(entry.child)?;
         if let Node::Directory(_) = inode.data {
             inode.stat = stat;
             Ok(())
         } else {
+            log::trace!("failed to write metadata {:?}, expected a directory node but found {:?}", stat, inode.data);
             Err(VFSError::DirectoryExpected)
         }
     }
-    
+
     pub fn write_file_mapping(&mut self, path: &Path, data: MapRef, stat: Stat) -> Result<(), VFSError> {
-        let dir = if let Some(parent) = path.parent() {
-            self.resolve_or_create_path(parent)?
-        } else {
-            self.workdir
-        };
-        match path.file_name() {
-            None => Err(VFSError::NotFound)?,
-            Some(name) => {
-                let num = self.alloc_inode_number();
-                self.put_inode(num, INode {
+        let mut limits = Limits::reset();
+        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
+        let num = self.alloc_inode_number();
+        self.put_inode(num, INode {
                     stat,
-                    data: Node::NormalFile(data)
-                });
-                self.add_child_to_directory(dir, name, num)?;
-                Ok(())
-            }
-        }
+            data: Node::NormalFile(data)
+        });
+        self.add_child_to_directory(dir, name, num)?;
+        Ok(())
     }
 
     pub fn write_symlink(&mut self, path: &Path, link_to: &Path, stat: Stat) -> Result<(), VFSError> {
-        let dir = if let Some(parent) = path.parent() {
-            self.resolve_or_create_path(parent)?
-        } else {
-            self.workdir
-        };
-        match path.file_name() {
-            None => Err(VFSError::NotFound)?,
-            Some(name) => {
-                let num = self.alloc_inode_number();
-                self.put_inode(num, INode {
-                    stat,
-                    data: Node::SymbolicLink(link_to.to_path_buf())
-                });
-                self.add_child_to_directory(dir, name, num)?;
-                Ok(())
-            }
-        }
+        let mut limits = Limits::reset();
+        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
+        let num = self.alloc_inode_number();
+        self.put_inode(num, INode {
+            stat,
+            data: Node::SymbolicLink(link_to.to_path_buf())
+        });
+        self.add_child_to_directory(dir, name, num)?;
+        Ok(())
     }
     
     pub fn write_hardlink(&mut self, path: &Path, link_to: &Path) -> Result<(), VFSError> {
-        let dir = if let Some(parent) = path.parent() {
-            self.resolve_or_create_path(parent)?
-        } else {
-            self.workdir
-        };
         let mut limits = Limits::reset();
-        let link_to_node = self.fs.resolve_path(&mut limits, self.workdir, link_to)?;
-        match path.file_name() {
-            None => Err(VFSError::NotFound)?,
-            Some(name) => {
-                self.add_child_to_directory(dir, name, link_to_node)?;
-                Ok(())
+        let link_to_node = self.fs.resolve_path(&mut limits, self.workdir, link_to)?.child;
+        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
+        self.add_child_to_directory(dir, name, link_to_node)?;
+        Ok(())
+    }
+
+    fn resolve_or_create_path_segment(&mut self, mut limits: &mut Limits, parent: INodeNum, part: &OsStr) -> Result<DirEntryRef, VFSError> {
+        log::trace!("resolve/create part {:?} in parent {}", part, parent);
+
+        let result = self.fs.resolve_path_segment(&mut limits, parent, part);
+        match result {
+            Ok(entry) => Ok(entry),
+            Err(VFSError::NotFound) => {
+                let child = self.alloc_child_directory(parent, part)?;
+                Ok(DirEntryRef { parent, child })
             }
+            Err(other) => Err(other),
         }
     }
-    
-    fn resolve_or_create_path(&mut self, path: &Path) -> Result<INodeNum, VFSError> {
-        let mut dir = self.workdir;
-        let mut limits = Limits::reset();
-        for part in path.iter() {
-            match self.fs.resolve_path_segment(&mut limits, dir, part) {
-                Ok(child) => {
-                    dir = child;
-                },
-                Err(VFSError::NotFound) => {
-                    dir = self.alloc_child_directory(dir, part)?;
-                },
-                Err(other) => Err(other)?,
+                
+    fn resolve_or_create_path(&mut self, mut limits: &mut Limits, parent: INodeNum, path: &Path) -> Result<DirEntryRef, VFSError> {
+        log::trace!("resolve/create path {:?} in {}", path, parent);
+
+        let mut iter = path.iter();
+        if let Some(part) = iter.next() {
+            let mut entry = self.resolve_or_create_path_segment(&mut limits, parent, part)?;
+
+            while let Some(part) = iter.next() {
+                entry = self.fs.resolve_symlinks(&mut limits, entry)?;
+                entry = self.resolve_or_create_path_segment(&mut limits, entry.child, part)?;
             }
+
+            log::trace!("path {:?} resolved to {:?}", path, entry);
+            Ok(entry)
+        } else {
+            Ok(DirEntryRef {
+                parent,
+                child: parent
+            })
         }
-        Ok(dir)
+    }
+}
+
+impl fmt::Debug for Node {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Node::Directory(_) => f.write_fmt(format_args!("<dir>")),
+            Node::SymbolicLink(path) => f.write_fmt(format_args!("@{:?}", path)),
+            Node::NormalFile(mmap) => f.write_fmt(format_args!("{} bytes", mmap.len())),
+        }
     }
 }
 
@@ -341,23 +403,15 @@ impl fmt::Debug for Filesystem {
                             let child_path = path.join(name);
                             match self.get_inode(*child) {
                                 Ok(child_node) => {
-                                    match &child_node.data {
-                                        Node::Directory(_) => {
-                                            if !memo.contains(child) {
-                                                stack.push((child_path, *child));
-                                            }
-                                        },
-                                        Node::NormalFile(file) => {
-                                            f.write_fmt(format_args!("{:28} {:10}  /{}\n",
-                                                                     format!("{:?}", child_node.stat),
-                                                                     file.len(),
-                                                                     child_path.to_string_lossy()))?;
-                                        },
-                                        other => {
-                                            f.write_fmt(format_args!("{:28} {:?}  /{}\n",
-                                                                     format!("{:?}", child_node.stat),
-                                                                     other,
-                                                                     child_path.to_string_lossy()))?;
+                                    f.write_fmt(format_args!("{:5}  {:30} {:30}  /{}\n",
+                                                             *child,
+                                                             format!("{:?}", child_node.stat),
+                                                             format!("{:?}", child_node.data),
+                                                             child_path.to_string_lossy()))?;
+
+                                    if let Node::Directory(_) = &child_node.data {
+                                        if !memo.contains(child) {
+                                            stack.push((child_path, *child))
                                         }
                                     }
                                 },
