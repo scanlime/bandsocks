@@ -94,6 +94,7 @@ dependencies = [
 name = "bandsocks-runtime"
 version = "0.1.0"
 dependencies = [
+ "basic_tar",
  "directories-next",
  "dkregistry",
  "flate2",
@@ -107,10 +108,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "tar",
  "thiserror",
  "tokio",
- "vfs",
 ]
 
 [[package]]
@@ -118,6 +117,12 @@ name = "base64"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
+
+[[package]]
+name = "basic_tar"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c77cb20f3ae137407ef67cd1d2c4d28267e3cbe44395cf0ee188d0265e038f7"
 
 [[package]]
 name = "bitflags"
@@ -1540,15 +1545,6 @@ name = "version_check"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5a972e5669d67ba988ce3dc826706fb0a8b01471c088cb0b6110b805cc36aed"
-
-[[package]]
-name = "vfs"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cc382cffc2f8d6f9490b96d42a7408d6aa719c2db86491b8b31780208ac9d86"
-dependencies = [
- "thiserror",
-]
 
 [[package]]
 name = "void"

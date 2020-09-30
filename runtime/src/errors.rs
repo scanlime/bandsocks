@@ -37,4 +37,7 @@ pub enum ImageError {
 
     #[error("unable to locate decompressed layers by content hash")]
     UnexpectedDecompressedLayerContent,
+
+    #[error("unsupported type for rootfs in image config, {0}")]
+    UnsupportedRootFilesystemType(String),
 }

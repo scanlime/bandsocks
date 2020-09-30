@@ -6,11 +6,12 @@ extern crate lazy_static;
 #[cfg(any(target_os="android", target_os="linux"))]
 mod linux;
 
-mod errors;
 mod client;
-mod storage;
+mod errors;
+mod filesystem;
 mod image;
 mod manifest;
+mod storage;
 
 pub use dkregistry::reference::Reference;
 

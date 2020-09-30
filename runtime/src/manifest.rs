@@ -50,6 +50,8 @@ pub struct ImageConfig {
     pub entrypoint: Option<Vec<String>>,
 }
 
+pub const FS_TYPE: &'static str = "layers";
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Filesystem {
     #[serde(rename = "type")]

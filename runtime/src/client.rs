@@ -3,8 +3,9 @@
 use crate::Reference;
 use crate::errors::ImageError;
 use crate::image::Image;
-use crate::manifest::{Manifest, RuntimeConfig, Link, media_types};
+use crate::manifest::{Manifest, RuntimeConfig, Link, media_types, FS_TYPE};
 use crate::storage::{FileStorage, StorageKey};
+use crate::filesystem::Filesystem;
 
 use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
@@ -180,6 +181,9 @@ impl Client {
         // but the content IDs we are really trying to follow are the digests of the decompressed rootfs,
         // since those come from the runtime_config which has been verified by digest.
 
+        if &config.rootfs.fs_type != FS_TYPE {
+            Err(ImageError::UnsupportedRootFilesystemType(config.rootfs.fs_type.clone()))?;
+        }
         let ids = &config.rootfs.diff_ids;
         let content = match self.local_blob_list(ids)? {
             Some(content) => Ok(content),
@@ -198,10 +202,16 @@ impl Client {
                 }
             }
         }?;
+
+        let mut filesystem = Filesystem::new();
+        for layer in &content {
+            filesystem.add_tar_overlay(layer)?;
+        }
+        
         Ok(Image {
             digest: manifest.config.digest,
             config,
-            content
+            filesystem
         })
     }
 }
