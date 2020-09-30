@@ -2,6 +2,7 @@
 
 use crate::filesystem::mmap::MapRef;
 use crate::errors::VFSError;
+use std::fmt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::ffi::{OsStr, OsString};
@@ -9,10 +10,16 @@ use std::path::{Path, PathBuf};
 
 type INodeNum = usize;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Filesystem {
     inodes: Vec<Option<Arc<INode>>>,
     root: INodeNum,
+}
+
+impl fmt::Debug for Filesystem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Ok(())
+    }
 }
 
 impl Filesystem {
@@ -106,17 +113,7 @@ impl<'a> VFSWriter<'a> {
         });
     }
 
-    fn put_normal_file(&mut self, num: INodeNum, data: MapRef) {
-        self.put_inode(num, INode {
-            stat: Stat{
-                mode: 0o644,
-                ..Default::default()
-            },
-            data: Node::NormalFile(data)
-        });
-    }
-    
-    fn modify_directory(&mut self, parent: INodeNum, child_name: &OsStr, child_value: INodeNum) -> Result<(), VFSError> {
+    fn add_child_to_directory(&mut self, parent: INodeNum, child_name: &OsStr, child_value: INodeNum) -> Result<(), VFSError> {
         match &mut self.get_inode_mut(parent)?.data {
             Node::Directory(map) => {
                 map.insert(child_name.to_os_string(), child_value);
@@ -128,34 +125,44 @@ impl<'a> VFSWriter<'a> {
     
     fn alloc_child_directory(&mut self, parent: INodeNum, name: &OsStr) -> Result<INodeNum, VFSError> {
         let num = self.alloc_inode_number();
-        self.modify_directory(parent, name, num)?;
+        self.add_child_to_directory(parent, name, num)?;
         self.put_directory(num);
-        self.modify_directory(num, &OsString::from(".."), parent)?;
+        self.add_child_to_directory(num, &OsString::from(".."), parent)?;
         Ok(num)
     }
-
-    fn alloc_file(&mut self, parent: INodeNum, name: &OsStr, data: MapRef) -> Result<INodeNum, VFSError> {
-        let num = self.alloc_inode_number();
-        self.modify_directory(parent, name, num)?;
-        self.put_normal_file(num, data);
-        Ok(num)
-    }
-
-    pub fn write_normal_file(&mut self, path: &Path, data: MapRef) -> Result<(), VFSError> {
-        let mut dir = self.workdir;
-        if let Some(parent) = path.parent() {
-            dir = self.fs.resolve_path(dir, parent)?;
+    
+    pub fn write_directory_metadata(&mut self, path: &Path, stat: Stat) -> Result<(), VFSError> {
+        let dir = self.resolve_or_create_path(path)?;
+        let inode = self.get_inode_mut(dir)?;
+        if let Node::Directory(_) = inode.data {
+            std::mem::replace(&mut inode.stat, stat);
+            Ok(())
+        } else {
+            Err(VFSError::DirectoryExpected)
         }
+    }
+    
+    pub fn write_file_mapping(&mut self, path: &Path, data: MapRef, stat: Stat) -> Result<(), VFSError> {
+        let dir = if let Some(parent) = path.parent() {
+            self.resolve_or_create_path(parent)?
+        } else {
+            self.workdir
+        };
         match path.file_name() {
             None => Err(VFSError::NotFound)?,
             Some(name) => {
-                self.alloc_file(dir, name, data)?;
+                let num = self.alloc_inode_number();
+                self.add_child_to_directory(dir, name, num)?;
+                self.put_inode(num, INode {
+                    stat,
+                    data: Node::NormalFile(data)
+                });
                 Ok(())
             }
         }
     }
     
-    pub fn mkdirp(&mut self, path: &Path) -> Result<(), VFSError> {
+    fn resolve_or_create_path(&mut self, path: &Path) -> Result<INodeNum, VFSError> {
         let mut dir = self.workdir;
         for part in path.iter() {
             match self.fs.resolve_path_segment(dir, part) {
@@ -168,7 +175,7 @@ impl<'a> VFSWriter<'a> {
                 Err(other) => Err(other)?,
             }
         }
-        Ok(())
+        Ok(dir)
     }
 
 }
@@ -180,12 +187,12 @@ struct INode {
 }
 
 #[derive(Debug, Clone, Default)]
-struct Stat {
-    mode: u64,
-    uid: u64,
-    gid: u64,
-    mtime: u64,
-}    
+pub struct Stat {
+    pub mode: u32,
+    pub uid: u64,
+    pub gid: u64,
+    pub mtime: u64,
+}
 
 #[derive(Debug, Clone)]
 enum Node {

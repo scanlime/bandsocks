@@ -1,6 +1,6 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
-use crate::filesystem::vfs::Filesystem;
+use crate::filesystem::vfs::{Filesystem, Stat};
 use crate::filesystem::mmap::MapRef;
 use crate::errors::ImageError;
 use tar::{Archive, Header, EntryType};
@@ -31,25 +31,30 @@ fn pad_to_block_multiple(size: usize) -> usize{
 }
 
 fn extract_file_metadata(fs: &mut Filesystem, header: &Header, file: MapRef) -> Result<(), ImageError> {
-
-    let mut writer = fs.writer();
+    let mut fsw = fs.writer();
     let path = header.path()?;
-    
-    if let Some(parent) = path.parent() {
-        writer.mkdirp(parent)?;
-    }
-
+    let stat = Stat {
+        mode: header.mode()?,
+        uid: header.uid()?,
+        gid: header.gid()?,
+        mtime: header.mtime()?,
+        ..Default::default()
+    };
+            
     match header.entry_type() {
-        EntryType::Regular => {
-            writer.write_normal_file(&path, file)?;
-        },
-        EntryType::Directory => {
-        },
+        EntryType::Regular => fsw.write_file_mapping(&path, file, stat)?,
+        EntryType::Directory => fsw.write_directory_metadata(&path, stat)?,
         EntryType::Symlink => {
         },
-        unknown => {
-            log::error!("skipping unsupported tar file entry type, {:?}", header);
-        }
+        EntryType::Link => {
+        },
+        EntryType::Char => {
+        },
+        EntryType::Block => {
+        },
+        EntryType::Fifo => {
+        },
+        _ => log::error!("skipping unsupported tar file entry type, {:?}", header),
     }
 
     Ok(())
