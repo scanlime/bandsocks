@@ -9,7 +9,9 @@ it's designed to nest inside unprivileged docker containers!
 
 it's highly experimental!
 
-🎸🧦
+```
+🎶 🎹🧦 🎸🧦 🎸🧦 🎷🧦 🎺🧦 🥁🧦 🎶
+```
 
 Takes inspiration from gaol, User Mode Linux, gvisor, chromium, and podman. The goal is to add an extra level of isolation to compute workloads we run as non-root within containers which are already somewhat locked down. This means that most high-powered kernel features like KVM and even user namespaces are off the table. The approach this project uses is based on seccomp to restrict system calls, and an emulated filesystem.
 
