@@ -3,8 +3,8 @@
 use crate::filesystem::vfs::{Filesystem, Stat};
 use crate::filesystem::mmap::MapRef;
 use crate::errors::ImageError;
-use tar::{Archive, Header, EntryType};
-use std::io::Cursor;
+use tar::{Archive, Entry, EntryType};
+use std::io::{Read, Cursor};
 use std::sync::Arc;
 use memmap::Mmap;
 
@@ -15,7 +15,7 @@ pub fn extract_metadata(mut fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<
         let file_begin = offset + (entry.raw_file_position() as usize);
         let file = MapRef::new(archive, file_begin, entry.size() as usize);
         offset = pad_to_block_multiple(file_begin + entry.size() as usize);
-        extract_file_metadata(&mut fs, entry.header(), file);
+        extract_file_metadata(&mut fs, entry, file);
     }
     Ok(())
 }
@@ -30,36 +30,27 @@ fn pad_to_block_multiple(size: usize) -> usize{
     }
 }
 
-fn extract_file_metadata(fs: &mut Filesystem, header: &Header, file: MapRef) -> Result<(), ImageError> {
+fn extract_file_metadata<'a, R: Read> (fs: &mut Filesystem, entry: Entry<'a, R>, file: MapRef) -> Result<(), ImageError> {
     let mut fsw = fs.writer();
-    let path = header.path()?;
+    let kind = entry.header().entry_type();
+    let path = entry.path()?;
+    let link_name = entry.link_name()?;
     let stat = Stat {
-        mode: header.mode()?,
-        uid: header.uid()?,
-        gid: header.gid()?,
-        mtime: header.mtime()?,
+        mode: entry.header().mode()?,
+        uid: entry.header().uid()?,
+        gid: entry.header().gid()?,
+        mtime: entry.header().mtime()?,
         ..Default::default()
     };
             
-    match header.entry_type() {
+    match kind {
         EntryType::Regular => fsw.write_file_mapping(&path, file, stat)?,
         EntryType::Directory => fsw.write_directory_metadata(&path, stat)?,
-        EntryType::Symlink => {
-            log::info!("symlink {:?} {:?}", header, file);
+        EntryType::Symlink => match link_name {
+            Some(link_name) => fsw.write_symlink(&path, &link_name, stat)?,
+            None => Err(ImageError::TARFileError)?,
         },
-        EntryType::Link => {
-            log::info!("hard link {:?} {:?}", header, file);
-        },
-        EntryType::Char => {
-            log::info!("char dev {:?} {:?}", header, file);
-        },
-        EntryType::Block => {
-            log::info!("block dev {:?} {:?}", header, file);
-        },
-        EntryType::Fifo => {
-            log::info!("fifo {:?} {:?}", header, file);
-        },
-        _ => log::error!("skipping unsupported tar file entry type, {:?}", header),
+        _ => log::error!("skipping unsupported tar file entry type, {:?}", entry.header()),
     }
 
     Ok(())

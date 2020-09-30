@@ -10,6 +10,8 @@ pub enum ImageError {
     Storage(#[from] std::io::Error),
     #[error("json error: {0}")]
     JSON(#[from] serde_json::Error),
+    #[error("tar file format error")]
+    TARFileError,
     #[error("virtual filesystem error while preparing image: {0}")]
     ImageVFSError(#[from] VFSError),
     #[error("unallowed storage path segment, {0}")]

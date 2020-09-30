@@ -50,13 +50,13 @@ impl fmt::Debug for Filesystem {
                                             }
                                         },
                                         Node::NormalFile(file) => {
-                                            f.write_fmt(format_args!("{:30} {:8}  /{}\n",
+                                            f.write_fmt(format_args!("{:28} {:10}  /{}\n",
                                                                      format!("{:?}", child_node.stat),
                                                                      file.len(),
                                                                      child_path.to_string_lossy()))?;
                                         },
                                         other => {
-                                            f.write_fmt(format_args!("{:30} {:?}  /{}\n",
+                                            f.write_fmt(format_args!("{:28} {:?}  /{}\n",
                                                                      format!("{:?}", child_node.stat),
                                                                      other,
                                                                      child_path.to_string_lossy()))?;
@@ -216,6 +216,26 @@ impl<'a> VFSWriter<'a> {
                 self.put_inode(num, INode {
                     stat,
                     data: Node::NormalFile(data)
+                });
+                Ok(())
+            }
+        }
+    }
+
+    pub fn write_symlink(&mut self, path: &Path, link_to: &Path, stat: Stat) -> Result<(), VFSError> {
+        let dir = if let Some(parent) = path.parent() {
+            self.resolve_or_create_path(parent)?
+        } else {
+            self.workdir
+        };
+        match path.file_name() {
+            None => Err(VFSError::NotFound)?,
+            Some(name) => {
+                let num = self.alloc_inode_number();
+                self.add_child_to_directory(dir, name, num)?;
+                self.put_inode(num, INode {
+                    stat,
+                    data: Node::SymbolicLink(link_to.to_path_buf())
                 });
                 Ok(())
             }
