@@ -1,7 +1,7 @@
 name: bandsocks
 version: "0.1.0"
 author: scanlime
-about: experimental container runtime
+about: 🅱️🧦  experimental container runtime
 args:
     - log_level:
         short: l
