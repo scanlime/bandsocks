@@ -86,7 +86,7 @@ impl Client {
         Ok(&self.registry_client.as_ref().unwrap().1)
     }        
 
-    pub fn pull(&mut self, image: &Reference) -> Result<Image, ImageError> {
+    pub fn pull(&mut self, image: &Reference) -> Result<Arc<Image>, ImageError> {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             self.pull_async(image).await
         })
@@ -173,7 +173,7 @@ impl Client {
         Ok(())
     }
     
-    pub async fn pull_async(&mut self, image: &Reference) -> Result<Image, ImageError> {
+    pub async fn pull_async(&mut self, image: &Reference) -> Result<Arc<Image>, ImageError> {
         let manifest = self.pull_manifest(image).await?;
         let config = self.pull_runtime_config(image, &manifest.config).await?;
 
@@ -208,10 +208,10 @@ impl Client {
             tar::extract_metadata(&mut filesystem, layer)?;
         }
         
-        Ok(Image {
+        Ok(Arc::new(Image {
             digest: manifest.config.digest,
             config,
             filesystem
-        })
+        }))
     }
 }
