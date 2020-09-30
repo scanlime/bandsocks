@@ -94,18 +94,18 @@ impl Client {
     async fn pull_manifest(&mut self, image: &Reference) -> Result<Manifest, ImageError> {
         let key = StorageKey::Manifest(image.clone());
         let mmap = match self.storage.get(&key)? {
-            Some(arc) => Ok(arc),
+            Some(mmap) => mmap,
             None => {
                 let rc = self.registry_client_for(image).await?;
                 match rc.get_manifest(&image.repository(), &image.version()).await? {
                     dkregistry::v2::manifest::Manifest::S2(schema) => {
                         let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
-                        self.storage.insert(&key, spec_data).await
+                        self.storage.insert(&key, spec_data).await?
                     }
-                    _ => Err(ImageError::UnsupportedManifestType)
+                    _ => Err(ImageError::UnsupportedManifestType)?
                 }
             }
-        }?;
+        };
         let slice = &mmap[..];
         log::debug!("raw json manifest, {}", String::from_utf8_lossy(slice));
         Ok(serde_json::from_slice(slice)?)
@@ -198,6 +198,10 @@ impl Client {
                 }
             }
         }?;
-        Ok(Image { config, content })
+        Ok(Image {
+            digest: manifest.config.digest,
+            config,
+            content
+        })
     }
 }

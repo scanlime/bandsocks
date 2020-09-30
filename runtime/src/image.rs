@@ -6,6 +6,7 @@ use memmap::Mmap;
 
 #[derive(Debug, Clone)]
 pub struct Image {
+    pub digest: String,
     pub config: RuntimeConfig,
     pub content: Vec<Arc<Mmap>>,
 }
