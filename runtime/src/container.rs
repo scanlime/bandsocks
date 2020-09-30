@@ -28,7 +28,7 @@ enum EnvBuilder {
 impl ContainerBuilder {
     pub fn spawn(&self) -> Result<Container, RuntimeError> {
         // it might be nice to enforce this at compile-time instead... right now it seemed
-        // worth allowing for multiple ways to load images without the types getting too complex though.
+        // worth allowing for multiple ways to load images without the types getting too complex.
         let image = match &self.image {
             None => Err(RuntimeError::NoImage)?,
             Some(image) => image.clone()
@@ -43,14 +43,32 @@ impl ContainerBuilder {
             dir.push(dir_override);
         }
 
-        let mut env: BTreeMap<OsString, OsString> = BTreeMap::new();
+        let mut env = BTreeMap::new();
         for configured_env in &image.config.config.env {
+            let mut iter = configured_env.splitn(2, "=");
+            if let Some(key) = iter.next() {
+                let value = match iter.next() {
+                    Some(value) => value,
+                    None => "",
+                };
+                env.insert(OsString::from(key), OsString::from(value));
+            }
         }
         for env_override in &self.env_list {
+            match env_override {
+                EnvBuilder::Clear => { env.clear(); },
+                EnvBuilder::Remove(key) => { env.remove(key); },
+                EnvBuilder::Set(key, value) => { env.insert(key.clone(), value.clone()); },
+            }
         }        
         
-        log::info!("running container with image {}, container args: {:?}, image cmds: {:?}, image entrypoint: {:?}, env {:?}, dir {:?}",
-                   image.digest, self.arg_list, image.config.config.cmd, image.config.config.entrypoint, env, dir);
+        log::info!("running container,");
+        log::info!("using image: {}", image.digest);
+        log::info!("args: {:?}", self.arg_list);
+        log::info!("cmd: {:?}", image.config.config.cmd);
+        log::info!("entrypoint: {:?}", image.config.config.entrypoint);
+        log::info!("env: {:?}", env);
+        log::info!("dir: {:?}", dir);
 
         Ok(Container {
             image,

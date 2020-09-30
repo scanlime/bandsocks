@@ -280,7 +280,7 @@ impl<'a> VFSWriter<'a> {
         }
     }
     
-    pub fn write_hardlink(&mut self, path: &Path, link_to: &Path, stat: Stat) -> Result<(), VFSError> {
+    pub fn write_hardlink(&mut self, path: &Path, link_to: &Path) -> Result<(), VFSError> {
         let dir = if let Some(parent) = path.parent() {
             self.resolve_or_create_path(parent)?
         } else {

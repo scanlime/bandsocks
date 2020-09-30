@@ -18,11 +18,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let run_args = string_values(&matches, "run_args");
     let image_reference = matches.value_of("image_reference").unwrap().parse()?;
 
-    let c = Container::pull(&image_reference)?
+    let _c = Container::pull(&image_reference)?
         .args(run_args)
         .spawn()?;
 
-    log::info!("container:\n{:?}", c);
     Ok(())        
 }
 
