@@ -28,4 +28,13 @@ pub enum ImageError {
 
     #[error("unsupported type for runtime config, {0}")]
     UnsupportedRuntimeConfigType(String),
+
+    #[error("unsupported type for image layer, {0}")]
+    UnsupportedLayerType(String),
+
+    #[error("unexpected content size")]
+    UnexpectedContentSize,
+
+    #[error("unable to locate decompressed layers by content hash")]
+    UnexpectedDecompressedLayerContent,
 }

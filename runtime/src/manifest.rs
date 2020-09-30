@@ -19,7 +19,10 @@ pub struct Link {
     pub digest: String
 }
 
-pub const RUNTIME_CONFIG_TYPE: &'static str = "application/vnd.docker.container.image.v1+json";
+pub mod media_types {
+    pub const RUNTIME_CONFIG: &'static str = "application/vnd.docker.container.image.v1+json";
+    pub const LAYER_TAR_GZIP: &'static str = "application/vnd.docker.image.rootfs.diff.tar.gzip";
+}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct RuntimeConfig {
