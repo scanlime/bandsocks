@@ -6,6 +6,7 @@ compile_error!("bandsocks only works on linux or android");
 use pentacle::ensure_sealed;
 use pete::{Command, Ptracer, Restart};
 use syscallz::{Context, Action, Syscall};
+use std::os::unix::process::CommandExt;
 
 fn main() {
     ensure_sealed().unwrap();
@@ -22,7 +23,7 @@ fn main() {
 }
 
 fn do_shell() {
-    std::process::Command::new("/bin/sh").status().unwrap();
+    std::process::Command::new("/bin/sh").exec();
 }
 
 fn do_ptrace() {
@@ -45,7 +46,8 @@ fn do_ptrace() {
 
 fn do_seccomp() {
     let mut ctx = Context::init_with_action(Action::Allow).unwrap();
-    ctx.set_action_for_syscall(Action::Trace(1234), Syscall::uname);
+
+    ctx.set_action_for_syscall(Action::Trace(1234), Syscall::clock_nanosleep);
 
     println!("pre-seccomp");
     ctx.load().unwrap();
