@@ -8,3 +8,4 @@ edition = "2018"
 
 pete = "0.3.0"
 pentacle = "1.0.0"
+syscallz = "0.14.0"
