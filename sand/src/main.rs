@@ -12,20 +12,22 @@ compile_error!("bandsocks currently only supports x86_64");
 
 mod nolibc;
 
-use core::str;
-use core::fmt::Write;
-use nolibc::{c_str_as_bytes, SysFd};
-
 mod modes {
-    pub const STAGE_1_TRACER: &'static str = "sand";
-    pub const STAGE_2_LOADER: &'static str = "sand-exec";
+    pub const STAGE_1_TRACER: &'static [u8] = b"sand\0";
+    pub const STAGE_2_LOADER: &'static [u8] = b"sand-exec\0";
 }
 
 fn main(argv: &[*const u8]) -> Result<(), usize> {
-    
-    let argv0 = unsafe { c_str_as_bytes(*argv.first().unwrap()) };
-    
-    write!(&mut SysFd(2), "Hello World from {}\n", str::from_utf8(argv0).unwrap()).unwrap();
+
+    let argv0 = unsafe { nolibc::c_str_as_bytes(*argv.first().unwrap()) };
+
+    if argv0 == modes::STAGE_1_TRACER {
+        println!("hello from the tracer");
+    } else if argv0 == modes::STAGE_2_LOADER {
+        println!("loader says hey");
+    } else {
+        panic!("unexpected parameters");        
+    }
 
     Ok(())
 }

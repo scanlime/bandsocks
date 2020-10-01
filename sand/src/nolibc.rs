@@ -34,6 +34,25 @@ fn panic(info: &PanicInfo) -> ! {
     exit(128)
 }
 
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => ({
+        let mut stderr = $crate::nolibc::SysFd(2);
+        drop(core::fmt::write(&mut stderr, core::format_args!( $($arg)* )));
+    });
+}
+
+#[macro_export]
+macro_rules! println {
+    () => ({
+        print!("\n");
+    });
+    ($($arg:tt)*) => ({
+        print!( $($arg)* );
+        println!();
+    });
+}
+
 pub unsafe fn c_strlen(mut s: *const u8) -> usize {
     let mut result = 0;
     while 0 != *s {
