@@ -10,64 +10,22 @@ compile_error!("bandsocks only works on linux or android");
 #[cfg(not(target_arch="x86_64"))]
 compile_error!("bandsocks currently only supports x86_64");
 
-// These are never called, but the startup code takes their address
-#[no_mangle] fn __libc_csu_init() {}
-#[no_mangle] fn __libc_csu_fini() {}
-#[no_mangle] fn main() {}
+mod nolibc;
 
-use sc::syscall;
-use core::slice;
-use core::str::{self, Utf8Error};
-use core::convert::TryInto;
-use core::panic::PanicInfo;
-use core::fmt::{self, Write};
+use core::str;
+use core::fmt::Write;
+use nolibc::{c_str_as_bytes, SysFd};
 
-fn exit(code: usize) -> ! {
-    unsafe { syscall!(EXIT, code) };
-    unreachable!()
+mod modes {
+    pub const STAGE_1_TRACER: &'static str = "sand";
+    pub const STAGE_2_LOADER: &'static str = "sand-exec";
 }
 
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    let mut stderr = SysFd(2);
-    if let Some(args) = info.message() {
-        drop(fmt::write(&mut stderr, *args));
-    }
-    drop(write!(&mut stderr, "\npanic!\n"));
-    exit(128)
-}
-
-struct SysFd(usize);
-
-impl fmt::Write for SysFd {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        if s.len() == unsafe { syscall!(WRITE, self.0, s.as_ptr() as usize, s.len()) } {
-            Ok(())
-        } else {
-            Err(fmt::Error)
-        }
-    }
-}
-
-unsafe fn c_strlen(mut s: *const u8) -> usize {
-    let mut result = 0;
-    while 0 != *s {
-        result += 1;
-        s = s.offset(1);
-    }
-    result
-}
-
-unsafe fn from_c_str(s: *const u8) -> Result<&'static str, Utf8Error> {
-    str::from_utf8(slice::from_raw_parts(s, 1 + c_strlen(s)))
-}
-
-#[no_mangle]
-fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
-    let argv = unsafe { slice::from_raw_parts(argv, argc.try_into().unwrap()) };
-    let argv0 = unsafe { from_c_str(*argv.first().unwrap()).unwrap() };
+fn main(argv: &[*const u8]) -> Result<(), usize> {
     
-    write!(&mut SysFd(2), "Hello World from {}\n", argv0).unwrap();
+    let argv0 = unsafe { c_str_as_bytes(*argv.first().unwrap()) };
+    
+    write!(&mut SysFd(2), "Hello World from {}\n", str::from_utf8(argv0).unwrap()).unwrap();
 
-    exit(0);
+    Ok(())
 }

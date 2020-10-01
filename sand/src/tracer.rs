@@ -6,10 +6,6 @@ use libc::c_char;
 
 const SELF_EXE: &'static str = "/proc/self/exe";
 
-mod modes {
-    pub const STAGE_1_TRACER: &'static str = "sand";
-    pub const STAGE_2_LOADER: &'static str = "sand-exec";
-}
 
 pub fn main() {
     match std::env::args().next() {
