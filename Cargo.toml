@@ -8,8 +8,7 @@ edition = "2018"
 env_logger = "0.7.1"
 log = "0.4.11"
 clap = { version = "2.33.3", features = ["yaml"] }
-
 bandsocks-runtime = { path = "runtime" }
 
 [workspace]
-members = [ "runtime" ]
+members = [ "runtime", "sand" ]

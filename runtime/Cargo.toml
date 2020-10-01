@@ -10,7 +10,7 @@ directories-next = "1.0.1"
 dkregistry = { git = "https://github.com/camallo/dkregistry-rs.git" }
 flate2 = "1.0.17"
 lazy_static = "1.4.0"
-libc = "0.2.77"
+nix = "0.18.0"
 log = "0.4.11"
 memmap = "0.7.0"
 osstrtools = "0.2.2"
@@ -23,3 +23,7 @@ sha2 = "0.9.1"
 tar = "0.4.30"
 thiserror = "1.0"
 tokio = { version = "0.2.22", features = ["rt-core", "fs"] }
+bandsocks-sand = { path = "../sand" }
+
+[build-dependencies]
+build-deps = "0.1.4"
