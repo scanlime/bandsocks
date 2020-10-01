@@ -8,6 +8,8 @@ use pete::{Command, Ptracer, Restart};
 use syscallz::{Context, Action, Syscall};
 use std::os::unix::process::CommandExt;
 
+// To do:  This kinda works, but 'pete' is crashing due to a PID we've never heard of, and the libseccomp dependency is annoying. Let's ditch those and put in something lower-level, and try to trace a subset of syscalls from this process.
+
 fn main() {
     ensure_sealed().unwrap();
     println!("sand {:?}", std::env::args());
