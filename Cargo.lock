@@ -105,7 +105,6 @@ dependencies = [
  "nix 0.18.0",
  "osstrtools",
  "pentacle",
- "pete",
  "regex",
  "serde",
  "serde_json",
@@ -118,6 +117,10 @@ dependencies = [
 [[package]]
 name = "bandsocks-sand"
 version = "0.1.0"
+dependencies = [
+ "pentacle",
+ "pete",
+]
 
 [[package]]
 name = "base64"
@@ -941,9 +944,9 @@ dependencies = [
 
 [[package]]
 name = "pentacle"
-version = "0.2.0"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be3c5f1aadd60af94ddf9b279079a0a1fbec1e59781e23ce31671c02a4230f86"
+checksum = "e26ee4fbe38a973890ca68cace434e192d88f3703099fd64f799f3d6043ee7b6"
 dependencies = [
  "libc",
  "log",

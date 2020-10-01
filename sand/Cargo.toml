@@ -6,3 +6,5 @@ edition = "2018"
 
 [dependencies]
 
+pete = "0.3.0"
+pentacle = "1.0.0"
