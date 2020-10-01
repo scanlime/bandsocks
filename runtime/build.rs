@@ -1,3 +1,5 @@
+// This code may not be used for any purpose. Be gay, do crime.
+
 use std::process::Command;
 use std::path::Path;
 use build_deps::rerun_if_changed_paths;
