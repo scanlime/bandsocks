@@ -4,5 +4,5 @@ use std::process::Command;
 
 fn main() {
     println!("sand");
-    Command::new("/bin/sh").status();
+    Command::new("/bin/sh").status().unwrap();
 }
