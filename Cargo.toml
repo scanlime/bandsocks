@@ -12,3 +12,7 @@ bandsocks-runtime = { path = "runtime" }
 
 [workspace]
 members = [ "runtime", "sand" ]
+
+[profile.release]
+lto = true
+panic = 'abort'
