@@ -1,7 +1,7 @@
 name: bandsocks
 version: "0.1.0"
 author: scanlime
-about: 🅱️🧦  experimental container runtime
+about: container runtime 🅱️🧦
 args:
     - log_level:
         short: l
@@ -15,7 +15,7 @@ args:
         required: true
         value_name: IMAGE
         takes_value: true
-        help: image to run, in <registry>/<repository>[:<tag>][@digest] format>
+        help: image to run, in [<registry>/]<repository>[:<tag>][@digest] format>
     - run_args:
         index: 2
         multiple: true
