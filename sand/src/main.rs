@@ -1,11 +1,13 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+compile_error!("bandsocks only works on linux or android");
+
 use pentacle::ensure_sealed;
 use pete::{Command, Ptracer, Restart};
 
 fn main() {
     ensure_sealed().unwrap();
-
     println!("sand {:?}", std::env::args());
     std::thread::sleep(std::time::Duration::from_secs(1));
 
@@ -16,6 +18,7 @@ fn main() {
         } else {
             do_shell();
         }
+
     }
 }
 

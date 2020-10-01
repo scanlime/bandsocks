@@ -1,16 +1,17 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+compile_error!("bandsocks only works on linux or android");
+
 #[macro_use]
 extern crate lazy_static;
-
-#[cfg(any(target_os="android", target_os="linux"))]
-mod linux;
 
 mod container;
 mod client;
 mod errors;
 mod filesystem;
 mod image;
+mod loader;
 mod manifest;
 mod storage;
 

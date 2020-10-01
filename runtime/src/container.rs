@@ -231,7 +231,7 @@ impl Container {
         let program = self.program_image_for_execp(argv0);
         log::info!("program image, {:?}", program);
 
-	crate::linux::do_the_thing();
+        crate::loader::do_the_thing();
 
         Ok(())
     }
