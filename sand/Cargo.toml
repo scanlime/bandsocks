@@ -6,5 +6,17 @@ edition = "2018"
 
 [dependencies]
 
-pentacle = "1.0.0"
-libc = "0.2.78"
+sc = "0.2.3"
+
+[workspace]
+# Separate workspace, with our own build profiles:
+
+[profile.release]
+lto = true
+panic = 'abort'
+opt-level = 's'
+
+[profile.dev]
+lto = true
+panic = 'abort'
+opt-level = 's'

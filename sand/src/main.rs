@@ -1,59 +1,73 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
+#![no_std]
+#![no_main]
+#![feature(panic_info_message)]
+
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 compile_error!("bandsocks only works on linux or android");
 
 #[cfg(not(target_arch="x86_64"))]
 compile_error!("bandsocks currently only supports x86_64");
 
-mod seccomp;
-mod tracer;
+// These are never called, but the startup code takes their address
+#[no_mangle] fn __libc_csu_init() {}
+#[no_mangle] fn __libc_csu_fini() {}
+#[no_mangle] fn main() {}
 
-use std::ffi::CString;
-use libc::c_char;
-use std::ptr::null;
+use sc::syscall;
+use core::slice;
+use core::str::{self, Utf8Error};
+use core::convert::TryInto;
+use core::panic::PanicInfo;
+use core::fmt::{self, Write};
 
-pub mod modes {
-    pub const STAGE_1_TRACER: &'static str = "sand";
-    pub const STAGE_2_LOADER: &'static str = "sand-exec";
+fn exit(code: usize) -> ! {
+    unsafe { syscall!(EXIT, code) };
+    unreachable!()
 }
-    
-fn main() {
-    pentacle::ensure_sealed().unwrap();
-    seccomp::activate();
-    match std::env::args().next() {
-        Some(mode) if mode == modes::STAGE_1_TRACER => tracer::run(),
-        Some(mode) if mode == modes::STAGE_2_LOADER => exec_inner(),
-        _ => interactive_startup(),
+
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    let mut stderr = SysFd(2);
+    if let Some(args) = info.message() {
+        drop(fmt::write(&mut stderr, *args));
+    }
+    drop(write!(&mut stderr, "\npanic!\n"));
+    exit(128)
+}
+
+struct SysFd(usize);
+
+impl fmt::Write for SysFd {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        if s.len() == unsafe { syscall!(WRITE, self.0, s.as_ptr() as usize, s.len()) } {
+            Ok(())
+        } else {
+            Err(fmt::Error)
+        }
     }
 }
 
-pub fn exec_self(mode: &'static str) {
-    let mode = CString::new(mode).unwrap();
-    let self_exe = CString::new("/proc/self/exe").unwrap();
-
-    let argv: Vec<*const c_char> = vec![ mode.as_ptr(), null() ];
-    let envp: Vec<*const c_char> = vec![ null() ];
-    
-    let result = unsafe { libc::execve(self_exe.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
-    panic!("sand: exec_self fault ({})", result);
+unsafe fn c_strlen(mut s: *const u8) -> usize {
+    let mut result = 0;
+    while 0 != *s {
+        result += 1;
+        s = s.offset(1);
+    }
+    result
 }
 
-fn exec_inner() {
-    let exe = CString::new("/bin/sh").unwrap();
-
-    let argv: Vec<*const c_char> = vec![ exe.as_ptr(), null() ];
-    let envp: Vec<*const c_char> = vec![ null() ];
-    
-    let result = unsafe { libc::execve(exe.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
-    panic!("sand: exec_inner fault ({})", result);
+unsafe fn from_c_str(s: *const u8) -> Result<&'static str, Utf8Error> {
+    str::from_utf8(slice::from_raw_parts(s, 1 + c_strlen(s)))
 }
 
-fn interactive_startup() {
-    // Started under unknown conditions... this shouldn't happen when we're in the
-    // runtime, but this is where we end up when running the binary manually for testing.
-    // Restart as the stage 1 tracer.
+#[no_mangle]
+fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
+    let argv = unsafe { slice::from_raw_parts(argv, argc.try_into().unwrap()) };
+    let argv0 = unsafe { from_c_str(*argv.first().unwrap()).unwrap() };
     
-    println!("hi.");
-    exec_self(modes::STAGE_1_TRACER);
+    write!(&mut SysFd(2), "Hello World from {}\n", argv0).unwrap();
+
+    exit(0);
 }

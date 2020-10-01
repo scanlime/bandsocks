@@ -13,6 +13,7 @@ fn main() {
 
     assert!(Command::new("cargo")
             .current_dir("../sand")
+            .arg("+nightly")
             .arg("build")
             .arg("--release")
             .arg("--target-dir").arg(sand_target)

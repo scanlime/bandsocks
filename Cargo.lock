@@ -94,7 +94,6 @@ dependencies = [
 name = "bandsocks-runtime"
 version = "0.1.0"
 dependencies = [
- "bandsocks-sand",
  "build-deps",
  "directories-next",
  "dkregistry",
@@ -111,14 +110,6 @@ dependencies = [
  "tar",
  "thiserror",
  "tokio",
-]
-
-[[package]]
-name = "bandsocks-sand"
-version = "0.1.0"
-dependencies = [
- "libc",
- "pentacle",
 ]
 
 [[package]]

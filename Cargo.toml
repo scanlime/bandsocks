@@ -11,8 +11,4 @@ clap = { version = "2.33.3", features = ["yaml"] }
 bandsocks-runtime = { path = "runtime" }
 
 [workspace]
-members = [ "runtime", "sand" ]
-
-[profile.release]
-lto = true
-panic = 'abort'
+members = [ "runtime" ]

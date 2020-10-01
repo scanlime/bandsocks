@@ -21,7 +21,6 @@ sha2 = "0.9.1"
 tar = "0.4.30"
 thiserror = "1.0"
 tokio = { version = "0.2.22", features = ["rt-core", "fs"] }
-bandsocks-sand = { path = "../sand" }
 
 [build-dependencies]
 build-deps = "0.1.4"
