@@ -14,11 +14,15 @@ compiler_builtins = { version = "0.1.36", features = [ "compiler-builtins", "mem
 # Separate workspace, with our own build profiles:
 
 [profile.release]
-lto = true
+lto = 'fat'
+codegen-units = 1
+incremental = false
 panic = 'abort'
 opt-level = 's'
 
 [profile.dev]
-lto = true
+lto = 'fat'
+codegen-units = 1
+incremental = false
 panic = 'abort'
 opt-level = 's'
