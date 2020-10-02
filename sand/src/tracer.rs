@@ -31,7 +31,7 @@ fn ptrace_continue(pid: SysPid) {
 
 fn ptrace_setoptions(pid: SysPid) {
     let options =
-        abi::PTRACE_O_EXITKILL
+          abi::PTRACE_O_EXITKILL
         | abi::PTRACE_O_TRACECLONE
         | abi::PTRACE_O_TRACEEXEC
         | abi::PTRACE_O_TRACEFORK
