@@ -46,8 +46,23 @@ fn ptrace_setoptions(pid: SysPid) {
 
 fn ptrace_geteventmsg(pid: SysPid) -> usize {
     let mut result : usize = -1 as isize as usize;
-    unsafe { syscall!(PTRACE, abi::PTRACE_GETEVENTMSG, pid.0, 0, &mut result as *mut usize); };
-    result
+    match unsafe { syscall!(PTRACE, abi::PTRACE_GETEVENTMSG, pid.0, 0, &mut result as *mut usize) as isize } {
+        0 => result,
+        err => panic!("ptrace geteventmsg failed ({})", err)
+    }
+}
+
+fn ptrace_syscall_info(pid: SysPid, syscall_info: &mut abi::PTraceSyscallInfo) {
+    let buf_size = mem::size_of_val(syscall_info);
+    let ptr = syscall_info as *mut abi::PTraceSyscallInfo as usize;       
+    match unsafe { syscall!(PTRACE, abi::PTRACE_GET_SYSCALL_INFO, pid.0, buf_size, ptr) as isize } {
+        err if err < 0 => panic!("ptrace get syscall info failed ({})", err),
+        actual_size if actual_size < buf_size as isize => {
+            panic!("ptrace syscall info too short (kernel gave us {} bytes, expected {})",
+                   actual_size, buf_size);
+        },
+        _ => (),
+    }
 }
 
 impl Tracer {
@@ -102,7 +117,9 @@ impl Tracer {
     }
 
     fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
-        println!("seccomp trace {:?} {:?}", pid, sys_pid);
+        let mut syscall_info: abi::PTraceSyscallInfo = Default::default();
+        ptrace_syscall_info(sys_pid, &mut syscall_info);
+        println!("seccomp trace {:?} {:?} {:?}", pid, sys_pid, syscall_info);
     }
 
     pub fn handle_events(&mut self) {

@@ -23,6 +23,7 @@ pub const PTRACE_TRACEME: usize = 0;
 pub const PTRACE_CONT: usize = 7;
 pub const PTRACE_SETOPTIONS: usize = 0x4200;
 pub const PTRACE_GETEVENTMSG: usize = 0x4201;
+pub const PTRACE_GET_SYSCALL_INFO: usize = 0x420e;
 pub const PTRACE_EVENT_FORK: usize = 1;
 pub const PTRACE_EVENT_VFORK: usize = 2;
 pub const PTRACE_EVENT_CLONE: usize = 3;
@@ -43,6 +44,22 @@ pub const PTRACE_SIG_CLONE: u32 = SIGTRAP | (PTRACE_EVENT_CLONE << 8) as u32;
 pub const PTRACE_SIG_EXEC: u32 = SIGTRAP | (PTRACE_EVENT_EXEC << 8) as u32;
 pub const PTRACE_SIG_VFORK_DONE: u32 = SIGTRAP | (PTRACE_EVENT_VFORK_DONE << 8) as u32;
 pub const PTRACE_SIG_SECCOMP: u32 = SIGTRAP | (PTRACE_EVENT_SECCOMP << 8) as u32;
+pub const PTRACE_SYSCALL_INFO_NONE: u8 = 0;
+pub const PTRACE_SYSCALL_INFO_ENTRY: u8 = 1;
+pub const PTRACE_SYSCALL_INFO_EXIT: u8 = 2;
+pub const PTRACE_SYSCALL_INFO_SECCOMP: u8 = 3;
+
+// ptrace_syscall_info
+// linux/include/uapi/linux/ptrace.h
+#[derive(Default, Debug)]
+#[repr(C)]
+pub struct PTraceSyscallInfo {
+    op: u8,
+    arch: u32,
+    instruction_pointer: u64,
+    stack_pointer: u64,
+    fields: [u64; 7]
+}
 
 // waitid
 // linux/include/uapi/linux/wait.h
