@@ -36,13 +36,13 @@ impl ProcessTable {
         }
     }
 
-    pub fn find_sys_pid(&self, sys_pid: SysPid) -> Option<VPid> {
+    pub fn find_sys_pid(&self, sys_pid: SysPid) -> Option<(VPid, &Process)> {
         let mut index = 0;
         let mut result = None;
         while index <= self.last_potentially_used_index {
             if let Some(process) = (&self.table[index]).as_ref() {
                 if process.sys_pid == sys_pid {
-                    result = Some(index_to_pid(index));
+                    result = Some((index_to_pid(index), process));
                     break;
                 }
             }
@@ -89,11 +89,14 @@ impl ProcessTable {
     }   
 }
 
+#[derive(Debug)]
 pub struct Process {
     pub sys_pid: SysPid,
     pub state: State,
 }
 
+#[derive(Debug)]
 pub enum State {
     Spawning,
+    Normal
 }

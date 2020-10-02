@@ -5,7 +5,7 @@ use core::ptr::null;
 use core::default::Default;
 use sc::syscall;
 use crate::abi;
-use crate::process::{Process, SysPid, ProcessTable, State};
+use crate::process::{Process, VPid, SysPid, ProcessTable, State};
 
 pub struct Tracer {
     process_table: ProcessTable,
@@ -44,21 +44,24 @@ impl Tracer {
         }}
     }
 
-    fn expect_new_child(&mut self, pid: SysPid) {
+    fn expect_new_child(&mut self, sys_pid: SysPid) {
         if self.process_table.allocate(Process {
-            sys_pid: pid,
+            sys_pid,
             state: State::Spawning,
         }).is_err() {
             panic!("virtual process limit exceeded");
         }
     }
 
-    fn handle_new_child(&mut self, pid: SysPid) {
+    fn handle_new_child(&mut self, pid: VPid) {
         println!("new child, {:?}", pid);
+        if let Some(process) = self.process_table.get_mut(pid) {
+            process.state = State::Normal;
+        }
     }
 
-    fn handle_child_exit(&mut self, pid: SysPid, si_code: u32) {
-        println!("child exit, {:?} code={}", pid, si_code);
+    fn handle_child_exit(&mut self, sys_pid: SysPid, si_code: u32) {
+        println!("child exit, {:?} code={}", sys_pid, si_code);
     }
     
     pub fn handle_events(&mut self) {
@@ -81,22 +84,35 @@ impl Tracer {
 
     fn handle_event(&mut self, info: &abi::SigInfo) {
         assert_eq!(info.si_signo, abi::SIGCHLD);
-        let pid = SysPid(info.si_pid);
+        let sys_pid = SysPid(info.si_pid);
         match info.si_code {
-            abi::CLD_EXITED | abi::CLD_KILLED | abi::CLD_DUMPED => self.handle_child_exit(pid, info.si_code),
+            abi::CLD_EXITED | abi::CLD_KILLED | abi::CLD_DUMPED => self.handle_child_exit(sys_pid, info.si_code),
             abi::CLD_STOPPED => println!("stopped, {:?}", info),
             abi::CLD_CONTINUED => println!("cont, {:?}", info),
-            abi::CLD_TRAPPED => self.handle_ptrace_trap(pid, info.si_status),
+            abi::CLD_TRAPPED => self.handle_ptrace_trap(sys_pid, info.si_status),
             code => panic!("unexpected siginfo, {}", code),
         }
     }
 
     fn handle_ptrace_trap(&mut self, sys_pid: SysPid, signal: u32) {
-        if let Some(vpid) = self.process_table.find_sys_pid(sys_pid) {
-            println!("trap {:?} {:?} {}", sys_pid, vpid, signal);
-            ptrace_continue(sys_pid);
-        } else {
-            panic!("ptrace trap from unknown {:?}", sys_pid);
+        let (pid, process) = match self.process_table.find_sys_pid(sys_pid) {
+            None => panic!("ptrace trap from unknown {:?}", sys_pid),
+            Some(result) => result
+        };
+        match process.state {
+            State::Spawning => {
+                if signal == abi::SIGSTOP {
+                    // sent by be_the_child_process()
+                    self.handle_new_child(pid);
+                    ptrace_continue(sys_pid);
+                } else {
+                    panic!("unexpected signal {} during process startup", signal);
+                }
+            },
+            State::Normal => {
+                println!("trap {}, {:?} {:?}", signal, pid, process);
+                ptrace_continue(sys_pid);
+            },
         }
     }
 }
