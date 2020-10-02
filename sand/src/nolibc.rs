@@ -7,7 +7,8 @@ use core::convert::TryInto;
 use core::panic::PanicInfo;
 use core::fmt::{self, Write};
 
-pub struct SysFd(pub usize);
+#[derive(Debug)]
+pub struct SysFd(pub u32);
 
 impl fmt::Write for SysFd {
     fn write_str(&mut self, s: &str) -> fmt::Result {
