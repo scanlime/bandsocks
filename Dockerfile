@@ -1,4 +1,4 @@
-FROM rust:latest
+FROM rustlang/rust:nightly
 WORKDIR /build
 COPY . .
 RUN cargo build --release 2>&1
