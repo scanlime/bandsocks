@@ -86,12 +86,25 @@ impl Tracer {
         println!("child exit, {:?} code={}", sys_pid, si_code);
     }
 
+    fn handle_child_reaped(&mut self, pid: VPid, sys_pid: SysPid) {
+        println!("child reaped, {:?} {:?}", pid, sys_pid);
+        self.process_table.free(pid);
+    }
+    
     fn handle_fork(&mut self, pid: VPid, sys_pid: SysPid) {
         let child = SysPid(ptrace_geteventmsg(sys_pid) as u32);
         println!("fork {:?} -> {:?}", sys_pid, child);
         self.expect_new_child(child)
     }
-    
+ 
+    fn handle_exec(&mut self, pid: VPid, sys_pid: SysPid) {
+        println!("exec {:?} {:?}", pid, sys_pid);
+    }
+
+    fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
+        println!("seccomp trace {:?} {:?}", pid, sys_pid);
+    }
+
     pub fn handle_events(&mut self) {
         let mut info: abi::SigInfo = Default::default();
         let info_ptr = &mut info as *mut abi::SigInfo as usize;
@@ -137,7 +150,12 @@ impl Tracer {
             State::Normal => {
                 match signal {
                     abi::PTRACE_SIG_FORK => self.handle_fork(pid, sys_pid),
-                    other => println!("trap 0x{:x}, {:?} {:?}", signal, pid, process),
+                    abi::PTRACE_SIG_VFORK => panic!("unhandled vfork"),
+                    abi::PTRACE_SIG_CLONE => panic!("unhandled clone"),
+                    abi::PTRACE_SIG_EXEC => self.handle_exec(pid, sys_pid),
+                    abi::PTRACE_SIG_VFORK_DONE => panic!("unhandled vfork_done"),
+                    abi::PTRACE_SIG_SECCOMP => self.handle_seccomp_trace(pid, sys_pid),
+                    other => println!("unhandled trap 0x{:x}, {:?} {:?}", signal, pid, process),
                 }
             },
         }

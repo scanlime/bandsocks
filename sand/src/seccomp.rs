@@ -10,10 +10,10 @@ pub fn activate() {
         // Load syscall number into accumulator
         stmt( BPF_LD+BPF_W+BPF_ABS, 0 ),
 
-        // Kill process if uname()
+        // Trace uname()
         jump( BPF_JMP+BPF_JEQ+BPF_K, nr::UNAME as u32, 0, 1), 
-        stmt( BPF_RET+BPF_K, SECCOMP_RET_KILL_PROCESS ),
-
+        stmt( BPF_RET+BPF_K, SECCOMP_RET_TRACE ),
+        
         // allow!
         stmt( BPF_RET+BPF_K, SECCOMP_RET_ALLOW ),
         
