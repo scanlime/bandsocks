@@ -5,11 +5,10 @@ use crate::abi::*;
 use sc::{syscall, nr};
 
 fn filter() -> &'static [SockFilter] {
-    assert_eq!(offset_of!(SeccompData, nr), 0);
     const ARR: &'static [SockFilter] = &bpf![
 
         // Examine syscall number
-        load(0),
+        load(offset_of!(SeccompData, nr)),
 
         // Basic syscalls from seccomp 'strict' mode
         if_eq!(nr::READ,         ret(SECCOMP_RET_ALLOW)),
