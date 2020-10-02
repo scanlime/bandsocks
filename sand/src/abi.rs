@@ -25,16 +25,13 @@ pub const PTRACE_EVENT_VFORK: usize = 2;
 pub const PTRACE_EVENT_CLONE: usize = 3;
 pub const PTRACE_EVENT_EXEC: usize = 4;
 pub const PTRACE_EVENT_VFORK_DONE: usize = 5;
-pub const PTRACE_EVENT_EXIT: usize = 6;
 pub const PTRACE_EVENT_SECCOMP: usize = 7;
-pub const PTRACE_EVENT_STOP: usize = 128;
 pub const PTRACE_O_TRACESYSGOOD: usize = 1;
 pub const PTRACE_O_TRACEFORK: usize = 1 << PTRACE_EVENT_FORK;
 pub const PTRACE_O_TRACEVFORK: usize = 1 << PTRACE_EVENT_VFORK;
 pub const PTRACE_O_TRACECLONE: usize = 1 << PTRACE_EVENT_CLONE;
 pub const PTRACE_O_TRACEEXEC: usize = 1 << PTRACE_EVENT_EXEC;
 pub const PTRACE_O_TRACEVFORK_DONE: usize = 1 << PTRACE_EVENT_VFORK_DONE;
-pub const PTRACE_O_TRACEEXIT: usize = 1 << PTRACE_EVENT_EXIT;
 pub const PTRACE_O_TRACESECCOMP: usize = 1 << PTRACE_EVENT_SECCOMP;
 pub const PTRACE_O_EXITKILL: usize = 1 << 20;
 
@@ -52,7 +49,6 @@ pub const ECHILD: isize = -10;
 
 // signo
 // linux/include/uapi/asm-generic/signal.h
-pub const SIGTRAP: u32 = 5;
 pub const SIGCHLD: u32 = 17;
 pub const SIGSTOP: u32 = 19;
 
@@ -64,11 +60,11 @@ pub struct SigInfo {
     pub si_signo: u32,
     pub si_errno: u32,
     pub si_code: u32,
-    __pad0: u32,
+    pad0: u32,
     pub si_pid: u32,
     pub si_uid: u32,
     pub si_status: u32,
-    __pad1: u32,
+    pad1: u32,
     pub si_utime: usize,
     pub si_stime: usize,
     pub fields: [u32; 20]
@@ -82,3 +78,9 @@ pub const CLD_DUMPED: u32 = 3;
 pub const CLD_TRAPPED: u32 = 4;
 pub const CLD_STOPPED: u32 = 5;
 pub const CLD_CONTINUED: u32 = 6;
+
+// prctl
+// linux/include/uapi/linux/prctl.h
+pub const PR_SET_NO_NEW_PRIVS: usize = 38;
+pub const PR_SET_SECCOMP: usize = 22;
+pub const SECCOMP_MODE_FILTER: usize = 2;

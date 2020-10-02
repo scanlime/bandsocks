@@ -1,13 +1,15 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
+use crate::abi;
+use sc::syscall;
+
 pub fn activate() {
-/*p
-    let mut ctx = Context::init_with_action(Action::Allow).unwrap();
-
-    ctx.set_action_for_syscall(Action::Trace(1234), Syscall::clock_nanosleep);
-
-    println!("pre-seccomp");
-    ctx.load().unwrap();
-    println!("post-seccomp");
-*/
+    let filter = [ 0 as u64 ];
+    let result = unsafe {
+        syscall!(PRCTL, abi::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+        syscall!(PRCTL, abi::PR_SET_SECCOMP, abi::SECCOMP_MODE_FILTER, filter.as_ptr() as usize, 0, 0) as isize
+    };
+    if result != 0 {
+        panic!("seccomp setup error ({})", result);
+    }
 }
