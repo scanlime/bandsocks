@@ -69,10 +69,8 @@ pub unsafe fn c_str_as_bytes(s: *const u8) -> &'static [u8] {
 #[no_mangle]
 fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
     let argv = unsafe { slice::from_raw_parts(argv, argc.try_into().unwrap()) };
-    exit(match crate::main(argv) {
-        Ok(()) => 0,
-        Err(code) => code
-    });
+    crate::main(argv);
+    exit(0);
 }
 
 // These are never called, but the startup code takes their address

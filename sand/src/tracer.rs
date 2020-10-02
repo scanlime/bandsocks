@@ -1,33 +1,17 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
-use std::ffi::{CStr, CString};
-use std::ptr::null;
-use libc::c_char;
+/*
+struct Tracer {
+    loader_path: &'static [u8],
+    loader_argv: &'static [*const u8],
+    
 
+    
 const SELF_EXE: &'static str = "/proc/self/exe";
-
-
-pub fn main() {
-    match std::env::args().next() {
-        Some(mode) if mode == modes::STAGE_1_TRACER => tracer_main(),
-        Some(mode) if mode == modes::STAGE_2_LOADER => exec_inner(),
-        _ => interactive_startup(),
-    }
-}
 
 fn tracer_main() {
 }
 
-fn exec_self(mode: &'static str) {
-    let mode = CString::new(mode).unwrap();
-    let self_exe = CString::new(SELF_EXE).unwrap();
-
-    let argv: Vec<*const c_char> = vec![ mode.as_ptr(), null() ];
-    let envp: Vec<*const c_char> = vec![ null() ];
-    
-    let result = unsafe { libc::execve(self_exe.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
-    panic!("sand: exec_self fault ({})", result);
-}
 
 fn exec_inner() {
     let exe = CString::new("/bin/sh").unwrap();
@@ -79,4 +63,5 @@ pub fn run() {
 
         ptracer.restart(tracee, Restart::Continue).unwrap();
     }
+*/
 */

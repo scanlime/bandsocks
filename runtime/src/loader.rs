@@ -12,6 +12,8 @@ pub fn do_the_thing() {
     let mut elf_reader = Cursor::new(ELF);
     let mut cmd = SealedCommand::new(&mut elf_reader).unwrap();
     cmd.arg0("sand");
+    cmd.arg("just_some_strings");
+    cmd.arg("where_a_blob_of_config_data_will_go");
 
     println!("{:?}", cmd.status());
 }

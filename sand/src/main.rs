@@ -11,8 +11,11 @@ compile_error!("bandsocks only works on linux or android");
 compile_error!("bandsocks currently only supports x86_64");
 
 mod nolibc;
+mod seccomp;
+mod tracer;
 
 pub const SELF_EXE: &'static [u8] = b"/proc/self/exe\0";
+pub const ARGV_MAX: usize = 16;
 
 mod modes {
     pub const STAGE_1_TRACER: &'static [u8] = b"sand\0";
@@ -44,24 +47,47 @@ fn exec_self(mode: &'static [u8]) -> ! {
     panic!("exec failed");
 }
 
-fn main(argv: &[*const u8]) -> Result<(), usize> {
-    let _exe_fd = ensure_sealed();
-    let argv0 = unsafe { nolibc::c_str_as_bytes(*argv.first().unwrap()) };
-        
+fn main(argv: &[*const u8]) {
+    ensure_sealed();
+    seccomp::activate();
+    
+    let argv0 = unsafe { nolibc::c_str_as_bytes(*argv.first().unwrap()) };    
     if argv0 == modes::STAGE_1_TRACER {
-        println!("hello from the tracer");
-        exec_self(modes::STAGE_2_LOADER);
-        
+        tracer_main(argv);
     } else if argv0 == modes::STAGE_2_LOADER {
-        println!("loader says hey");
-        
-        let argv = [ b"sh\0".as_ptr(), null() ];
-        let envp: [ *const u8; 1 ] = [ null() ];
-        unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };
-
-    } else {
+        loader_main(argv);
+    } else { 
         panic!("unexpected parameters");        
     }
+}
 
-    Ok(())
+fn empty_envp() -> [*const u8; 1] {
+    [ null() ]
+}
+
+fn make_next_stage_argv(mode: &'static [u8], src: &[*const u8]) -> [*const u8; ARGV_MAX] {
+    let mut dest = [ null(); ARGV_MAX ];
+    const null_terminator: usize = 1;
+    assert!(src.len() + null_terminator <= dest.len());
+    for i in 1..src.len() {
+        dest[i] = src[i];
+    }
+    dest[0] = mode.as_ptr();
+    dest
+}   
+
+fn tracer_main(argv: &[*const u8]) {
+    println!("hello from the tracer, argc={}", argv.len());
+
+    let argv = make_next_stage_argv(modes::STAGE_2_LOADER, argv);
+    let envp = empty_envp();
+    
+    unsafe { syscall!(EXECVE, SELF_EXE.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
+}
+
+fn loader_main(argv: &[*const u8]) {
+    println!("loader says hey, argc={}", argv.len());
+    let argv = [ b"sh\0".as_ptr(), null() ];
+    let envp = empty_envp();
+    unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };
 }
