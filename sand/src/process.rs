@@ -14,6 +14,18 @@ pub struct ProcessTable {
     last_potentially_used_index: usize,
 }
 
+#[derive(Debug)]
+pub struct Process {
+    pub sys_pid: SysPid,
+    pub state: State,
+}
+
+#[derive(Debug)]
+pub enum State {
+    Spawning,
+    Normal
+}
+
 fn pid_to_index(pid: VPid) -> Option<usize> {
     if pid.0 >= 1 && pid.0 <= PID_LIMIT as u32 {
         Some(pid.0 as usize - 1)
@@ -87,16 +99,4 @@ impl ProcessTable {
             Err(process)
         }
     }   
-}
-
-#[derive(Debug)]
-pub struct Process {
-    pub sys_pid: SysPid,
-    pub state: State,
-}
-
-#[derive(Debug)]
-pub enum State {
-    Spawning,
-    Normal
 }
