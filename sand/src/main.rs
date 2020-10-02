@@ -31,6 +31,20 @@ use core::ptr::null;
 use sc::syscall;
 use crate::tracer::Tracer;
 
+fn main(argv: &[*const u8]) {
+    ensure_sealed();
+    seccomp::activate();
+
+    let argv0 = unsafe { nolibc::c_str_as_bytes(*argv.first().unwrap()) };
+    if argv0 == modes::STAGE_1_TRACER {
+        tracer_main(argv);
+    } else if argv0 == modes::STAGE_2_LOADER {
+        loader_main(argv);
+    } else {
+        panic!("unexpected parameters");
+    }
+}
+
 fn ensure_sealed() {
     let exe_fd = unsafe { syscall!(OPEN, SELF_EXE.as_ptr(), abi::O_RDONLY, 0) as isize };
     if exe_fd < 0 {
@@ -45,20 +59,6 @@ fn ensure_sealed() {
         panic!("exe was not sealed as expected");
     }
 }    
-
-fn main(argv: &[*const u8]) {
-    ensure_sealed();
-    seccomp::activate();
-    
-    let argv0 = unsafe { nolibc::c_str_as_bytes(*argv.first().unwrap()) };
-    if argv0 == modes::STAGE_1_TRACER {
-        tracer_main(argv);
-    } else if argv0 == modes::STAGE_2_LOADER {
-        loader_main(argv);
-    } else { 
-        panic!("unexpected parameters");        
-    }
-}
 
 fn empty_envp() -> [*const u8; 1] {
     [ null() ]
