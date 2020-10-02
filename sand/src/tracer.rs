@@ -24,7 +24,11 @@ unsafe fn be_the_child_process(cmd: &[u8], argv: &[*const u8], envp: &[*const u8
     let result = syscall!(EXECVE, cmd.as_ptr(), argv.as_ptr(), envp.as_ptr()) as isize;
     panic!("exec failed, {}", result);
 }
-    
+
+fn ptrace_continue(pid: SysPid) {
+    unsafe { syscall!(PTRACE, abi::PTRACE_CONT, pid.0, 0, 0); }
+}
+
 impl Tracer {
     pub fn new() -> Self {
         Tracer {
@@ -61,7 +65,6 @@ impl Tracer {
         let mut info: abi::SigInfo = Default::default();
         let info_ptr = &mut info as *mut abi::SigInfo as usize;
         assert_eq!(mem::size_of_val(&info), abi::SI_MAX_SIZE);
-
         loop {
             let which = abi::P_ALL;
             let pid = -1 as isize as usize;
@@ -70,13 +73,8 @@ impl Tracer {
             let result = unsafe { syscall!(WAITID, which, pid, info_ptr, options, rusage) as isize };
             match result {
                 0 => self.handle_event(&info),
-                abi::ECHILD => {
-                    // No more child processes
-                    break;
-                },
-                other => {
-                    panic!("waitid err ({})", other);
-                }
+                abi::ECHILD => break,
+                other => panic!("waitid err ({})", other),
             }
         }
     }
@@ -85,26 +83,20 @@ impl Tracer {
         assert_eq!(info.si_signo, abi::SIGCHLD);
         let pid = SysPid(info.si_pid);
         match info.si_code {
-            abi::CLD_EXITED | abi::CLD_KILLED | abi::CLD_DUMPED => {
-                self.handle_child_exit(pid, info.si_code);
-            },
-            abi::CLD_STOPPED => {
-                println!("stopped, {:?}", info);
-                unsafe { syscall!(PTRACE, abi::PTRACE_CONT, pid.0, 0, 0); }
-            }
-            abi::CLD_TRAPPED => {
-                println!("trapped, {:?}", info);
-                if info.si_status == abi::SIGSTOP {
-                    // 
-                }
-                unsafe { syscall!(PTRACE, abi::PTRACE_CONT, pid.0, 0, 0); }
-            }
-            abi::CLD_CONTINUED => {
-                println!("cont, {:?}", info);
-            }
-            code => {
-                panic!("unexpected siginfo, {}", code);
-            }
+            abi::CLD_EXITED | abi::CLD_KILLED | abi::CLD_DUMPED => self.handle_child_exit(pid, info.si_code),
+            abi::CLD_STOPPED => println!("stopped, {:?}", info),
+            abi::CLD_CONTINUED => println!("cont, {:?}", info),
+            abi::CLD_TRAPPED => self.handle_ptrace_trap(pid, info.si_status),
+            code => panic!("unexpected siginfo, {}", code),
+        }
+    }
+
+    fn handle_ptrace_trap(&mut self, sys_pid: SysPid, signal: u32) {
+        if let Some(vpid) = self.process_table.find_sys_pid(sys_pid) {
+            println!("trap {:?} {:?} {}", sys_pid, vpid, signal);
+            ptrace_continue(sys_pid);
+        } else {
+            panic!("ptrace trap from unknown {:?}", sys_pid);
         }
     }
 }

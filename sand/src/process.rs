@@ -2,15 +2,16 @@
 
 pub const PID_LIMIT: usize = 1024;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct SysPid(pub u32);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct VPid(pub u32);
 
 pub struct ProcessTable {
     table: [Option<Process>; PID_LIMIT],
     next_potentially_unused_index: usize,
+    last_potentially_used_index: usize,
 }
 
 fn pid_to_index(pid: VPid) -> Option<usize> {
@@ -31,7 +32,23 @@ impl ProcessTable {
         ProcessTable {
             table: [None; PID_LIMIT],
             next_potentially_unused_index: 0,
+            last_potentially_used_index: 0,
         }
+    }
+
+    pub fn find_sys_pid(&self, sys_pid: SysPid) -> Option<VPid> {
+        let mut index = 0;
+        let mut result = None;
+        while index <= self.last_potentially_used_index {
+            if let Some(process) = (&self.table[index]).as_ref() {
+                if process.sys_pid == sys_pid {
+                    result = Some(index_to_pid(index));
+                    break;
+                }
+            }
+            index += 1;
+        }
+        result
     }
 
     pub fn get(&self, pid: VPid) -> Option<&Process> {
@@ -63,6 +80,7 @@ impl ProcessTable {
     pub fn allocate(&mut self, process: Process) -> Result<VPid, Process> {
         if let Some(index) = self.unused_index() {
             self.next_potentially_unused_index = (index + 1) % PID_LIMIT;
+            self.last_potentially_used_index = index.max(self.last_potentially_used_index);
             self.table[index] = Some(process);
             Ok(index_to_pid(index))
         } else {
