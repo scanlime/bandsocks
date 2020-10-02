@@ -152,9 +152,9 @@ impl Tracer {
         assert_eq!(info.si_signo, abi::SIGCHLD);
         let sys_pid = SysPid(info.si_pid);
         match info.si_code {
+            abi::CLD_STOPPED => panic!("unexpected 'stopped' state, {:?}", info),
+            abi::CLD_CONTINUED => panic!("unexpected 'continued' state, {:?}", info),
             abi::CLD_EXITED | abi::CLD_KILLED | abi::CLD_DUMPED => self.handle_child_exit(sys_pid, info.si_code),
-            abi::CLD_STOPPED => println!("stopped, {:?}", info),
-            abi::CLD_CONTINUED => println!("cont, {:?}", info),
             abi::CLD_TRAPPED => self.handle_ptrace_trap(sys_pid, info.si_status),
             code => panic!("unexpected siginfo, {}", code),
         }
