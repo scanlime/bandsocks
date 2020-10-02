@@ -55,7 +55,7 @@ fn ptrace_geteventmsg(pid: SysPid) -> usize {
 }
 
 fn ptrace_syscall_info(pid: SysPid, syscall_info: &mut abi::PTraceSyscallInfo) {
-    let buf_size = mem::size_of_val(syscall_info);
+    let buf_size = span_of!(abi::PTraceSyscallInfo, ..ret_data).end;
     let ptr = syscall_info as *mut abi::PTraceSyscallInfo as usize;       
     match unsafe { syscall!(PTRACE, abi::PTRACE_GET_SYSCALL_INFO, pid.0, buf_size, ptr) as isize } {
         err if err < 0 => panic!("ptrace get syscall info failed ({})", err),

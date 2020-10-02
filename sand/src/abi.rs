@@ -52,11 +52,9 @@ pub const PTRACE_SYSCALL_INFO_SECCOMP: u8 = 3;
 // ptrace_syscall_info
 // linux/include/uapi/linux/ptrace.h
 #[derive(Default)]
-#[repr(C, packed)]
+#[repr(C)]
 pub struct PTraceSyscallInfo {
     pub op: u8,
-    pad0: u8,
-    pad1: u16,
     pub arch: u32,
     pub instruction_pointer: u64,
     pub stack_pointer: u64,
