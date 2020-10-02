@@ -4,21 +4,6 @@ use crate::abi::*;
 use core::convert::TryInto;
 use sc::syscall;
 
-fn bpf_stmt(code: u16, k: u32) -> SockFilter {
-    SockFilter { code, k, jt: 0, jf: 0 }
-}
-
-fn bpf_jump(code: u16, k: u32, jt: u8, jf: u8) -> SockFilter {
-    SockFilter { code, k, jt, jf }
-}
-
-fn to_sock_filter_prog(filter: &[SockFilter]) -> SockFilterProg {
-    SockFilterProg {
-        len: filter.len().try_into().unwrap(),
-        filter: filter.as_ptr()
-    }
-}
-
 pub fn activate() {
     let filter = &[
     
@@ -33,5 +18,20 @@ pub fn activate() {
     };
     if result != 0 {
         panic!("seccomp setup error ({})", result);
+    }
+}
+
+fn bpf_stmt(code: u16, k: u32) -> SockFilter {
+    SockFilter { code, k, jt: 0, jf: 0 }
+}
+
+fn bpf_jump(code: u16, k: u32, jt: u8, jf: u8) -> SockFilter {
+    SockFilter { code, k, jt, jf }
+}
+
+fn to_sock_filter_prog(filter: &[SockFilter]) -> SockFilterProg {
+    SockFilterProg {
+        len: filter.len().try_into().unwrap(),
+        filter: filter.as_ptr()
     }
 }
