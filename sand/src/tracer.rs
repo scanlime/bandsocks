@@ -72,7 +72,7 @@ impl Tracer {
     fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
         let mut syscall_info: abi::PTraceSyscallInfo = Default::default();
         ptrace::syscall_info(sys_pid, &mut syscall_info);
-        println!("seccomp trace {:?} {:?} {:?}", pid, sys_pid, syscall_info);
+        println!("==trace== {:?} {:?} {:?}", syscall_info, pid, sys_pid);
         assert_eq!(syscall_info.op, abi::PTRACE_SYSCALL_INFO_SECCOMP);
     }
 

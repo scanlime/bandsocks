@@ -4,24 +4,50 @@ use crate::abi::*;
 use sc::{syscall, nr};
 
 pub fn activate() {
+    // Build and install a cBPF (classic Berkeley Packet Filter)
+    // program, which runs at every tracee syscall, with the opportunity
+    // to take an action and/or to modify the syscall.
+    
     use bpf::*;
     let filter = &[
 
+        // Examine syscall number
         load_u32_absolute(offset_of!(SeccompData, nr) as u32),
 
-        skip_unless_eq(nr::BRK as u32), ret(SECCOMP_RET_ALLOW),
-
-        skip_unless_eq(nr::EXECVE as u32), ret(SECCOMP_RET_TRACE),
-        skip_unless_eq(nr::CLOSE as u32), ret(SECCOMP_RET_TRACE),
-        skip_unless_eq(nr::OPEN as u32), ret(SECCOMP_RET_TRACE),
-        skip_unless_eq(nr::OPENAT as u32), ret(SECCOMP_RET_TRACE),
-        //skip_unless_eq(nr::READ as u32), ret(SECCOMP_RET_TRACE),
-        //skip_unless_eq(nr::WRITE as u32), ret(SECCOMP_RET_TRACE),
-        skip_unless_eq(nr::UNAME as u32), ret(SECCOMP_RET_TRACE),
+        // Basic syscalls from seccomp 'strict' mode
+        skip_unless_eq(nr::READ as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::WRITE as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::EXIT as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::RT_SIGRETURN as u32), ret(SECCOMP_RET_ALLOW),
         
-        // allow!
-        ret(SECCOMP_RET_ALLOW),
+        // xxx everything below here is purely experimental
 
+        // syscalls this binary currently needs
+        // xxx: some of these do need sandboxing. either we have
+        //      to remove functionality from this binary, or make
+        //      sure tracing works in all of these cases, or do
+        //      something else. (handle via signal or bpf)
+        skip_unless_eq(nr::BRK as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::ARCH_PRCTL as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::PRCTL as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::ACCESS as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::OPEN as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::OPENAT as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::CLOSE as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::FCNTL as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::MMAP as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::MPROTECT as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::FORK as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::EXECVE as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::WAITID as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::PTRACE as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::GETPID as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::PTRACE as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::KILL as u32), ret(SECCOMP_RET_ALLOW),
+        skip_unless_eq(nr::GETPID as u32), ret(SECCOMP_RET_ALLOW),
+        
+        // xxx temp: trace-all instead of deny-all for now
+        ret(SECCOMP_RET_TRACE),
     ];
     let prog = to_sock_filter_prog(filter);
     let ptr = (&prog) as *const SockFilterProg as usize;
