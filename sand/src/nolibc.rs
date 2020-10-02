@@ -79,3 +79,11 @@ fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
 #[no_mangle] fn __libc_csu_init() {}
 #[no_mangle] fn __libc_csu_fini() {}
 #[no_mangle] fn main() {}
+
+// Random x86_64 kernel ABI constants we need
+pub const O_RDONLY: usize = 0;
+pub const F_GET_SEALS: usize = 1034;
+pub const F_SEAL_SEAL: usize = 1;
+pub const F_SEAL_SHRINK: usize = 2;
+pub const F_SEAL_GROW: usize = 4;
+pub const F_SEAL_WRITE: usize = 8;
