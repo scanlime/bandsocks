@@ -13,9 +13,12 @@ compile_error!("bandsocks currently only supports x86_64");
 
 #[macro_use]
 extern crate memoffset;
-    
+
 #[macro_use]
 mod nolibc;
+
+#[macro_use]
+mod bpf;
 
 mod abi;
 mod seccomp;
