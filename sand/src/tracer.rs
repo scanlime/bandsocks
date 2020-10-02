@@ -120,6 +120,7 @@ impl Tracer {
 
     fn handle_signal(&mut self, pid: VPid, sys_pid: SysPid, signal: u8) {
         println!("signal {}, {:?} {:?}", signal, pid, sys_pid);
+        // to do: reap child in our own PID table after SIGCHLD
     }
 
     fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
@@ -174,9 +175,9 @@ impl Tracer {
             State::Normal => {
                 match signal {
                     abi::PTRACE_SIG_FORK => self.handle_fork(pid, sys_pid),
+                    abi::PTRACE_SIG_EXEC => self.handle_exec(pid, sys_pid),
                     abi::PTRACE_SIG_VFORK => panic!("unhandled vfork"),
                     abi::PTRACE_SIG_CLONE => panic!("unhandled clone"),
-                    abi::PTRACE_SIG_EXEC => self.handle_exec(pid, sys_pid),
                     abi::PTRACE_SIG_VFORK_DONE => panic!("unhandled vfork_done"),
                     abi::PTRACE_SIG_SECCOMP => self.handle_seccomp_trace(pid, sys_pid),
                     signal if signal < 0x100 => self.handle_signal(pid, sys_pid, signal.try_into().unwrap()),
