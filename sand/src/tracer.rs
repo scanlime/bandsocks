@@ -55,9 +55,7 @@ impl Tracer {
 
     fn handle_new_child(&mut self, pid: VPid) {
         println!("new child, {:?}", pid);
-        if let Some(process) = self.process_table.get_mut(pid) {
-            process.state = State::Normal;
-        }
+        self.process_table.get_mut(pid).unwrap().state = State::Normal;
     }
 
     fn handle_child_exit(&mut self, sys_pid: SysPid, si_code: u32) {
