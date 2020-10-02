@@ -9,8 +9,12 @@ pub fn activate() {
 
         load_u32_absolute(offset_of!(SeccompData, nr) as u32),
 
-        skip_unless_eq(nr::OPEN as u32), ret(SECCOMP_RET_TRACE),
+        skip_unless_eq(nr::BRK as u32), ret(SECCOMP_RET_ALLOW),
+
+        skip_unless_eq(nr::EXECVE as u32), ret(SECCOMP_RET_TRACE),
         skip_unless_eq(nr::CLOSE as u32), ret(SECCOMP_RET_TRACE),
+        skip_unless_eq(nr::OPEN as u32), ret(SECCOMP_RET_TRACE),
+        skip_unless_eq(nr::OPENAT as u32), ret(SECCOMP_RET_TRACE),
         //skip_unless_eq(nr::READ as u32), ret(SECCOMP_RET_TRACE),
         //skip_unless_eq(nr::WRITE as u32), ret(SECCOMP_RET_TRACE),
         skip_unless_eq(nr::UNAME as u32), ret(SECCOMP_RET_TRACE),

@@ -1,8 +1,10 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
 use core::mem;
+use core::fmt;
 use core::ptr::null;
 use core::default::Default;
+use core::convert::TryInto;
 use sc::syscall;
 use crate::abi;
 use crate::process::{Process, VPid, SysPid, ProcessTable, State};
@@ -108,12 +110,16 @@ impl Tracer {
     
     fn handle_fork(&mut self, pid: VPid, sys_pid: SysPid) {
         let child = SysPid(ptrace_geteventmsg(sys_pid) as u32);
-        println!("fork {:?} -> {:?}", sys_pid, child);
+        println!("fork {:?} {:?} -> {:?}", pid, sys_pid, child);
         self.expect_new_child(child)
     }
  
     fn handle_exec(&mut self, pid: VPid, sys_pid: SysPid) {
         println!("exec {:?} {:?}", pid, sys_pid);
+    }
+
+    fn handle_signal(&mut self, pid: VPid, sys_pid: SysPid, signal: u8) {
+        println!("signal {}, {:?} {:?}", signal, pid, sys_pid);
     }
 
     fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
@@ -172,7 +178,8 @@ impl Tracer {
                     abi::PTRACE_SIG_EXEC => self.handle_exec(pid, sys_pid),
                     abi::PTRACE_SIG_VFORK_DONE => panic!("unhandled vfork_done"),
                     abi::PTRACE_SIG_SECCOMP => self.handle_seccomp_trace(pid, sys_pid),
-                    other => println!("unhandled trap 0x{:x}, {:?} {:?}", signal, pid, process),
+                    signal if signal < 0x100 => self.handle_signal(pid, sys_pid, signal.try_into().unwrap()),
+                    other => panic!("unhandled trap 0x{:x}, {:?} {:?}", other, pid, process),
                 }
             },
         }
@@ -180,3 +187,15 @@ impl Tracer {
     }
 }
 
+impl fmt::Debug for abi::PTraceSyscallInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SYS_{} {:?} {{ ip={:x} sp={:x} ret={:x} arch={:x} op={} }}",
+               self.nr,
+               self.args,
+               self.instruction_pointer,
+               self.stack_pointer,
+               self.ret_data,
+               self.arch,
+               self.op)
+    }
+}
