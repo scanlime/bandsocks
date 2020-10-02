@@ -29,6 +29,21 @@ fn ptrace_continue(pid: SysPid) {
     unsafe { syscall!(PTRACE, abi::PTRACE_CONT, pid.0, 0, 0); }
 }
 
+fn ptrace_setoptions(pid: SysPid) {
+    let options =
+        abi::PTRACE_O_EXITKILL
+        | abi::PTRACE_O_TRACECLONE
+        | abi::PTRACE_O_TRACEEXEC
+        | abi::PTRACE_O_TRACEFORK
+        | abi::PTRACE_O_TRACESYSGOOD
+        | abi::PTRACE_O_TRACEVFORK
+        | abi::PTRACE_O_TRACEVFORK_DONE
+        | abi::PTRACE_O_TRACESECCOMP;
+    unsafe {
+        syscall!(PTRACE, abi::PTRACE_SETOPTIONS, pid.0, 0, options);
+    }
+}
+
 impl Tracer {
     pub fn new() -> Self {
         Tracer {
@@ -54,8 +69,10 @@ impl Tracer {
     }
 
     fn handle_new_child(&mut self, pid: VPid) {
-        println!("new child, {:?}", pid);
-        self.process_table.get_mut(pid).unwrap().state = State::Normal;
+        let mut process = self.process_table.get_mut(pid).unwrap();
+        println!("new child, {:?} {:?}", pid, process);
+        ptrace_setoptions(process.sys_pid);
+        process.state = State::Normal;
     }
 
     fn handle_child_exit(&mut self, sys_pid: SysPid, si_code: u32) {

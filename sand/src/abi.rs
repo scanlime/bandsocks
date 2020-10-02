@@ -20,6 +20,23 @@ pub const F_SEAL_WRITE: usize = 8;
 pub const PTRACE_TRACEME: usize = 0;
 pub const PTRACE_CONT: usize = 7;
 pub const PTRACE_SETOPTIONS: usize = 0x4200;
+pub const PTRACE_EVENT_FORK: usize = 1;
+pub const PTRACE_EVENT_VFORK: usize = 2;
+pub const PTRACE_EVENT_CLONE: usize = 3;
+pub const PTRACE_EVENT_EXEC: usize = 4;
+pub const PTRACE_EVENT_VFORK_DONE: usize = 5;
+pub const PTRACE_EVENT_EXIT: usize = 6;
+pub const PTRACE_EVENT_SECCOMP: usize = 7;
+pub const PTRACE_EVENT_STOP: usize = 128;
+pub const PTRACE_O_TRACESYSGOOD: usize = 1;
+pub const PTRACE_O_TRACEFORK: usize = 1 << PTRACE_EVENT_FORK;
+pub const PTRACE_O_TRACEVFORK: usize = 1 << PTRACE_EVENT_VFORK;
+pub const PTRACE_O_TRACECLONE: usize = 1 << PTRACE_EVENT_CLONE;
+pub const PTRACE_O_TRACEEXEC: usize = 1 << PTRACE_EVENT_EXEC;
+pub const PTRACE_O_TRACEVFORK_DONE: usize = 1 << PTRACE_EVENT_VFORK_DONE;
+pub const PTRACE_O_TRACEEXIT: usize = 1 << PTRACE_EVENT_EXIT;
+pub const PTRACE_O_TRACESECCOMP: usize = 1 << PTRACE_EVENT_SECCOMP;
+pub const PTRACE_O_EXITKILL: usize = 1 << 20;
 
 // waitid
 // linux/include/uapi/linux/wait.h
