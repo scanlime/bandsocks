@@ -1,70 +1,16 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
 use core::mem;
-use core::fmt;
 use core::ptr::null;
 use core::default::Default;
 use core::convert::TryInto;
 use sc::syscall;
 use crate::abi;
 use crate::process::{Process, VPid, SysPid, ProcessTable, State};
+use crate::ptrace;
 
 pub struct Tracer {
     process_table: ProcessTable,
-}
-
-unsafe fn be_the_child_process(cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) -> ! {
-    // Make attachable, but doesn't wait for the tracer
-    match syscall!(PTRACE, abi::PTRACE_TRACEME, 0, 0, 0) as isize {
-        0 => {},
-        result => panic!("ptrace error, {}", result)
-    }
-
-    // Let the tracer attach before we exec
-    syscall!(KILL, syscall!(GETPID), abi::SIGSTOP);
-    
-    let result = syscall!(EXECVE, cmd.as_ptr(), argv.as_ptr(), envp.as_ptr()) as isize;
-    panic!("exec failed, {}", result);
-}
-
-fn ptrace_continue(pid: SysPid) {
-    unsafe { syscall!(PTRACE, abi::PTRACE_CONT, pid.0, 0, 0); }
-}
-
-fn ptrace_setoptions(pid: SysPid) {
-    let options =
-          abi::PTRACE_O_EXITKILL
-        | abi::PTRACE_O_TRACECLONE
-        | abi::PTRACE_O_TRACEEXEC
-        | abi::PTRACE_O_TRACEFORK
-        | abi::PTRACE_O_TRACESYSGOOD
-        | abi::PTRACE_O_TRACEVFORK
-        | abi::PTRACE_O_TRACEVFORK_DONE
-        | abi::PTRACE_O_TRACESECCOMP;
-    unsafe {
-        syscall!(PTRACE, abi::PTRACE_SETOPTIONS, pid.0, 0, options);
-    }
-}
-
-fn ptrace_geteventmsg(pid: SysPid) -> usize {
-    let mut result : usize = -1 as isize as usize;
-    match unsafe { syscall!(PTRACE, abi::PTRACE_GETEVENTMSG, pid.0, 0, &mut result as *mut usize) as isize } {
-        0 => result,
-        err => panic!("ptrace geteventmsg failed ({})", err)
-    }
-}
-
-fn ptrace_syscall_info(pid: SysPid, syscall_info: &mut abi::PTraceSyscallInfo) {
-    let buf_size = span_of!(abi::PTraceSyscallInfo, ..ret_data).end;
-    let ptr = syscall_info as *mut abi::PTraceSyscallInfo as usize;       
-    match unsafe { syscall!(PTRACE, abi::PTRACE_GET_SYSCALL_INFO, pid.0, buf_size, ptr) as isize } {
-        err if err < 0 => panic!("ptrace get syscall info failed ({})", err),
-        actual_size if actual_size < buf_size as isize => {
-            panic!("ptrace syscall info too short (kernel gave us {} bytes, expected {})",
-                   actual_size, buf_size);
-        },
-        _ => (),
-    }
 }
 
 impl Tracer {
@@ -76,7 +22,7 @@ impl Tracer {
 
     pub fn spawn(&mut self, cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) {
         unsafe { match syscall!(FORK) as isize {
-            result if result == 0 => be_the_child_process(cmd, argv, envp),
+            result if result == 0 => ptrace::be_the_child_process(cmd, argv, envp),
             result if result < 0 => panic!("fork error"),
             result => self.expect_new_child(SysPid(result as u32)),
         }}
@@ -95,7 +41,7 @@ impl Tracer {
         let mut process = self.process_table.get_mut(pid).unwrap();
         assert_eq!(sys_pid, process.sys_pid);
         println!("new child, {:?} {:?}", pid, process);
-        ptrace_setoptions(process.sys_pid);
+        ptrace::setoptions(process.sys_pid);
         process.state = State::Normal;
     }
 
@@ -109,7 +55,7 @@ impl Tracer {
     }
     
     fn handle_fork(&mut self, pid: VPid, sys_pid: SysPid) {
-        let child = SysPid(ptrace_geteventmsg(sys_pid) as u32);
+        let child = SysPid(ptrace::geteventmsg(sys_pid) as u32);
         println!("fork {:?} {:?} -> {:?}", pid, sys_pid, child);
         self.expect_new_child(child)
     }
@@ -125,7 +71,7 @@ impl Tracer {
 
     fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
         let mut syscall_info: abi::PTraceSyscallInfo = Default::default();
-        ptrace_syscall_info(sys_pid, &mut syscall_info);
+        ptrace::syscall_info(sys_pid, &mut syscall_info);
         println!("seccomp trace {:?} {:?} {:?}", pid, sys_pid, syscall_info);
         assert_eq!(syscall_info.op, abi::PTRACE_SYSCALL_INFO_SECCOMP);
     }
@@ -185,19 +131,6 @@ impl Tracer {
                 }
             },
         }
-        ptrace_continue(sys_pid);
-    }
-}
-
-impl fmt::Debug for abi::PTraceSyscallInfo {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SYS_{} {:?} {{ ip={:x} sp={:x} ret={:x} arch={:x} op={} }}",
-               self.nr,
-               self.args,
-               self.instruction_pointer,
-               self.stack_pointer,
-               self.ret_data,
-               self.arch,
-               self.op)
+        ptrace::cont(sys_pid);
     }
 }

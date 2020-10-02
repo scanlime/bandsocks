@@ -20,6 +20,7 @@ mod nolibc;
 mod abi;
 mod seccomp;
 mod process;
+mod ptrace;
 mod tracer;
 
 pub const SELF_EXE: &'static [u8] = b"/proc/self/exe\0";
