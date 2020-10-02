@@ -14,6 +14,13 @@ pub const F_SEAL_WRITE: usize = 8;
 
 // waitid
 pub const P_ALL: usize = 0;
+pub const WSTOPPED: usize = 2;
+pub const WEXITED: usize = 4;
+pub const WCONTINUED: usize = 8;
+pub const SI_MAX_SIZE: usize = 128;
+
+// errno
+pub const ECHILD: isize = -10;
 
 // siginfo_t
 #[derive(Default, Debug)]
