@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 
 sc = "0.2.3"
+compiler_builtins = { version = "0.1.36", features = [ "compiler-builtins", "mem" ] }
 
 [workspace]
 # Separate workspace, with our own build profiles:

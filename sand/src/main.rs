@@ -3,6 +3,7 @@
 #![no_std]
 #![no_main]
 #![feature(panic_info_message)]
+#![feature(const_in_array_repeat_expressions)]
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 compile_error!("bandsocks only works on linux or android");
@@ -15,10 +16,11 @@ mod nolibc;
 
 mod abi;
 mod seccomp;
+mod process;
 mod tracer;
 
 pub const SELF_EXE: &'static [u8] = b"/proc/self/exe\0";
-pub const ARGV_MAX: usize = 16;
+pub const ARGV_MAX: usize = 4;
 
 mod modes {
     pub const STAGE_1_TRACER: &'static [u8] = b"sand\0";

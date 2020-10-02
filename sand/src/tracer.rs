@@ -5,11 +5,10 @@ use core::ptr::null;
 use core::default::Default;
 use sc::syscall;
 use crate::abi;
-
-#[derive(Debug)]
-struct SysPid(u32);
+use crate::process::{Process, SysPid, ProcessTable, State};
 
 pub struct Tracer {
+    process_table: ProcessTable,
 }
 
 unsafe fn be_the_child_process(cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) -> ! {
@@ -29,6 +28,7 @@ unsafe fn be_the_child_process(cmd: &[u8], argv: &[*const u8], envp: &[*const u8
 impl Tracer {
     pub fn new() -> Self {
         Tracer {
+            process_table: ProcessTable::new()
         }
     }
 
@@ -41,7 +41,12 @@ impl Tracer {
     }
 
     fn expect_new_child(&mut self, pid: SysPid) {
-        println!("expecting new child to attach, {:?}", pid);
+        if self.process_table.allocate(Process {
+            sys_pid: pid,
+            state: State::Spawning,
+        }).is_err() {
+            panic!("virtual process limit exceeded");
+        }
     }
 
     fn handle_new_child(&mut self, pid: SysPid) {
@@ -89,6 +94,9 @@ impl Tracer {
             }
             abi::CLD_TRAPPED => {
                 println!("trapped, {:?}", info);
+                if info.si_status == abi::SIGSTOP {
+                    // 
+                }
                 unsafe { syscall!(PTRACE, abi::PTRACE_CONT, pid.0, 0, 0); }
             }
             abi::CLD_CONTINUED => {
