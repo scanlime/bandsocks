@@ -22,6 +22,7 @@ pub const F_SEAL_WRITE: usize = 8;
 pub const PTRACE_TRACEME: usize = 0;
 pub const PTRACE_CONT: usize = 7;
 pub const PTRACE_SETOPTIONS: usize = 0x4200;
+pub const PTRACE_GETEVENTMSG: usize = 0x4201;
 pub const PTRACE_EVENT_FORK: usize = 1;
 pub const PTRACE_EVENT_VFORK: usize = 2;
 pub const PTRACE_EVENT_CLONE: usize = 3;
@@ -36,6 +37,7 @@ pub const PTRACE_O_TRACEEXEC: usize = 1 << PTRACE_EVENT_EXEC;
 pub const PTRACE_O_TRACEVFORK_DONE: usize = 1 << PTRACE_EVENT_VFORK_DONE;
 pub const PTRACE_O_TRACESECCOMP: usize = 1 << PTRACE_EVENT_SECCOMP;
 pub const PTRACE_O_EXITKILL: usize = 1 << 20;
+pub const PTRACE_SIG_FORK: u32 = SIGTRAP | (PTRACE_EVENT_FORK << 8) as u32;
 
 // waitid
 // linux/include/uapi/linux/wait.h
@@ -51,6 +53,7 @@ pub const ECHILD: isize = -10;
 
 // signo
 // linux/include/uapi/asm-generic/signal.h
+pub const SIGTRAP: u32 = 5;
 pub const SIGCHLD: u32 = 17;
 pub const SIGSTOP: u32 = 19;
 

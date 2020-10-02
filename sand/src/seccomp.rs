@@ -1,13 +1,21 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
 use crate::abi::*;
-use core::convert::TryInto;
-use sc::syscall;
+use sc::{syscall, nr};
 
 pub fn activate() {
+    use bpf::*;
     let filter = &[
-    
-        bpf_stmt( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+
+        // Load syscall number into accumulator
+        stmt( BPF_LD+BPF_W+BPF_ABS, 0 ),
+
+        // Kill process if uname()
+        jump( BPF_JMP+BPF_JEQ+BPF_K, nr::UNAME as u32, 0, 1), 
+        stmt( BPF_RET+BPF_K, SECCOMP_RET_KILL_PROCESS ),
+
+        // allow!
+        stmt( BPF_RET+BPF_K, SECCOMP_RET_ALLOW ),
         
     ];
     let prog = to_sock_filter_prog(filter);
@@ -21,17 +29,23 @@ pub fn activate() {
     }
 }
 
-fn bpf_stmt(code: u16, k: u32) -> SockFilter {
-    SockFilter { code, k, jt: 0, jf: 0 }
-}
+// https://man.openbsd.org/bpf.4
+mod bpf {
+    use core::convert::TryInto;
+    use crate::abi::{SockFilter, SockFilterProg};
+    
+    pub fn stmt(code: u16, k: u32) -> SockFilter {
+        SockFilter { code, k, jt: 0, jf: 0 }
+    }
 
-fn bpf_jump(code: u16, k: u32, jt: u8, jf: u8) -> SockFilter {
-    SockFilter { code, k, jt, jf }
-}
+    pub fn jump(code: u16, k: u32, jt: u8, jf: u8) -> SockFilter {
+        SockFilter { code, k, jt, jf }
+    }
 
-fn to_sock_filter_prog(filter: &[SockFilter]) -> SockFilterProg {
-    SockFilterProg {
-        len: filter.len().try_into().unwrap(),
-        filter: filter.as_ptr()
+    pub fn to_sock_filter_prog(filter: &[SockFilter]) -> SockFilterProg {
+        SockFilterProg {
+            len: filter.len().try_into().unwrap(),
+            filter: filter.as_ptr()
+        }
     }
 }

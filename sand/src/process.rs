@@ -78,7 +78,7 @@ impl ProcessTable {
     fn unused_index(&self) -> Option<usize> {
         let mut counter = 0;
         let mut index = self.next_potentially_unused_index;
-        while counter < PID_LIMIT && self.table[index].is_none() {
+        while counter < PID_LIMIT && self.table[index].is_some() {
             counter += 1;
             index = (index + 1) % PID_LIMIT;
         }

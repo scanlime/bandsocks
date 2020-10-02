@@ -44,6 +44,12 @@ fn ptrace_setoptions(pid: SysPid) {
     }
 }
 
+fn ptrace_geteventmsg(pid: SysPid) -> usize {
+    let mut result : usize = -1 as isize as usize;
+    unsafe { syscall!(PTRACE, abi::PTRACE_GETEVENTMSG, pid.0, 0, &mut result as *mut usize); };
+    result
+}
+
 impl Tracer {
     pub fn new() -> Self {
         Tracer {
@@ -68,8 +74,9 @@ impl Tracer {
         }
     }
 
-    fn handle_new_child(&mut self, pid: VPid) {
+    fn handle_new_child(&mut self, pid: VPid, sys_pid: SysPid) {
         let mut process = self.process_table.get_mut(pid).unwrap();
+        assert_eq!(sys_pid, process.sys_pid);
         println!("new child, {:?} {:?}", pid, process);
         ptrace_setoptions(process.sys_pid);
         process.state = State::Normal;
@@ -77,6 +84,12 @@ impl Tracer {
 
     fn handle_child_exit(&mut self, sys_pid: SysPid, si_code: u32) {
         println!("child exit, {:?} code={}", sys_pid, si_code);
+    }
+
+    fn handle_fork(&mut self, pid: VPid, sys_pid: SysPid) {
+        let child = SysPid(ptrace_geteventmsg(sys_pid) as u32);
+        println!("fork {:?} -> {:?}", sys_pid, child);
+        self.expect_new_child(child)
     }
     
     pub fn handle_events(&mut self) {
@@ -116,19 +129,19 @@ impl Tracer {
         };
         match process.state {
             State::Spawning => {
-                if signal == abi::SIGSTOP {
-                    // sent by be_the_child_process()
-                    self.handle_new_child(pid);
-                    ptrace_continue(sys_pid);
-                } else {
-                    panic!("unexpected signal {} during process startup", signal);
+                match signal {
+                    abi::SIGSTOP => self.handle_new_child(pid, sys_pid),
+                    _ => panic!("unexpected signal {} during process startup", signal),
                 }
             },
             State::Normal => {
-                println!("trap {}, {:?} {:?}", signal, pid, process);
-                ptrace_continue(sys_pid);
+                match signal {
+                    abi::PTRACE_SIG_FORK => self.handle_fork(pid, sys_pid),
+                    other => println!("trap 0x{:x}, {:?} {:?}", signal, pid, process),
+                }
             },
         }
+        ptrace_continue(sys_pid);
     }
 }
 
