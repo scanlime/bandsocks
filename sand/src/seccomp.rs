@@ -8,54 +8,47 @@ fn filter(p: &mut ProgramBuffer) {
     // Examine syscall number
     p.inst(load(offset_of!(SeccompData, nr)));
 
-    // Basic syscalls from seccomp 'strict' mode
+    // List of fully allowed calls
+    // xxx: pare this down as much as possible
+    // xxx: audit source code for anything we leave allowed
     p.if_any_eq(&[
+
         nr::READ,
         nr::WRITE,
-        nr::EXIT,
-        nr::RT_SIGRETURN,
-    ], &[
-        ret(SECCOMP_RET_ALLOW)
-    ]);
-        
-    // xxx everything below here is purely experimental
+        nr::PREAD64,
+        nr::PWRITE64,
+        nr::READV,
+        nr::WRITEV,
 
-    // syscalls this binary currently needs
-    // xxx: some of these do need sandboxing. either we have
-    //      to remove functionality from this binary, or make
-    //      sure tracing works in all of these cases, or do
-    //      something else. (handle via signal or bpf)
-    p.if_any_eq(&[
-        nr::BRK,
-        nr::ARCH_PRCTL,
-        nr::PRCTL,
-        nr::ACCESS,
-        nr::OPEN,
-        nr::OPENAT,
         nr::CLOSE,
         nr::FCNTL,
-        nr::MMAP,
-        nr::MPROTECT,
+
+        nr::EXIT_GROUP,        
+        nr::EXIT,
+        nr::RT_SIGRETURN,
+
         nr::FORK,
-        nr::EXECVE,
+        nr::BRK,
+
+        nr::ARCH_PRCTL,
+        nr::PRCTL,
+
+        // xxx really don't want to allow these but the tracer itself
+        //   needs them, so they will need special bpf filters or we
+        //   need to pare down the tracer further.
         nr::WAITID,
         nr::PTRACE,
+        nr::EXECVE,
         nr::GETPID,
-        nr::PTRACE,
         nr::KILL,
-        nr::GETPID,
+        
     ], &[
         ret(SECCOMP_RET_ALLOW)
     ]);
     
-    // temp: try emulating some things
-    p.if_eq(nr::UNAME, &[
-        imm(-1 as i32 as u32),
-        ret(SECCOMP_RET_TRACE)
-    ]);
-
-    // xxx
-    p.inst(ret(SECCOMP_RET_ALLOW));
+    // Trace by default. This emulates the syscalls we emulate,
+    // and others get logged in detail before we panic.
+    p.inst(ret(SECCOMP_RET_TRACE));
 }
 
 pub fn activate() {

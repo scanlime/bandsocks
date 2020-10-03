@@ -4,7 +4,7 @@ use core::mem;
 use core::ptr::null;
 use core::default::Default;
 use core::convert::TryInto;
-use sc::syscall;
+use sc::{syscall, nr};
 use crate::abi;
 use crate::process::{Process, VPid, SysPid, ProcessTable, State};
 use crate::ptrace;
@@ -67,13 +67,82 @@ impl Tracer {
     fn handle_signal(&mut self, pid: VPid, sys_pid: SysPid, signal: u8) {
         println!("signal {}, {:?} {:?}", signal, pid, sys_pid);
         // to do: reap child in our own PID table after SIGCHLD
+        if signal as u32 == abi::SIGSEGV {
+            panic!("segmentation fault");
+        }
     }
 
     fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
         let mut syscall_info: abi::PTraceSyscallInfo = Default::default();
+        let mut regs: abi::UserRegs = Default::default();
+
+        // All the information we need is in 'regs', but get syscall_info too and cross-check.
         ptrace::syscall_info(sys_pid, &mut syscall_info);
-        println!("==trace== {:?} {:?} {:?}", syscall_info, pid, sys_pid);
+        ptrace::get_regs(sys_pid, &mut regs);
+
         assert_eq!(syscall_info.op, abi::PTRACE_SYSCALL_INFO_SECCOMP);
+        assert_eq!(syscall_info.pad0, 0);
+        assert_eq!(syscall_info.pad1, 0);
+        assert_eq!(syscall_info.arch, abi::AUDIT_ARCH_X86_64);
+        assert_eq!(syscall_info.instruction_pointer, regs.ip);
+        assert_eq!(syscall_info.stack_pointer, regs.sp);
+        assert_eq!(syscall_info.nr, regs.orig_ax);
+        assert_eq!(syscall_info.args[0], regs.di);
+        assert_eq!(syscall_info.args[1], regs.si);
+        assert_eq!(syscall_info.args[2], regs.dx);
+        assert_eq!(syscall_info.args[3], regs.r10);
+        assert_eq!(syscall_info.args[4], regs.r8);
+        assert_eq!(syscall_info.args[5], regs.r9);
+
+        // Emulate the system call; this can make additional ptrace calls to read/write memory,
+        // and it will inspect and modify our snapshot of the user registers for the process.
+        self.emulate_syscall(pid, sys_pid, syscall_info.nr as usize, &mut regs);
+        
+        // Block the real system call from executing!
+        regs.orig_ax = -1 as i64 as u64;
+        ptrace::set_regs(sys_pid, &mut regs);
+    }
+
+    fn emulate_syscall(&mut self, pid: VPid, sys_pid: SysPid, sys_nr: usize, regs: &mut abi::UserRegs) {
+        match sys_nr {
+            nr::ACCESS => self.emulate_access(pid, sys_pid, regs),
+            nr::OPENAT => self.emulate_openat(pid, sys_pid, regs),
+            nr::UNAME => self.emulate_uname(pid, sys_pid, regs),
+            nr::STAT => self.emulate_stat(pid, sys_pid, regs),
+            nr::MMAP => self.emulate_mmap(pid, sys_pid, regs),
+            nr::FSTAT => self.emulate_fstat(pid, sys_pid, regs),
+            other => panic!("unexpected syscall trace, SYS_{} {:?} {:?} {:?}", other, regs, pid, sys_pid)
+        }
+    }
+
+    fn emulate_access(&mut self, pid: VPid, sys_pid: SysPid, regs: &mut abi::UserRegs) {
+        println!("ACCESS IS NOT HAPPENING");
+        regs.ax = 0;
+    }
+
+    fn emulate_openat(&mut self, pid: VPid, sys_pid: SysPid, regs: &mut abi::UserRegs) {
+        println!("OPENAT NOPE");
+        regs.ax = 0;
+    }
+
+    fn emulate_uname(&mut self, pid: VPid, sys_pid: SysPid, regs: &mut abi::UserRegs) {
+        println!("FAKE UNAME A COMIN");
+        regs.ax = 0;
+    }
+
+    fn emulate_stat(&mut self, pid: VPid, sys_pid: SysPid, regs: &mut abi::UserRegs) {
+        println!("GET ME A FILESYSTEM STAT");
+        regs.ax = 0;
+    }
+
+    fn emulate_fstat(&mut self, pid: VPid, sys_pid: SysPid, regs: &mut abi::UserRegs) {
+        println!("GOT NO TIME TO FSTAT");
+        regs.ax = 0;
+    }
+
+    fn emulate_mmap(&mut self, pid: VPid, sys_pid: SysPid, regs: &mut abi::UserRegs) {
+        println!("ARE WE REALLY EMULATING MMAP THO");
+        regs.ax = 0;
     }
 
     pub fn handle_events(&mut self) {

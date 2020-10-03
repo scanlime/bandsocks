@@ -1,5 +1,6 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
+use core::mem;
 use core::fmt;
 use sc::syscall;
 use crate::abi;
@@ -38,6 +39,32 @@ pub fn setoptions(pid: SysPid) {
     }
 }
 
+pub fn get_regs(pid: SysPid, regs: &mut abi::UserRegs) {
+    let mut iovec = abi::IOVec {
+        base: regs as *mut abi::UserRegs as *mut usize,
+        len: mem::size_of_val(regs)
+    };
+    match unsafe { syscall!(PTRACE, abi::PTRACE_GETREGSET, pid.0,
+                            abi::NT_PRSTATUS, &mut iovec as *mut abi::IOVec) as isize } {
+        0 => (),
+        err => panic!("ptrace getregset failed ({})", err)
+    }
+    assert_eq!(iovec.len, mem::size_of_val(regs));
+}
+
+pub fn set_regs(pid: SysPid, regs: &abi::UserRegs) {
+    let mut iovec = abi::IOVec {
+        base: regs as *const abi::UserRegs as *mut usize,
+        len: mem::size_of_val(regs)
+    };
+    match unsafe { syscall!(PTRACE, abi::PTRACE_SETREGSET, pid.0,
+                            abi::NT_PRSTATUS, &mut iovec as *mut abi::IOVec) as isize } {
+        0 => (),
+        err => panic!("ptrace getregset failed ({})", err)
+    }
+    assert_eq!(iovec.len, mem::size_of_val(regs));
+}
+
 pub fn geteventmsg(pid: SysPid) -> usize {
     let mut result : usize = -1 as isize as usize;
     match unsafe { syscall!(PTRACE, abi::PTRACE_GETEVENTMSG, pid.0, 0, &mut result as *mut usize) as isize } {
@@ -56,18 +83,5 @@ pub fn syscall_info(pid: SysPid, syscall_info: &mut abi::PTraceSyscallInfo) {
                    actual_size, buf_size);
         },
         _ => (),
-    }
-}
-
-impl fmt::Debug for abi::PTraceSyscallInfo {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SYS_{} {:?} {{ ip={:x} sp={:x} ret={:x} arch={:x} op={} }}",
-               self.nr,
-               self.args,
-               self.instruction_pointer,
-               self.stack_pointer,
-               self.ret_data,
-               self.arch,
-               self.op)
     }
 }
