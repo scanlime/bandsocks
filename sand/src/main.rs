@@ -67,9 +67,10 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
 }
 
 fn say_hi_to_ipc_server(socket: SysFd) {
+    let len = 5;
     let mut iov = abi::IOVec {
         base: b"hello world".as_ptr() as *mut usize,
-        len: 5,
+        len,
     };
     let msghdr = abi::MsgHdr {
         msg_name: ptr::null_mut(),
@@ -84,7 +85,7 @@ fn say_hi_to_ipc_server(socket: SysFd) {
     println!("can has sendmsg");
     let result = unsafe { syscall!(SENDMSG, socket.0, &msghdr as *const abi::MsgHdr, flags) as isize };
     println!("did a smol sendmsg");
-    if result != 0 {
+    if result != len as isize {
         panic!("ipc sendmsg failed ({})", result);
     }
 }

@@ -1,11 +1,12 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
+use tokio::task;
+use tokio::task::JoinHandle;
+use tokio::io::AsyncReadExt;
 use std::io::Cursor;
 use std::os::unix::process::CommandExt;
 use pentacle::SealedCommand;
 use fd_queue::tokio::UnixStream;
-use tokio::task;
-use tokio::task::JoinHandle;
 use std::process::Child;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::prelude::RawFd;
@@ -25,6 +26,7 @@ impl IPCServer {
         let mut sand_bin = Cursor::new(sand::PROGRAM_DATA);
         let mut cmd = SealedCommand::new(&mut sand_bin).unwrap();
 
+        // The stage 1 process requires these specific args and env.
         cmd.arg0("sand");
         cmd.env_clear();
         cmd.env("FD", child_socket.as_raw_fd().to_string());
@@ -35,11 +37,20 @@ impl IPCServer {
         })
     }
 
-    pub fn task(self) -> JoinHandle<Result<(), RuntimeError>> {
+    pub fn task(mut self) -> JoinHandle<Result<(), RuntimeError>> {
         task::spawn(async move {
+            log::info!("hello from the ipc server");
 
-            println!("hello from the ipc server");
+            let mut buffer = [0; 4096];
+            while let Ok(len) = self.stream.read(&mut buffer[..]).await {
+                if len <= 0 {
+                    break;
+                }
+                
+                log::info!("ipc message, {} bytes", len);
+            }
 
+            log::warn!("ipc server is exiting");
             Ok(())
         })
     }
