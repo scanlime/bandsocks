@@ -13,6 +13,7 @@ use bandsocks_runtime::Container;
 
 #[tokio::main]
 async fn main() {
+
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
 
@@ -20,7 +21,7 @@ async fn main() {
     from_env(Env::default().default_filter_or(log_level)).init();
 
     let run_args = string_values(&matches, "run_args");
-    let image_reference = matches.value_of("image_reference").unwrap().parse().expect("bad image reference");;
+    let image_reference = matches.value_of("image_reference").unwrap().parse().expect("bad image reference");
 
     Container::pull(&image_reference)
         .await

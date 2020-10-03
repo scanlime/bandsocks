@@ -1,5 +1,7 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
+#![allow(dead_code)]
+
 use core::fmt;
 use core::convert::TryInto;
 use core::marker::PhantomData;

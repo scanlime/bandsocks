@@ -29,7 +29,7 @@ mod protocol;
 mod ptrace;
 mod tracer;
 
-use core::ptr::null;
+use core::ptr;
 use sc::syscall;
 use crate::nolibc::SysFd;
 use crate::tracer::Tracer;
@@ -46,9 +46,11 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
         RunMode::Tracer(fd) => {
             seccomp::policy_for_tracer();
 
+            say_hi_to_ipc_server(fd);
+            
             let mut tracer = Tracer::new();
-            let argv = [ STAGE_2_LOADER.as_ptr(), null() ];
-            let envp: [*const u8; 1] = [ null() ];
+            let argv = [ STAGE_2_LOADER.as_ptr(), ptr::null() ];
+            let envp: [*const u8; 1] = [ ptr::null() ];
             tracer.spawn(SELF_EXE, &argv, &envp);
             tracer.handle_events();
         }
@@ -57,10 +59,27 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
             seccomp::policy_for_loader();
 
             println!("loader says hey, argc={}", argv.len());
-            let argv = [ b"sh\0".as_ptr(), null() ];
-            let envp: [*const u8; 1] = [ null() ];
+            let argv = [ b"sh\0".as_ptr(), ptr::null() ];
+            let envp: [*const u8; 1] = [ ptr::null() ];
             unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };
         }
+    }
+}
+
+fn say_hi_to_ipc_server(socket: SysFd) {
+    let flags = abi::MSG_DONTWAIT;
+    let msghdr = abi::MsgHdr {
+        msg_name: ptr::null_mut(),
+        msg_namelen: 0,
+        msg_control: ptr::null_mut(),
+        msg_control_is_user: false,
+        msg_controllen: 0,
+        msg_flags: 0,
+        msg_iocb: ptr::null_mut()
+    };
+    let result = unsafe { syscall!(SENDMSG, socket.0, &msghdr as *const abi::MsgHdr, flags) as isize };
+    if result != 0 {
+        panic!("ipc sendmsg failed ({})", result);
     }
 }
     

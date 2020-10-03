@@ -146,6 +146,40 @@ pub const SIGSEGV: u32 = 11;
 pub const SIGCHLD: u32 = 17;
 pub const SIGSTOP: u32 = 19;
 
+// iter_type
+// linux/include/linux/uio.h
+pub const ITER_IOVEC: u32 = 4;
+
+// iov_iter
+// linux/include/linux/uio.h
+#[derive(Debug)]
+#[repr(C)]
+pub struct IOVIter {
+    pub iter_type: u32,
+    pub iov_offset: usize,
+    pub count: usize,
+    pub iov_ptr: *const IOVec,
+    pub nr_segs: usize,
+} 
+
+// sendmsg() msghdr
+// linux/include/linux/socker.h
+#[derive(Debug)]
+#[repr(C)]
+pub struct MsgHdr {
+    pub msg_name: *mut usize,
+    pub msg_namelen: i32,
+    pub msg_control: *mut usize,
+    pub msg_control_is_user: bool,
+    pub msg_controllen: usize,
+    pub msg_flags: u32,
+    pub msg_iocb: *mut usize,
+}
+
+// sendmsg()
+// linux/include/linux/socket.h
+pub const MSG_DONTWAIT: usize = 0x40;
+
 // siginfo_t
 // linux/include/uapi/asm-generic/siginfo.h
 #[derive(Default, Debug)]

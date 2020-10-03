@@ -4,7 +4,6 @@ use sc::syscall;
 use core::slice;
 use core::str;
 use core::ptr::null;
-use core::convert::TryInto;
 use core::panic::PanicInfo;
 use core::fmt::{self, Write};
 
@@ -55,7 +54,7 @@ macro_rules! println {
     });
 }
 
-pub unsafe fn c_strlen(mut s: *const u8) -> usize {
+pub unsafe fn c_strlen(s: *const u8) -> usize {
     let mut count: usize = 0;
     while *s.offset(count as isize) != 0 {
         count += 1;
