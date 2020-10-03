@@ -1,5 +1,6 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
+use core::fmt;
 use core::convert::TryInto;
 use core::marker::PhantomData;
 use crate::abi::*;
@@ -49,6 +50,16 @@ impl ProgramBuffer {
         self.inst(jump( BPF_JMP+BPF_JEQ+BPF_K, k as u32, 0, offset ));
         self.block(block);
     }    
+}
+
+impl fmt::Debug for ProgramBuffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for index in 0 .. self.len {
+            write!(f, "{:04} {:?}\n",
+                   index, self.array[index as usize])?;
+        }
+        Ok(())
+    }
 }
 
 pub const fn stmt(code: u16, k: u32) -> SockFilter {

@@ -43,7 +43,7 @@ fn filter(p: &mut ProgramBuffer) {
     // temp: try emulating some things
     p.if_eq(nr::UNAME, &[
         imm(-1 as i32 as u32),
-        store(0),
+        store(offset_of!(SeccompData, nr)),
         ret(SECCOMP_RET_TRACE)
     ]);
 
@@ -53,6 +53,7 @@ fn filter(p: &mut ProgramBuffer) {
 pub fn activate() {
     let mut buffer = ProgramBuffer::new();
     filter(&mut buffer);
+    println!("filter:\n{:?}", buffer); 
     let prog = buffer.to_filter_prog();
     let ptr = (&prog) as *const SockFilterProg as usize;
     let result = unsafe {
