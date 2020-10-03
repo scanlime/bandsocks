@@ -46,10 +46,20 @@ impl ProgramBuffer {
     }
     
     pub fn if_eq(&mut self, k: usize, block: &[SockFilter]) {
-        let offset: u8 = block.len().try_into().unwrap();
-        self.inst(jump( BPF_JMP+BPF_JEQ+BPF_K, k as u32, 0, offset ));
+        let to_end_of_block: u8 = block.len().try_into().unwrap();
+        self.inst(jump( BPF_JMP+BPF_JEQ+BPF_K, k as u32, 0, to_end_of_block ));
         self.block(block);
-    }    
+    }
+
+    pub fn if_any_eq(&mut self, k_list: &[usize], block: &[SockFilter]) {
+        let mut to_block: u8 = k_list.len().try_into().unwrap();
+        for k in k_list {
+            self.inst(jump( BPF_JMP+BPF_JEQ+BPF_K, *k as u32, to_block, 0 ));
+            to_block -= 1;
+        }        
+        self.inst(jump_always(block.len().try_into().unwrap()));
+        self.block(block);
+    }
 }
 
 impl fmt::Debug for ProgramBuffer {
@@ -68,6 +78,10 @@ pub const fn stmt(code: u16, k: u32) -> SockFilter {
 
 pub const fn jump(code: u16, k: u32, jt: u8, jf: u8) -> SockFilter {
     SockFilter { code, k, jt, jf }
+}
+
+pub const fn jump_always(k: u32) -> SockFilter {
+    stmt( BPF_JMP+BPF_JA, k )
 }
 
 pub const fn imm(k: u32) -> SockFilter {
