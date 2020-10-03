@@ -104,7 +104,7 @@ impl Tracer {
     }
 
     fn emulate_syscall(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
-        match syscall_info.nr {
+        match syscall_info.nr as usize {
             nr::ACCESS => self.emulate_access(pid, sys_pid, syscall_info),
             nr::OPENAT => self.emulate_openat(pid, sys_pid, syscall_info),
             nr::UNAME => self.emulate_uname(pid, sys_pid, syscall_info),
@@ -117,32 +117,32 @@ impl Tracer {
 
     fn emulate_access(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
         println!("ACCESS IS NOT HAPPENING");
-        regs.ax = 0;
+        0
     }
 
     fn emulate_openat(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
         println!("OPENAT NOPE");
-        regs.ax = 0;
+        0
     }
 
     fn emulate_uname(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
         println!("FAKE UNAME A COMIN");
-        regs.ax = 0;
+        0
     }
 
     fn emulate_stat(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
         println!("GET ME A FILESYSTEM STAT");
-        regs.ax = 0;
+        0
     }
 
     fn emulate_fstat(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
         println!("GOT NO TIME TO FSTAT");
-        regs.ax = 0;
+        0
     }
 
     fn emulate_mmap(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
         println!("ARE WE REALLY EMULATING MMAP THO");
-        regs.ax = 0;
+        0
     }
 
     pub fn handle_events(&mut self) {

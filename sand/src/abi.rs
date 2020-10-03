@@ -114,7 +114,7 @@ pub const AUDIT_ARCH_X86_64: u32 = EM_X86_64 | AUDIT_ARCH_LE | AUDIT_ARCH_64BIT;
 // linux/include/uapi/linux/ptrace.h
 #[derive(Debug, Default)]
 #[repr(C)]
-pub struct PTraceSyscallInfo {
+pub struct SyscallInfo {
     pub op: u8,
     pub pad0: u8,
     pub pad1: u16,
