@@ -51,11 +51,11 @@ fn filter(p: &mut ProgramBuffer) {
     // temp: try emulating some things
     p.if_eq(nr::UNAME, &[
         imm(-1 as i32 as u32),
-        store(offset_of!(SeccompData, nr)),
         ret(SECCOMP_RET_TRACE)
     ]);
 
-    p.inst(ret(SECCOMP_RET_TRACE));
+    // xxx
+    p.inst(ret(SECCOMP_RET_ALLOW));
 }
 
 pub fn activate() {
