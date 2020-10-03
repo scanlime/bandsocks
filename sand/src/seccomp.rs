@@ -21,7 +21,9 @@ pub fn policy_for_tracer() {
         nr::PWRITE64,
         nr::READV,
         nr::WRITEV,
-
+        nr::SENDMSG,
+        nr::RECVMSG,
+        
         nr::CLOSE,
         nr::FCNTL,
 

@@ -68,9 +68,20 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
 
 fn say_hi_to_ipc_server(socket: SysFd) {
     let flags = abi::MSG_DONTWAIT;
+    let iov = abi::IOVec {
+        base: b"hello world".as_ptr() as *mut usize,
+        len: 5,
+    };
     let msghdr = abi::MsgHdr {
         msg_name: ptr::null_mut(),
         msg_namelen: 0,
+        msg_iter: abi::IOVIter {
+            iter_type: abi::ITER_IOVEC,
+            iov_offset: 0,
+            count: 1,
+            iov_ptr: &iov as *const abi::IOVec,
+            nr_segs: 1,
+        },
         msg_control: ptr::null_mut(),
         msg_control_is_user: false,
         msg_controllen: 0,
@@ -108,14 +119,10 @@ fn parse_envp_as_fd(envp: &[*const u8]) -> Option<SysFd> {
     let envp0 = unsafe { nolibc::c_str_slice(*envp.first().unwrap()) };
     let envp0 = core::str::from_utf8(nolibc::c_unwrap_nul(envp0)).unwrap();
     let mut parts = envp0.splitn(2, "=");
-    let left = parts.next();
-    let right = parts.next();
-    match (left, right) {
-        (Some("FD"), Some(right)) => {
-            match right.parse::<u32>() {
-                Ok(fd) if fd > 2 => Some(SysFd(fd)),
-                _ => None,
-            }
+    match (parts.next(), parts.next()) {
+        (Some("FD"), Some(right)) => match right.parse::<u32>() {
+            Ok(fd) if fd > 2 => Some(SysFd(fd)),
+            _ => None,
         },
         _ => None
     }
