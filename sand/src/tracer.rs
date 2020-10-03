@@ -4,9 +4,10 @@ use core::mem;
 use core::ptr::null;
 use core::default::Default;
 use core::convert::TryInto;
-use sc::{syscall, nr};
+use sc::syscall;
 use crate::abi;
 use crate::abi::SyscallInfo;
+use crate::emulator::SyscallEmulator;
 use crate::process::{Process, VPid, SysPid, ProcessTable, State};
 use crate::ptrace;
 
@@ -96,53 +97,12 @@ impl Tracer {
         assert_eq!(syscall_info.args[5], regs.r9);
 
         // Emulate the system call; this can make additional ptrace calls to read/write memory.
-        regs.ax = self.emulate_syscall(pid, sys_pid, &syscall_info) as u64;
+        let mut emulator = SyscallEmulator::new(pid, sys_pid, &syscall_info);
+        regs.ax = emulator.dispatch() as u64;
         
         // Block the real system call from executing!
         regs.orig_ax = -1 as i64 as u64;
         ptrace::set_regs(sys_pid, &mut regs);
-    }
-
-    fn emulate_syscall(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
-        match syscall_info.nr as usize {
-            nr::ACCESS => self.emulate_access(pid, sys_pid, syscall_info),
-            nr::OPENAT => self.emulate_openat(pid, sys_pid, syscall_info),
-            nr::UNAME => self.emulate_uname(pid, sys_pid, syscall_info),
-            nr::STAT => self.emulate_stat(pid, sys_pid, syscall_info),
-            nr::MMAP => self.emulate_mmap(pid, sys_pid, syscall_info),
-            nr::FSTAT => self.emulate_fstat(pid, sys_pid, syscall_info),
-            other => panic!("unexpected syscall trace, SYS_{} {:?} {:?} {:?}", other, syscall_info, pid, sys_pid)
-        }
-    }
-
-    fn emulate_access(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
-        println!("ACCESS IS NOT HAPPENING");
-        0
-    }
-
-    fn emulate_openat(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
-        println!("OPENAT NOPE");
-        0
-    }
-
-    fn emulate_uname(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
-        println!("FAKE UNAME A COMIN");
-        0
-    }
-
-    fn emulate_stat(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
-        println!("GET ME A FILESYSTEM STAT");
-        0
-    }
-
-    fn emulate_fstat(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
-        println!("GOT NO TIME TO FSTAT");
-        0
-    }
-
-    fn emulate_mmap(&mut self, pid: VPid, sys_pid: SysPid, syscall_info: &SyscallInfo) -> isize {
-        println!("ARE WE REALLY EMULATING MMAP THO");
-        0
     }
 
     pub fn handle_events(&mut self) {

@@ -1,7 +1,6 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
 use core::mem;
-use core::fmt;
 use sc::syscall;
 use crate::abi;
 use crate::process::SysPid;

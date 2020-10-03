@@ -19,6 +19,7 @@ mod nolibc;
 
 mod abi;
 mod bpf;
+mod emulator;
 mod seccomp;
 mod process;
 mod ptrace;
