@@ -3,6 +3,7 @@
 use sc::syscall;
 use core::slice;
 use core::str;
+use core::ptr::null;
 use core::convert::TryInto;
 use core::panic::PanicInfo;
 use core::fmt::{self, Write};
@@ -55,22 +56,42 @@ macro_rules! println {
 }
 
 pub unsafe fn c_strlen(mut s: *const u8) -> usize {
-    let mut result = 0;
-    while 0 != *s {
-        result += 1;
-        s = s.offset(1);
+    let mut count: usize = 0;
+    while *s.offset(count as isize) != 0 {
+        count += 1;
     }
-    result
+    count
 }
 
-pub unsafe fn c_str_as_bytes(s: *const u8) -> &'static [u8] {
+pub unsafe fn c_str_slice(s: *const u8) -> &'static [u8] {
     slice::from_raw_parts(s, 1 + c_strlen(s))
+}
+
+pub unsafe fn c_strv_len(strv: *const *const u8) -> usize {
+    let mut count: usize = 0;
+    while *strv.offset(count as isize) != null() {
+        count += 1;
+    }
+    count
+}    
+
+pub unsafe fn c_strv_slice(strv: *const *const u8) -> &'static [*const u8] {
+    slice::from_raw_parts(strv, c_strv_len(strv))
 }
 
 #[no_mangle]
 fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
-    let argv = unsafe { slice::from_raw_parts(argv, argc.try_into().unwrap()) };
-    crate::main(argv);
+
+    // At this point, the argument and environment are in back-to-back
+    // null terminated arrays of null terminated strings.
+
+    let argv_slice = unsafe { c_strv_slice(argv) };
+    assert_eq!(argc as usize, argv_slice.len());
+    let envp_slice = unsafe { c_strv_slice(argv.offset(argv_slice.len() as isize + 1)) };
+
+    crate::main(argv_slice, envp_slice);
+
+    // Must explicitly invoke exit or we are just smashing the stack
     exit(0);
 }
 

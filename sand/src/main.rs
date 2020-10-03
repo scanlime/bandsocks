@@ -29,6 +29,11 @@ mod protocol;
 mod ptrace;
 mod tracer;
 
+use core::ptr::null;
+use sc::syscall;
+use crate::nolibc::SysFd;
+use crate::tracer::Tracer;
+
 pub const SELF_EXE: &'static [u8] = b"/proc/self/exe\0";
 pub const ARGV_MAX: usize = 4;
 
@@ -37,72 +42,98 @@ mod modes {
     pub const STAGE_2_LOADER: &'static [u8] = b"sand-exec\0";
 }
 
-use core::ptr::null;
-use sc::syscall;
-use crate::tracer::Tracer;
-
-fn main(argv: &[*const u8]) {
-    ensure_sealed();
-    seccomp::activate();
-
-    let argv0 = unsafe { nolibc::c_str_as_bytes(*argv.first().unwrap()) };
-    if argv0 == modes::STAGE_1_TRACER {
-        tracer_main(argv);
-    } else if argv0 == modes::STAGE_2_LOADER {
-        loader_main(argv);
-    } else {
-        panic!("unexpected parameters");
-    }
+enum RunMode {
+    Unknown,
+    Tracer(SysFd),
+    Loader,
 }
 
-fn ensure_sealed() {
-    let exe_fd = unsafe { syscall!(OPEN, SELF_EXE.as_ptr(), abi::O_RDONLY, 0) as isize };
-    if exe_fd < 0 {
-        panic!("can't open self");
+fn main(argv: &[*const u8], envp: &[*const u8]) {
+    match check_environment_determine_mode(argv, envp) {
+
+        RunMode::Tracer(fd) => {
+            seccomp::policy_for_tracer();
+
+            let mut tracer = Tracer::new();
+            let argv = [ modes::STAGE_2_LOADER.as_ptr(), null() ];
+            let envp: [*const u8; 1] = [ null() ];
+            tracer.spawn(SELF_EXE, &argv, &envp);
+            tracer.handle_events();
+        }
+        
+        RunMode::Loader => {
+            seccomp::policy_for_loader();
+
+            println!("loader says hey, argc={}", argv.len());
+            let argv = [ b"sh\0".as_ptr(), null() ];
+            let envp: [*const u8; 1] = [ null() ];
+            unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };
+        }
+
+        RunMode::Unknown => panic!("where am i"),
     }
+}
     
-    let seals = unsafe { syscall!(FCNTL, exe_fd, abi::F_GET_SEALS) };
-    unsafe { syscall!(CLOSE, exe_fd) };
+fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> RunMode {
+    // All modes require the sealed exe and an argv[0]
+    let required_tests = check_sealed_exe_environment().is_ok();
+    let argv0 = unsafe { nolibc::c_str_slice(*argv.first().unwrap()) };
 
-    let expected = abi::F_SEAL_SEAL | abi::F_SEAL_SHRINK | abi::F_SEAL_GROW | abi::F_SEAL_WRITE;
-    if seals != expected {
-        panic!("exe was not sealed as expected");
+    if required_tests && argv0 == modes::STAGE_1_TRACER && argv.len() == 1 && envp.len() == 1 {
+        // Stage 1: no other args, a single 'FD' environment variable
+        match parse_envp_as_fd(envp) {
+            Some(fd) => RunMode::Tracer(fd),
+            None => RunMode::Unknown,
+        }
+        
+    } else if required_tests && argv0 == modes::STAGE_2_LOADER && argv.len() == 1 && envp.len() == 0 {
+        // Stage 2: no other args, empty environment
+        RunMode::Loader
+
+    } else {
+        RunMode::Unknown
     }
-}    
-
-fn empty_envp() -> [*const u8; 1] {
-    [ null() ]
 }
 
-fn make_next_stage_argv(mode: &'static [u8], src: &[*const u8]) -> [*const u8; ARGV_MAX] {
-    let mut dest = [ null(); ARGV_MAX ];
-    dest[0] = mode.as_ptr();
-    for i in 1..src.len() {
-        dest[i] = src[i];
+fn parse_envp_as_fd(envp: &[*const u8]) -> Option<SysFd> {
+    let envp0 = unsafe { nolibc::c_str_slice(*envp.first().unwrap()) };
+    let envp0 = core::str::from_utf8(envp0).unwrap();
+    let mut parts = envp0.splitn(2, "=");
+    let left = parts.next();
+    let right = parts.next();
+    if let (Some(left), Some(right)) = (left, right) {
+        if left == "FD" {
+            match right.parse::<u32>() {
+                Ok(fd) if fd > 2 => Some(SysFd(fd)),
+                _ => None,
+            }
+        } else {
+            None
+        }            
+    } else {
+        None
     }
-    dest[src.len()] = null();
-    dest
-}   
-
-fn tracer_main(argv: &[*const u8]) {
-    let mut tracer = Tracer::new();
-    // to do: first arg after mode will be an fd number, maybe encoded somehow for readability.
-    //        At this point the program will open the given fd as an ipc socket,
-    //        and verify all other sockets are closed (using the ipc to scan /proc/self/fd
-    //        and closing any if necessary.)
-    // 
-    tracer.spawn(SELF_EXE,
-                 &make_next_stage_argv(modes::STAGE_2_LOADER, argv),
-                 &empty_envp());
-    tracer.handle_events();
 }
 
-fn loader_main(argv: &[*const u8]) {
-    println!("loader says hey, argc={}", argv.len());
-    // to do: use args as packed source for both args and environment.
-    //    could use ipc for this, but with very limited support for
-    //    variable-sized data this is likely easier?
-    let argv = [ b"sh\0".as_ptr(), null() ];
-    let envp = empty_envp();
-    unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };
+fn check_sealed_exe_environment() -> Result<(), ()> {
+    // This is probably not super important, but as part of checking out the runtime environment
+    // during startup, it's easy to make sure this seems to be the sealed binary that we expected
+    // the runtime to create for us. This is invoked unconditionally; in stage 1 it will run
+    // normally, *before* the seccomp filter, so these will all be real syscalls. In stage 2
+    // these syscalls will be emulated by the tracer.
+
+    let exe_fd = unsafe { syscall!(OPEN, SELF_EXE.as_ptr(), abi::O_RDONLY, 0) as isize };
+    if exe_fd > 0 {
+        let seals = unsafe { syscall!(FCNTL, exe_fd, abi::F_GET_SEALS) };
+        unsafe { syscall!(CLOSE, exe_fd) };
+
+        let expected = abi::F_SEAL_SEAL | abi::F_SEAL_SHRINK | abi::F_SEAL_GROW | abi::F_SEAL_WRITE;
+        if seals == expected {
+            Ok(())
+        } else {
+            Err(())
+        }
+    } else {
+        Err(())
+    }
 }

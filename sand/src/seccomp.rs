@@ -4,10 +4,12 @@ use crate::bpf::*;
 use crate::abi::*;
 use sc::{syscall, nr};
 
-fn filter(p: &mut ProgramBuffer) {
-    // Examine syscall number
+pub fn policy_for_tracer() {
+    let mut p = ProgramBuffer::new();
     p.inst(load(offset_of!(SeccompData, nr)));
 
+    // The tracer policy must be a superset of any other policies
+    
     // List of fully allowed calls
     // xxx: pare this down as much as possible
     // xxx: audit source code for anything we leave allowed
@@ -46,16 +48,54 @@ fn filter(p: &mut ProgramBuffer) {
         ret(SECCOMP_RET_ALLOW)
     ]);
     
+    p.inst(ret(SECCOMP_RET_KILL_PROCESS));
+
+    activate(&p);
+}
+
+pub fn policy_for_loader() {
+    let mut p = ProgramBuffer::new();
+    p.inst(load(offset_of!(SeccompData, nr)));
+
+    // List of fully allowed calls
+    // xxx: pare this down as much as possible
+    // xxx: audit source code for anything we leave allowed
+    p.if_any_eq(&[
+
+        nr::READ,
+        nr::WRITE,
+        nr::PREAD64,
+        nr::PWRITE64,
+        nr::READV,
+        nr::WRITEV,
+
+        nr::CLOSE,
+        nr::FCNTL,
+
+        nr::EXIT_GROUP,        
+        nr::EXIT,
+        nr::RT_SIGRETURN,
+
+        nr::FORK,
+        nr::BRK,
+
+        nr::ARCH_PRCTL,
+        nr::PRCTL,
+
+    ], &[
+        ret(SECCOMP_RET_ALLOW)
+    ]);
+    
     // Trace by default. This emulates the syscalls we emulate,
     // and others get logged in detail before we panic.
     p.inst(ret(SECCOMP_RET_TRACE));
+
+    activate(&p);
 }
 
-pub fn activate() {
-    let mut buffer = ProgramBuffer::new();
-    filter(&mut buffer);
-    println!("filter:\n{:?}", buffer); 
-    let prog = buffer.to_filter_prog();
+fn activate(program_buffer: &ProgramBuffer) {
+    println!("filter:\n{:?}", program_buffer); 
+    let prog = program_buffer.to_filter_prog();
     let ptr = (&prog) as *const SockFilterProg as usize;
     let result = unsafe {
         syscall!(PRCTL, PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
