@@ -34,13 +34,9 @@ use sc::syscall;
 use crate::nolibc::SysFd;
 use crate::tracer::Tracer;
 
-pub const SELF_EXE: &'static [u8] = b"/proc/self/exe\0";
-pub const ARGV_MAX: usize = 4;
-
-mod modes {
-    pub const STAGE_1_TRACER: &'static [u8] = b"sand\0";
-    pub const STAGE_2_LOADER: &'static [u8] = b"sand-exec\0";
-}
+const SELF_EXE: &'static [u8] = b"/proc/self/exe\0";
+const STAGE_1_TRACER: &'static [u8] = b"sand\0";
+const STAGE_2_LOADER: &'static [u8] = b"sand-exec\0";
 
 enum RunMode {
     Unknown,
@@ -55,7 +51,7 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
             seccomp::policy_for_tracer();
 
             let mut tracer = Tracer::new();
-            let argv = [ modes::STAGE_2_LOADER.as_ptr(), null() ];
+            let argv = [ STAGE_2_LOADER.as_ptr(), null() ];
             let envp: [*const u8; 1] = [ null() ];
             tracer.spawn(SELF_EXE, &argv, &envp);
             tracer.handle_events();
@@ -79,14 +75,14 @@ fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> R
     let required_tests = check_sealed_exe_environment().is_ok();
     let argv0 = unsafe { nolibc::c_str_slice(*argv.first().unwrap()) };
 
-    if required_tests && argv0 == modes::STAGE_1_TRACER && argv.len() == 1 && envp.len() == 1 {
+    if required_tests && argv0 == STAGE_1_TRACER && argv.len() == 1 && envp.len() == 1 {
         // Stage 1: no other args, a single 'FD' environment variable
         match parse_envp_as_fd(envp) {
             Some(fd) => RunMode::Tracer(fd),
             None => RunMode::Unknown,
         }
         
-    } else if required_tests && argv0 == modes::STAGE_2_LOADER && argv.len() == 1 && envp.len() == 0 {
+    } else if required_tests && argv0 == STAGE_2_LOADER && argv.len() == 1 && envp.len() == 0 {
         // Stage 2: no other args, empty environment
         RunMode::Loader
 
