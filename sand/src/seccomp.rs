@@ -74,17 +74,10 @@ pub fn policy_for_loader() {
         nr::WRITEV,
 
         nr::CLOSE,
-        nr::FCNTL,
-
-        nr::EXIT_GROUP,        
         nr::EXIT,
-        nr::RT_SIGRETURN,
 
         nr::FORK,
         nr::BRK,
-
-        nr::ARCH_PRCTL,
-        nr::PRCTL,
 
     ], &[
         ret(SECCOMP_RET_ALLOW)
@@ -98,7 +91,6 @@ pub fn policy_for_loader() {
 }
 
 fn activate(program_buffer: &ProgramBuffer) {
-    println!("filter:\n{:?}", program_buffer); 
     let prog = program_buffer.to_filter_prog();
     let ptr = (&prog) as *const SockFilterProg as usize;
     let result = unsafe {

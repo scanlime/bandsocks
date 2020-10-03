@@ -146,39 +146,18 @@ pub const SIGSEGV: u32 = 11;
 pub const SIGCHLD: u32 = 17;
 pub const SIGSTOP: u32 = 19;
 
-// generic data direction def
-pub const READ: u32 = 0;
-pub const WRITE: u32 = 1;
-
-// iter_type; implies (READ|WRITE) in low bit
-// linux/include/linux/uio.h
-pub const ITER_IOVEC: u32 = 4;
-
-// iov_iter
-// linux/include/linux/uio.h
-#[derive(Debug)]
-#[repr(C)]
-pub struct IOVIter {
-    pub iter_type: u32,
-    pub iov_offset: usize,
-    pub count: usize,
-    pub iov_ptr: *const IOVec,
-    pub nr_segs: usize,
-} 
-
-// sendmsg() msghdr
+// sendmsg() user_msghdr
 // linux/include/linux/socket.h
 #[derive(Debug)]
 #[repr(C)]
 pub struct MsgHdr {
     pub msg_name: *mut usize,
     pub msg_namelen: i32,
-    pub msg_iter: IOVIter,
+    pub msg_iov: *mut IOVec,
+    pub msg_iovlen: usize,
     pub msg_control: *mut usize,
-    pub msg_control_is_user: bool,
     pub msg_controllen: usize,
     pub msg_flags: u32,
-    pub msg_iocb: *mut usize,
 }
 
 // sendmsg()
