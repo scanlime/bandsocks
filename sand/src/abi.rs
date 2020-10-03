@@ -118,15 +118,16 @@ pub const SECCOMP_MODE_FILTER: usize = 2;
 // seccomp(2)
 #[derive(Debug)]
 #[repr(C)]
-pub struct SockFilterProg {
+pub struct SockFilterProg<'a> {
     pub len: u16,
     pub filter: *const SockFilter,
+    pub phantom: core::marker::PhantomData<&'a SockFilter>
 }
 
 // sock_filter
 // seccomp(2)
 // linux/include/uapi/linux/filter.hOB
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct SockFilter {
     pub code: u16,

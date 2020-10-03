@@ -17,10 +17,8 @@ extern crate memoffset;
 #[macro_use]
 mod nolibc;
 
-#[macro_use]
-mod bpf;
-
 mod abi;
+mod bpf;
 mod seccomp;
 mod process;
 mod ptrace;
