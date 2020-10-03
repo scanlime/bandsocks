@@ -31,7 +31,7 @@ impl<'a> SyscallEmulator<'a> {
     }
 
     fn sys_access(&mut self) -> isize {
-        println!("ACCESS IS NOT HAPPENING");
+        println!("ACCESS IS NOT HAPPENING {:x?}", self);
         0
     }
 
