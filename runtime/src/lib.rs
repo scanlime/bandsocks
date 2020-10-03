@@ -11,8 +11,8 @@ mod client;
 mod errors;
 mod filesystem;
 mod image;
-mod loader;
 mod manifest;
+mod sand;
 mod storage;
 
 pub use dkregistry::reference::Reference;

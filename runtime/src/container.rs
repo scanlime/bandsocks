@@ -6,12 +6,16 @@ use crate::client::Client;
 use crate::filesystem::vfs::Filesystem;
 use crate::filesystem::mmap::MapRef;
 use crate::errors::{ImageError, RuntimeError, VFSError};
+use crate::sand;
 use std::collections::BTreeMap;
+use std::io::Cursor;
+use std::os::unix::process::CommandExt;
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::ffi::{OsStr, OsString};
 use std::default::Default;
 use osstrtools::OsStrTools;
+use pentacle::SealedCommand;
 
 #[derive(Default)]
 pub struct ContainerBuilder {
@@ -231,7 +235,12 @@ impl Container {
         let program = self.program_image_for_execp(argv0);
         log::info!("program image, {:?}", program);
 
-        crate::loader::do_the_thing();
+        let mut sand_bin = Cursor::new(sand::PROGRAM_DATA);
+        let mut cmd = SealedCommand::new(&mut sand_bin).unwrap();
+        cmd.arg0("sand");
+        cmd.arg("just_some_strings");
+        cmd.arg("where_a_blob_of_config_data_will_go");
+        println!("{:?}", cmd.status().unwrap());
 
         Ok(())
     }
