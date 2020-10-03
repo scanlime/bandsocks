@@ -47,8 +47,10 @@ pub fn policy_for_tracer() {
     ], &[
         ret(SECCOMP_RET_ALLOW)
     ]);
-    
-    p.inst(ret(SECCOMP_RET_KILL_PROCESS));
+
+    // There is no tracer yet, but we want to allow tracing later.
+    // With no tracer attached this blocks the syscall with ENOSYS.
+    p.inst(ret(SECCOMP_RET_TRACE));
 
     activate(&p);
 }

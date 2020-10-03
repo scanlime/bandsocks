@@ -26,7 +26,8 @@ impl IPCServer {
         let mut cmd = SealedCommand::new(&mut sand_bin).unwrap();
 
         cmd.arg0("sand");
-        cmd.arg(format!("fd:{}", child_socket.as_raw_fd()));
+        cmd.env_clear();
+        cmd.env("FD", child_socket.as_raw_fd().to_string());
 
         Ok(IPCServer {
             child: cmd.spawn()?,

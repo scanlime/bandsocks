@@ -63,6 +63,11 @@ pub unsafe fn c_strlen(mut s: *const u8) -> usize {
     count
 }
 
+pub fn c_unwrap_nul(s: &[u8]) -> &[u8] {
+    assert_eq!(s.last(), Some(&0u8));
+    &s[0..s.len() - 1]
+}
+
 pub unsafe fn c_str_slice(s: *const u8) -> &'static [u8] {
     slice::from_raw_parts(s, 1 + c_strlen(s))
 }

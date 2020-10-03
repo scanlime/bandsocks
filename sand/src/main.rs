@@ -37,15 +37,11 @@ use crate::tracer::Tracer;
 const SELF_EXE: &'static [u8] = b"/proc/self/exe\0";
 const STAGE_1_TRACER: &'static [u8] = b"sand\0";
 const STAGE_2_LOADER: &'static [u8] = b"sand-exec\0";
-
-enum RunMode {
-    Unknown,
-    Tracer(SysFd),
-    Loader,
-}
+enum RunMode { Unknown, Tracer(SysFd), Loader }
 
 fn main(argv: &[*const u8], envp: &[*const u8]) {
     match check_environment_determine_mode(argv, envp) {
+        RunMode::Unknown => panic!("where am i"),
 
         RunMode::Tracer(fd) => {
             seccomp::policy_for_tracer();
@@ -65,8 +61,6 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
             let envp: [*const u8; 1] = [ null() ];
             unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };
         }
-
-        RunMode::Unknown => panic!("where am i"),
     }
 }
     
@@ -93,21 +87,18 @@ fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> R
 
 fn parse_envp_as_fd(envp: &[*const u8]) -> Option<SysFd> {
     let envp0 = unsafe { nolibc::c_str_slice(*envp.first().unwrap()) };
-    let envp0 = core::str::from_utf8(envp0).unwrap();
+    let envp0 = core::str::from_utf8(nolibc::c_unwrap_nul(envp0)).unwrap();
     let mut parts = envp0.splitn(2, "=");
     let left = parts.next();
     let right = parts.next();
-    if let (Some(left), Some(right)) = (left, right) {
-        if left == "FD" {
+    match (left, right) {
+        (Some("FD"), Some(right)) => {
             match right.parse::<u32>() {
                 Ok(fd) if fd > 2 => Some(SysFd(fd)),
                 _ => None,
             }
-        } else {
-            None
-        }            
-    } else {
-        None
+        },
+        _ => None
     }
 }
 
