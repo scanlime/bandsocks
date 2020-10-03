@@ -97,6 +97,7 @@ dependencies = [
  "build-deps",
  "directories-next",
  "dkregistry",
+ "fd-queue",
  "flate2",
  "lazy_static",
  "log",
@@ -107,6 +108,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "ssmarshal",
  "tar",
  "thiserror",
  "tokio",
@@ -310,6 +312,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
+name = "encode_unicode"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -330,6 +338,12 @@ dependencies = [
  "regex",
  "termcolor",
 ]
+
+[[package]]
+name = "fd-queue"
+version = "1.0.0-beta.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f84f19ac3fa91619df23f4210e4ecc2e3309ca1fb86a611fc78f16a6073a9859"
 
 [[package]]
 name = "filetime"
@@ -1262,6 +1276,16 @@ dependencies = [
  "libc",
  "redox_syscall",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "ssmarshal"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3e6ad23b128192ed337dfa4f1b8099ced0c2bf30d61e551b65fda5916dbb850"
+dependencies = [
+ "encode_unicode",
+ "serde",
 ]
 
 [[package]]

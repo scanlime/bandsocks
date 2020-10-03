@@ -1,9 +1,8 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
-pub const PID_LIMIT: usize = 1024;
+use crate::protocol::SysPid;
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub struct SysPid(pub u32);
+pub const PID_LIMIT: usize = 1024;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct VPid(pub u32);

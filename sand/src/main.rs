@@ -15,6 +15,9 @@ compile_error!("bandsocks currently only supports x86_64");
 extern crate memoffset;
 
 #[macro_use]
+extern crate serde;
+
+#[macro_use]
 mod nolibc;
 
 mod abi;
@@ -22,6 +25,7 @@ mod bpf;
 mod emulator;
 mod seccomp;
 mod process;
+mod protocol;
 mod ptrace;
 mod tracer;
 
@@ -82,6 +86,11 @@ fn make_next_stage_argv(mode: &'static [u8], src: &[*const u8]) -> [*const u8; A
 
 fn tracer_main(argv: &[*const u8]) {
     let mut tracer = Tracer::new();
+    // to do: first arg after mode will be an fd number, maybe encoded somehow for readability.
+    //        At this point the program will open the given fd as an ipc socket,
+    //        and verify all other sockets are closed (using the ipc to scan /proc/self/fd
+    //        and closing any if necessary.)
+    // 
     tracer.spawn(SELF_EXE,
                  &make_next_stage_argv(modes::STAGE_2_LOADER, argv),
                  &empty_envp());
@@ -90,6 +99,9 @@ fn tracer_main(argv: &[*const u8]) {
 
 fn loader_main(argv: &[*const u8]) {
     println!("loader says hey, argc={}", argv.len());
+    // to do: use args as packed source for both args and environment.
+    //    could use ipc for this, but with very limited support for
+    //    variable-sized data this is likely easier?
     let argv = [ b"sh\0".as_ptr(), null() ];
     let envp = empty_envp();
     unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };

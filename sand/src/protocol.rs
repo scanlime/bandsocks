@@ -2,3 +2,19 @@
 
 // The protocol is defined here canonically and then imported
 // by the runtime crate along with our finished binary.
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+#[repr(C)]
+pub struct SysPid(pub u32);
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[repr(C)]
+enum MessageToSand {
+    Nop
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[repr(C)]
+enum MessageFromSand {
+    Nop
+}

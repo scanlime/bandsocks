@@ -8,7 +8,8 @@ use sc::syscall;
 use crate::abi;
 use crate::abi::SyscallInfo;
 use crate::emulator::SyscallEmulator;
-use crate::process::{Process, VPid, SysPid, ProcessTable, State};
+use crate::process::{VPid, Process, ProcessTable, State};
+use crate::protocol::SysPid;
 use crate::ptrace;
 
 pub struct Tracer {

@@ -3,7 +3,7 @@
 use core::mem;
 use sc::syscall;
 use crate::abi;
-use crate::process::SysPid;
+use crate::protocol::SysPid;
 
 pub unsafe fn be_the_child_process(cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) -> ! {
     // Make attachable, but doesn't wait for the tracer

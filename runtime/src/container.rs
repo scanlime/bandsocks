@@ -238,8 +238,6 @@ impl Container {
         let mut sand_bin = Cursor::new(sand::PROGRAM_DATA);
         let mut cmd = SealedCommand::new(&mut sand_bin).unwrap();
         cmd.arg0("sand");
-        cmd.arg("just_some_strings");
-        cmd.arg("where_a_blob_of_config_data_will_go");
         println!("{:?}", cmd.status().unwrap());
 
         Ok(())
