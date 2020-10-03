@@ -86,12 +86,6 @@ impl Client {
         Ok(&self.registry_client.as_ref().unwrap().1)
     }        
 
-    pub fn pull(&mut self, image: &Reference) -> Result<Arc<Image>, ImageError> {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            self.pull_async(image).await
-        })
-    }
-
     async fn pull_manifest(&mut self, image: &Reference) -> Result<Manifest, ImageError> {
         let key = StorageKey::Manifest(image.clone());
         let mmap = match self.storage.get(&key)? {
@@ -173,7 +167,7 @@ impl Client {
         Ok(())
     }
     
-    pub async fn pull_async(&mut self, image: &Reference) -> Result<Arc<Image>, ImageError> {
+    pub async fn pull(&mut self, image: &Reference) -> Result<Arc<Image>, ImageError> {
         let manifest = self.pull_manifest(image).await?;
         let config = self.pull_runtime_config(image, &manifest.config).await?;
 

@@ -3,6 +3,8 @@
 // The protocol is defined here canonically and then imported
 // by the runtime crate along with our finished binary.
 
+use ssmarshal::{serialize, deserialize};
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct SysPid(pub u32);

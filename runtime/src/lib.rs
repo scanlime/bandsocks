@@ -14,6 +14,7 @@ mod client;
 mod errors;
 mod filesystem;
 mod image;
+mod ipcserver;
 mod manifest;
 mod sand;
 mod storage;

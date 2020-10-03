@@ -73,8 +73,14 @@ pub enum VFSError {
 
 #[derive(Error, Debug)]
 pub enum RuntimeError {
+    #[error("runtime io error: {0}")]
+    Storage(#[from] std::io::Error),
+
     #[error("virtual filesystem error: {0}")]
     VFSError(#[from] VFSError),
+    
+    #[error("task join error: {0}")]
+    TaskJoinError(#[from] tokio::task::JoinError),
 
     #[error("container image error: {0}")]
     ImageError(#[from] ImageError),

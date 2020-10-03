@@ -3,19 +3,17 @@
 use crate::Reference;
 use crate::image::Image;
 use crate::client::Client;
+use crate::ipcserver::IPCServer;
 use crate::filesystem::vfs::Filesystem;
 use crate::filesystem::mmap::MapRef;
 use crate::errors::{ImageError, RuntimeError, VFSError};
-use crate::sand;
 use std::collections::BTreeMap;
-use std::io::Cursor;
-use std::os::unix::process::CommandExt;
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::ffi::{OsStr, OsString};
 use std::default::Default;
+use tokio::task::JoinHandle;
 use osstrtools::OsStrTools;
-use pentacle::SealedCommand;
 
 #[derive(Default)]
 pub struct ContainerBuilder {
@@ -163,6 +161,7 @@ pub struct Container {
     dir: PathBuf,
     argv: Vec<OsString>,
     env: BTreeMap<OsString, OsString>,
+    ipc_join: JoinHandle<Result<(), RuntimeError>>,
 }
 
 impl Container {
@@ -170,24 +169,27 @@ impl Container {
         Default::default()
     }
 
-    pub fn pull(image_reference: &Reference) -> Result<ContainerBuilder, ImageError> {
+    pub async fn wait(self) -> Result<(), RuntimeError> {
+        self.ipc_join.await?
+    }
+    
+    pub async fn pull(image_reference: &Reference) -> Result<ContainerBuilder, ImageError> {
         let mut builder = Container::new();
-        builder.image(&Client::new()?.pull(image_reference)?);
+        builder.image(&Client::new()?.pull(image_reference).await?);
         Ok(builder)
     }
-
+    
     fn startup(filesystem: Filesystem, argv: Vec<OsString>, env: BTreeMap<OsString, OsString>, dir: PathBuf)
                -> Result<Container, RuntimeError> {
 
         log::trace!("emulated filesystem contents at startup,\n{:?}", filesystem);
         log::info!("starting, {:?} in dir={:?} env={:?}", argv, dir, env);
         
-        let container = Container {
-            filesystem, argv, env, dir
-        };
-        container.exec()?;
+        let ipc_join = IPCServer::new()?.task();
 
-        Ok(container)
+        Ok(Container {
+            filesystem, argv, env, dir, ipc_join
+        })
     }
 
     fn program_image_for_execp(&self, argv0: &OsStr) -> Result<MapRef, RuntimeError> {
@@ -223,23 +225,5 @@ impl Container {
                 Some(Err(other)) => Err(other)?,
                 Some(Ok(mmap)) => Ok(mmap),
             }
-    }
-
-    fn exec(&self) -> Result<(), RuntimeError> {
-
-        let argv0 = match self.argv.first() {
-            None => Err(RuntimeError::NoEntryPoint),
-            Some(s) => Ok(s),
-        }?;
-
-        let program = self.program_image_for_execp(argv0);
-        log::info!("program image, {:?}", program);
-
-        let mut sand_bin = Cursor::new(sand::PROGRAM_DATA);
-        let mut cmd = SealedCommand::new(&mut sand_bin).unwrap();
-        cmd.arg0("sand");
-        println!("{:?}", cmd.status().unwrap());
-
-        Ok(())
     }
 }
