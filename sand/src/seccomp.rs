@@ -44,13 +44,16 @@ pub fn policy_for_tracer() {
         nr::ARCH_PRCTL,
         nr::PRCTL,
 
-        // xxx really don't want to allow these but the tracer itself
-        //   needs them, so they will need special bpf filters or we
-        //   need to pare down the tracer further.
+        // the tracer itself is allowed to work with non-virtualized PIDs
         nr::WAITID,
         nr::PTRACE,
-        nr::EXECVE,
         nr::GETPID,
+
+        // need this to get to the next stage
+        // xxx: drop this privilege as soon as we initialize the tracer
+        nr::EXECVE,
+
+        // xxx: can't allow this, use a different attach mechanism
         nr::KILL,
         
     ], &[
