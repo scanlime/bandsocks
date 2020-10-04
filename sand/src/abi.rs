@@ -145,6 +145,7 @@ pub const SIGKILL: u32 = 9;
 pub const SIGSEGV: u32 = 11;
 pub const SIGCHLD: u32 = 17;
 pub const SIGSTOP: u32 = 19;
+pub const SIGIO: u32 = 29;
 
 // sendmsg() user_msghdr
 // linux/include/linux/socket.h

@@ -1,6 +1,7 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
 use core::ptr;
+use core::mem;
 use sc::syscall;
 use crate::abi;
 use crate::nolibc::SysFd;
@@ -12,9 +13,11 @@ pub struct Socket {
 
 impl Socket {
     pub fn from_sys_fd(fd: SysFd) -> Socket {
-        Socket {
-            fd
-        }
+       // let unsafe {
+       //     syscall!(RT_SIGACTION, abi::SIGIO, act, oact, mem::size_of_val(act)) as isize
+       // }
+
+        Socket { fd }
     }
 
     pub fn send(&self, message: &MessageFromSand) {
