@@ -23,16 +23,18 @@ mod nolibc;
 mod abi;
 mod bpf;
 mod emulator;
-mod seccomp;
+mod ipc;
 mod process;
 mod protocol;
 mod ptrace;
+mod seccomp;
 mod tracer;
 
 use core::ptr;
 use sc::syscall;
 use crate::nolibc::SysFd;
 use crate::tracer::Tracer;
+use crate::ipc::Socket;
 
 const SELF_EXE: &'static [u8] = b"/proc/self/exe\0";
 const STAGE_1_TRACER: &'static [u8] = b"sand\0";
@@ -46,9 +48,9 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
         RunMode::Tracer(fd) => {
             seccomp::policy_for_tracer();
 
-            say_hi_to_ipc_server(fd);
-            
-            let mut tracer = Tracer::new();
+            let ipc = Socket::from_sys_fd(fd);
+            let mut tracer = Tracer::new(ipc);
+
             let argv = [ STAGE_2_LOADER.as_ptr(), ptr::null() ];
             let envp: [*const u8; 1] = [ ptr::null() ];
             tracer.spawn(SELF_EXE, &argv, &envp);
@@ -66,30 +68,6 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
     }
 }
 
-fn say_hi_to_ipc_server(socket: SysFd) {
-    let len = 5;
-    let mut iov = abi::IOVec {
-        base: b"hello world".as_ptr() as *mut usize,
-        len,
-    };
-    let msghdr = abi::MsgHdr {
-        msg_name: ptr::null_mut(),
-        msg_namelen: 0,
-        msg_iov: &mut iov as *mut abi::IOVec,
-        msg_iovlen: 1,
-        msg_control: ptr::null_mut(),
-        msg_controllen: 0,
-        msg_flags: 0,
-    };
-    let flags = abi::MSG_DONTWAIT;
-    println!("can has sendmsg");
-    let result = unsafe { syscall!(SENDMSG, socket.0, &msghdr as *const abi::MsgHdr, flags) as isize };
-    println!("did a smol sendmsg");
-    if result != len as isize {
-        panic!("ipc sendmsg failed ({})", result);
-    }
-}
-    
 fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> RunMode {
     // All modes require the sealed exe and an argv[0]
     let required_tests = check_sealed_exe_environment().is_ok();

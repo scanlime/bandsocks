@@ -11,6 +11,7 @@ use std::process::Child;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::prelude::RawFd;
 use crate::sand;
+use crate::sand::protocol::{serialize, deserialize, BUFFER_SIZE, MessageFromSand};
 use crate::errors::RuntimeError;
 
 pub struct IPCServer {
@@ -39,20 +40,34 @@ impl IPCServer {
 
     pub fn task(mut self) -> JoinHandle<Result<(), RuntimeError>> {
         task::spawn(async move {
-            log::info!("hello from the ipc server");
+            let mut buffer = [0; BUFFER_SIZE];
 
-            let mut buffer = [0; 4096];
             while let Ok(len) = self.stream.read(&mut buffer[..]).await {
                 if len <= 0 {
                     break;
                 }
-                
-                log::info!("ipc message, {} bytes", len);
+                log::warn!("ipc read {}", len);
+                let mut offset = 0;
+                while offset < len {
+                    match deserialize(&buffer[offset .. len]) {
+                        Err(e) => {
+                            log::warn!("failed to deserialize message, {:?}", e);
+                            break;
+                        },
+                        Ok((message, bytes_used)) => {
+                            self.handle_message(message).await;
+                            offset += bytes_used;
+                        },
+                    }
+                }
             }
-
             log::warn!("ipc server is exiting");
             Ok(())
         })
+    }
+
+    async fn handle_message(&mut self, message: MessageFromSand) {
+        log::info!("{:?}", message);
     }
 }
 

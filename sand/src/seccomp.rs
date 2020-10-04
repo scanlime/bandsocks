@@ -4,6 +4,13 @@ use crate::bpf::*;
 use crate::abi::*;
 use sc::{syscall, nr};
 
+// This file has two policies; the "tracer" policy is applied very early, and covers this
+// process for its entire lifetime. The "loader" policy is applied during stage 2, and it
+// applies additional ruless which the sandbox contents use but not the tracer.
+//
+// For comparison, the container we might be running in likely has a policy like this one:
+// https://github.com/moby/moby/blob/master/profiles/seccomp/default.json
+
 pub fn policy_for_tracer() {
     let mut p = ProgramBuffer::new();
     p.inst(load(offset_of!(SeccompData, nr)));
@@ -81,6 +88,15 @@ pub fn policy_for_loader() {
 
     ], &[
         ret(SECCOMP_RET_ALLOW)
+    ]);
+    
+    // List of extremely disallowed calls, kill process without trying to trace
+    p.if_any_eq(&[
+
+        nr::PTRACE,
+
+    ], &[
+        ret(SECCOMP_RET_KILL_PROCESS)
     ]);
     
     // Trace by default. This emulates the syscalls we emulate,

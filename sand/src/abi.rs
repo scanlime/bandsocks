@@ -59,7 +59,7 @@ pub const NT_PRSTATUS: usize = 1;
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct IOVec {
-    pub base: *mut usize,
+    pub base: *mut u8,
     pub len: usize
 }
 

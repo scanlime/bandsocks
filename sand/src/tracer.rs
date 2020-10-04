@@ -9,16 +9,24 @@ use crate::abi;
 use crate::abi::SyscallInfo;
 use crate::emulator::SyscallEmulator;
 use crate::process::{VPid, Process, ProcessTable, State};
-use crate::protocol::SysPid;
+use crate::ipc::Socket;
+use crate::protocol::{SysPid, MessageFromSand};
 use crate::ptrace;
 
 pub struct Tracer {
+    ipc: Socket,
     process_table: ProcessTable,
 }
 
 impl Tracer {
-    pub fn new() -> Self {
+    pub fn new(ipc: Socket) -> Self {
+
+        // hi there ipc server
+        ipc.send(&MessageFromSand::Nop(1,2));
+        ipc.send(&MessageFromSand::Nop(3,4));
+
         Tracer {
+            ipc,
             process_table: ProcessTable::new()
         }
     }

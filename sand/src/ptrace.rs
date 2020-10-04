@@ -40,7 +40,7 @@ pub fn setoptions(pid: SysPid) {
 
 pub fn get_regs(pid: SysPid, regs: &mut abi::UserRegs) {
     let mut iovec = abi::IOVec {
-        base: regs as *mut abi::UserRegs as *mut usize,
+        base: regs as *mut abi::UserRegs as *mut u8,
         len: mem::size_of_val(regs)
     };
     match unsafe { syscall!(PTRACE, abi::PTRACE_GETREGSET, pid.0,
@@ -53,7 +53,7 @@ pub fn get_regs(pid: SysPid, regs: &mut abi::UserRegs) {
 
 pub fn set_regs(pid: SysPid, regs: &abi::UserRegs) {
     let mut iovec = abi::IOVec {
-        base: regs as *const abi::UserRegs as *mut usize,
+        base: regs as *const abi::UserRegs as *mut u8,
         len: mem::size_of_val(regs)
     };
     match unsafe { syscall!(PTRACE, abi::PTRACE_SETREGSET, pid.0,
