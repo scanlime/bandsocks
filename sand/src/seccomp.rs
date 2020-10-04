@@ -11,17 +11,17 @@ use sc::{syscall, nr};
 // For comparison, the container we might be running in likely has a policy like this one:
 // https://github.com/moby/moby/blob/master/profiles/seccomp/default.json
 
-pub fn policy_for_tracer() {
+fn base_rules_for_all_policies() -> ProgramBuffer {
     let mut p = ProgramBuffer::new();
+
+    // Keep syscall in the accumulator generally
     p.inst(load(offset_of!(SeccompData, nr)));
 
-    // The tracer policy must be a superset of any other policies
-    
-    // List of fully allowed calls
-    // xxx: pare this down as much as possible
-    // xxx: audit source code for anything we leave allowed
+    // Fully allowed in all modes
+    // to do: none of this has been audited yet. this will generally be all syscalls
+    //        that deal with existing fds or with memory, but nothing that deals with
+    //        pids and nothing that has a pathname in it.
     p.if_any_eq(&[
-
         nr::READ,
         nr::WRITE,
         nr::PREAD64,
@@ -29,22 +29,30 @@ pub fn policy_for_tracer() {
         nr::READV,
         nr::WRITEV,
         nr::SENDMSG,
-        nr::RECVMSG,
-        
+        nr::RECVMSG,        
         nr::CLOSE,
         nr::FCNTL,
-
         nr::EXIT_GROUP,        
         nr::EXIT,
         nr::RT_SIGRETURN,
-
         nr::FORK,
         nr::BRK,
-
+        nr::COPY_FILE_RANGE,
+        nr::SENDFILE,
+    ], &[
+        ret(SECCOMP_RET_ALLOW)
+    ]);
+    p
+}
+        
+pub fn policy_for_tracer() {
+    let mut p = base_rules_for_all_policies();
+    
+    // these are emulated inside the sandbox, but the tracer is allowed to use them
+    // to do: none of this has been audited yet
+    p.if_any_eq(&[
         nr::ARCH_PRCTL,
         nr::PRCTL,
-
-        // the tracer itself is allowed to work with non-virtualized PIDs
         nr::WAITID,
         nr::PTRACE,
         nr::GETPID,
@@ -53,7 +61,7 @@ pub fn policy_for_tracer() {
         // xxx: drop this privilege as soon as we initialize the tracer
         nr::EXECVE,
 
-        // xxx: can't allow this, use a different attach mechanism
+        // xxx: can't allow this, use a different attach mechanism?
         nr::KILL,
         
     ], &[
@@ -68,42 +76,16 @@ pub fn policy_for_tracer() {
 }
 
 pub fn policy_for_loader() {
-    let mut p = ProgramBuffer::new();
-    p.inst(load(offset_of!(SeccompData, nr)));
+    let mut p = base_rules_for_all_policies();
 
-    // List of fully allowed calls
-    // xxx: pare this down as much as possible
-    // xxx: audit source code for anything we leave allowed
+    // Specific deny list, of calls we don't even want to try and trace or emulate
     p.if_any_eq(&[
-
-        nr::READ,
-        nr::WRITE,
-        nr::PREAD64,
-        nr::PWRITE64,
-        nr::READV,
-        nr::WRITEV,
-
-        nr::CLOSE,
-        nr::EXIT,
-
-        nr::FORK,
-        nr::BRK,
-
-    ], &[
-        ret(SECCOMP_RET_ALLOW)
-    ]);
-    
-    // List of extremely disallowed calls, kill process without trying to trace
-    p.if_any_eq(&[
-
         nr::PTRACE,
-
     ], &[
         ret(SECCOMP_RET_KILL_PROCESS)
     ]);
     
-    // Trace by default. This emulates the syscalls we emulate,
-    // and others get logged in detail before we panic.
+    // Emulate supported syscalls, rely on the tracer to log and panic on others
     p.inst(ret(SECCOMP_RET_TRACE));
 
     activate(&p);
