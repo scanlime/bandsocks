@@ -64,13 +64,13 @@ impl Tracer {
         println!("child reaped, {:?} {:?}", pid, sys_pid);
         self.process_table.free(pid);
     }
-    
+
     fn handle_fork(&mut self, pid: VPid, sys_pid: SysPid) {
         let child = SysPid(ptrace::geteventmsg(sys_pid) as u32);
         println!("fork {:?} {:?} -> {:?}", pid, sys_pid, child);
         self.expect_new_child(child)
     }
- 
+
     fn handle_exec(&mut self, pid: VPid, sys_pid: SysPid) {
         println!("exec {:?} {:?}", pid, sys_pid);
     }
@@ -84,31 +84,23 @@ impl Tracer {
     }
 
     fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
-        let mut syscall_info: SyscallInfo = Default::default();
         let mut regs: abi::UserRegs = Default::default();
-
-        // All the information we need is in 'regs', but get syscall_info too and cross-check.
-        ptrace::syscall_info(sys_pid, &mut syscall_info);
         ptrace::get_regs(sys_pid, &mut regs);
 
-        assert_eq!(syscall_info.op, abi::PTRACE_SYSCALL_INFO_SECCOMP);
-        assert_eq!(syscall_info.pad0, 0);
-        assert_eq!(syscall_info.pad1, 0);
-        assert_eq!(syscall_info.arch, abi::AUDIT_ARCH_X86_64);
-        assert_eq!(syscall_info.instruction_pointer, regs.ip);
-        assert_eq!(syscall_info.stack_pointer, regs.sp);
-        assert_eq!(syscall_info.nr, regs.orig_ax);
-        assert_eq!(syscall_info.args[0], regs.di);
-        assert_eq!(syscall_info.args[1], regs.si);
-        assert_eq!(syscall_info.args[2], regs.dx);
-        assert_eq!(syscall_info.args[3], regs.r10);
-        assert_eq!(syscall_info.args[4], regs.r8);
-        assert_eq!(syscall_info.args[5], regs.r9);
+        let syscall_info = SyscallInfo {
+            op: abi::PTRACE_SYSCALL_INFO_SECCOMP,
+            arch: abi::AUDIT_ARCH_X86_64,
+            instruction_pointer: regs.ip,
+            stack_pointer: regs.sp,
+            nr: regs.orig_ax,
+            args: [ regs.di, regs.si, regs.dx, regs.r10, regs.r8, regs.r9 ],
+            ..Default::default()
+        };
 
         // Emulate the system call; this can make additional ptrace calls to read/write memory.
         let mut emulator = SyscallEmulator::new(pid, sys_pid, &syscall_info);
         regs.ax = emulator.dispatch() as u64;
-        
+
         // Block the real system call from executing!
         regs.orig_ax = -1 as i64 as u64;
         ptrace::set_regs(sys_pid, &mut regs);
