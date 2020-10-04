@@ -2,7 +2,7 @@
 
 use tokio::task;
 use tokio::task::JoinHandle;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::io::Cursor;
 use std::os::unix::process::CommandExt;
 use pentacle::SealedCommand;
@@ -11,7 +11,7 @@ use std::process::Child;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::prelude::RawFd;
 use crate::sand;
-use crate::sand::protocol::{serialize, deserialize, BUFFER_SIZE, MessageFromSand};
+use crate::sand::protocol::{serialize, deserialize, BUFFER_SIZE, MessageFromSand, MessageToSand};
 use crate::errors::RuntimeError;
 
 pub struct IPCServer {
@@ -66,8 +66,16 @@ impl IPCServer {
         })
     }
 
+    async fn send_message(&mut self, message: &MessageToSand) -> Result<(), RuntimeError> {
+        log::info!("<{:?}", message);
+        let mut buffer = [0; BUFFER_SIZE];
+        let len = serialize(&mut buffer, message).unwrap();
+        Ok(self.stream.write_all(&buffer[0..len]).await?)
+    }
+    
     async fn handle_message(&mut self, message: MessageFromSand) {
-        log::info!("{:?}", message);
+        log::info!(">{:?}", message);
+        self.send_message(&MessageToSand::Nop).await.unwrap();
     }
 }
 
