@@ -1,7 +1,8 @@
 // This code may not be used for any purpose. Be gay, do crime.
 
-use crate::bpf::*;
-use crate::abi::*;
+use seccomp_tiny::bpf::*;
+use seccomp_tiny::abi::*;
+use seccomp_tiny::ProgramBuffer;
 use sc::{syscall, nr};
 
 // This file has two policies; the "tracer" policy is applied very early, and covers this
@@ -72,7 +73,7 @@ pub fn policy_for_tracer() {
     // With no tracer attached this blocks the syscall with ENOSYS.
     p.inst(ret(SECCOMP_RET_TRACE));
 
-    activate(&p);
+    p.activate();
 }
 
 pub fn policy_for_loader() {
@@ -88,17 +89,6 @@ pub fn policy_for_loader() {
     // Emulate supported syscalls, rely on the tracer to log and panic on others
     p.inst(ret(SECCOMP_RET_TRACE));
 
-    activate(&p);
+    p.activate();
 }
 
-fn activate(program_buffer: &ProgramBuffer) {
-    let prog = program_buffer.to_filter_prog();
-    let ptr = (&prog) as *const SockFilterProg as usize;
-    let result = unsafe {
-        syscall!(PRCTL, PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-        syscall!(PRCTL, PR_SET_SECCOMP, SECCOMP_MODE_FILTER, ptr, 0, 0) as isize
-    };
-    if result != 0 {
-        panic!("seccomp setup error ({})", result);
-    }
-}
