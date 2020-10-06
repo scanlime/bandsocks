@@ -10,7 +10,7 @@ edition = "2018"
 [dependencies]
 
 directories-next = "1.0.1"
-dkregistry = { git = "https://github.com/camallo/dkregistry-rs.git" }
+dkregistry = { version = "0.4.1-alpha.0", git = "https://github.com/camallo/dkregistry-rs.git" }
 fd-queue = { version = "1.0.0-beta.2", features = [ "tokio-fd" ] }
 flate2 = "1.0.17"
 lazy_static = "1.4.0"
