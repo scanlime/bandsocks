@@ -11,7 +11,7 @@ edition = "2018"
 env_logger = "0.7.1"
 log = "0.4.11"
 clap = { version = "2.33.3", features = ["yaml"] }
-bandsocks-runtime = { path = "runtime" }
+bandsocks-runtime = { version = "0.1.0", path = "runtime" }
 tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }
 
 [workspace]
