@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use tokio::task;
 use tokio::task::JoinHandle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -23,7 +21,7 @@ impl IPCServer {
     pub fn new() -> Result<IPCServer, RuntimeError> {
         let (server_socket, child_socket) = UnixStream::pair()?;
         clear_close_on_exec_flag(child_socket.as_raw_fd());
-        
+
         let mut sand_bin = Cursor::new(sand::PROGRAM_DATA);
         let mut cmd = SealedCommand::new(&mut sand_bin).unwrap();
 
@@ -72,14 +70,14 @@ impl IPCServer {
         let len = serialize(&mut buffer, message).unwrap();
         Ok(self.stream.write_all(&buffer[0..len]).await?)
     }
-    
+
     async fn handle_message(&mut self, message: MessageFromSand) {
         log::info!(">{:?}", message);
         self.send_message(&MessageToSand::Nop).await.unwrap();
     }
 }
 
-fn clear_close_on_exec_flag(fd: RawFd) {            
+fn clear_close_on_exec_flag(fd: RawFd) {
     let flags = unsafe { libc::fcntl( fd, libc::F_GETFD ) };
     assert!(flags >= 0);
     let flags = flags & !libc::FD_CLOEXEC;

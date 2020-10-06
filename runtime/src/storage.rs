@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use std::sync::{Arc, Weak};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -46,7 +44,7 @@ impl FileStorage {
                         let arc = Arc::new(mmap);
                         let key: StorageKey = key.clone();
                         log::debug!("storage get, {:?}, succeeded opening new mapping", key);
-                        self.memo.insert(key, Arc::downgrade(&arc)); 
+                        self.memo.insert(key, Arc::downgrade(&arc));
                         Ok(Some(arc))
                     }
                 }
@@ -73,7 +71,7 @@ impl FileStorage {
         file.write_all(&data).await?;
         file.flush().await?;
         std::mem::drop(file);
-        
+
         // This part is atomic
         tokio::fs::rename(temp_path, dest_path).await?;
 
@@ -114,7 +112,7 @@ impl PartialEq for StorageKey {
                     s.version() == o.version(),
                 _ => false
             }
-        }                    
+        }
     }
 }
 
@@ -141,7 +139,7 @@ fn push_temp_path<'a>(buf: &'a mut PathBuf) -> Result<&'a mut PathBuf, ImageErro
     push_checked_path(buf, "tmp")?;
     push_checked_path(buf, &format!("{}.{}", pid, ts))?;
     Ok(buf)
-}    
+}
 
 fn push_checked_path<'a>(buf: &'a mut PathBuf, path: &str) -> Result<&'a mut PathBuf, ImageError> {
     lazy_static! {

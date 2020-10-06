@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 #![no_std]
 #![no_main]
 #![feature(panic_info_message)]
@@ -55,7 +53,7 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
             tracer.spawn(SELF_EXE, &argv, &envp);
             tracer.handle_events();
         }
-        
+
         RunMode::Loader => {
             seccomp::policy_for_loader();
 
@@ -78,7 +76,7 @@ fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> R
             Some(fd) => RunMode::Tracer(fd),
             None => RunMode::Unknown,
         }
-        
+
     } else if required_tests && argv0 == STAGE_2_LOADER && argv.len() == 1 && envp.len() == 0 {
         // Stage 2: no other args, empty environment
         RunMode::Loader

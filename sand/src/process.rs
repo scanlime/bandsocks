@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use crate::protocol::SysPid;
 
 pub const PID_LIMIT: usize = 1024;
@@ -87,7 +85,7 @@ impl ProcessTable {
             None
         }
     }
-    
+
     pub fn allocate(&mut self, process: Process) -> Result<VPid, Process> {
         if let Some(index) = self.unused_index() {
             self.next_potentially_unused_index = (index + 1) % PID_LIMIT;
@@ -97,5 +95,5 @@ impl ProcessTable {
         } else {
             Err(process)
         }
-    }   
+    }
 }

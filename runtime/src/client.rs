@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use crate::Reference;
 use crate::errors::ImageError;
 use crate::image::Image;
@@ -84,7 +82,7 @@ impl Client {
         }
 
         Ok(&self.registry_client.as_ref().unwrap().1)
-    }        
+    }
 
     async fn pull_manifest(&mut self, image: &Reference) -> Result<Manifest, ImageError> {
         let key = StorageKey::Manifest(image.clone());
@@ -113,7 +111,7 @@ impl Client {
 
     fn local_blob_list(&mut self, digest_list: &[String]) -> Result<Option<Vec<Arc<Mmap>>>, ImageError> {
         let mut result = vec![];
-        for digest in digest_list {            
+        for digest in digest_list {
             if let Some(mmap) = self.local_blob(digest)? {
                 result.push(mmap);
             }
@@ -126,7 +124,7 @@ impl Client {
     }
 
     async fn pull_blob(&mut self, image: &Reference, link: &Link) -> Result<Arc<Mmap>, ImageError> {
-        let key = StorageKey::Blob(link.digest.clone());       
+        let key = StorageKey::Blob(link.digest.clone());
         let mmap = match self.storage.get(&key)? {
             Some(mmap) => mmap,
             None => {
@@ -145,7 +143,7 @@ impl Client {
             Err(ImageError::UnexpectedContentSize)
         }
     }
-    
+
     async fn pull_runtime_config(&mut self, image: &Reference, link: &Link) -> Result<RuntimeConfig, ImageError> {
         if link.media_type == media_types::RUNTIME_CONFIG {
             let mmap = self.pull_blob(image, link).await?;
@@ -166,7 +164,7 @@ impl Client {
         self.storage.insert(&key, output).await?;
         Ok(())
     }
-    
+
     pub async fn pull(&mut self, image: &Reference) -> Result<Arc<Image>, ImageError> {
         let manifest = self.pull_manifest(image).await?;
         let config = self.pull_runtime_config(image, &manifest.config).await?;
@@ -201,7 +199,7 @@ impl Client {
         for layer in &content {
             tar::extract_metadata(&mut filesystem, layer)?;
         }
-        
+
         Ok(Arc::new(Image {
             digest: manifest.config.digest,
             config,

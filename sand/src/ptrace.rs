@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use core::mem;
 use sc::syscall;
 use crate::abi;
@@ -14,7 +12,7 @@ pub unsafe fn be_the_child_process(cmd: &[u8], argv: &[*const u8], envp: &[*cons
 
     // Let the tracer attach before we exec
     syscall!(KILL, syscall!(GETPID), abi::SIGSTOP);
-    
+
     let result = syscall!(EXECVE, cmd.as_ptr(), argv.as_ptr(), envp.as_ptr()) as isize;
     panic!("exec failed, {}", result);
 }
@@ -74,7 +72,7 @@ pub fn geteventmsg(pid: SysPid) -> usize {
 
 pub fn syscall_info(pid: SysPid, syscall_info: &mut abi::SyscallInfo) {
     let buf_size = span_of!(abi::SyscallInfo, ..ret_data).end;
-    let ptr = syscall_info as *mut abi::SyscallInfo as usize;       
+    let ptr = syscall_info as *mut abi::SyscallInfo as usize;
     match unsafe { syscall!(PTRACE, abi::PTRACE_GET_SYSCALL_INFO, pid.0, buf_size, ptr) as isize } {
         err if err < 0 => panic!("ptrace get syscall info failed ({})", err),
         actual_size if actual_size < buf_size as isize => {

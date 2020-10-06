@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use std::process::Command;
 use std::path::Path;
 use build_deps::rerun_if_changed_paths;
@@ -9,7 +7,7 @@ fn main() {
     let sand_target = Path::new(&out_dir).join("sand-target");
 
     rerun_if_changed_paths("../sand/Cargo.toml").unwrap();
-    rerun_if_changed_paths("../sand/src/*.rs").unwrap();   
+    rerun_if_changed_paths("../sand/src/*.rs").unwrap();
 
     assert!(Command::new("cargo")
             .current_dir("../sand")

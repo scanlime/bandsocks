@@ -1,8 +1,4 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
-use seccomp_tiny::bpf::*;
-use seccomp_tiny::abi::*;
-use seccomp_tiny::ProgramBuffer;
+use seccomp_tiny::{ProgramBuffer, abi::*, bpf::*};
 use sc::{syscall, nr};
 
 // This file has two policies; the "tracer" policy is applied very early, and covers this
@@ -30,10 +26,10 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
         nr::READV,
         nr::WRITEV,
         nr::SENDMSG,
-        nr::RECVMSG,        
+        nr::RECVMSG,
         nr::CLOSE,
         nr::FCNTL,
-        nr::EXIT_GROUP,        
+        nr::EXIT_GROUP,
         nr::EXIT,
         nr::RT_SIGRETURN,
         nr::FORK,
@@ -45,10 +41,10 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
     ]);
     p
 }
-        
+
 pub fn policy_for_tracer() {
     let mut p = base_rules_for_all_policies();
-    
+
     // these are emulated inside the sandbox, but the tracer is allowed to use them
     // to do: none of this has been audited yet
     p.if_any_eq(&[
@@ -64,7 +60,7 @@ pub fn policy_for_tracer() {
 
         // xxx: can't allow this, use a different attach mechanism?
         nr::KILL,
-        
+
     ], &[
         ret(SECCOMP_RET_ALLOW)
     ]);
@@ -85,10 +81,9 @@ pub fn policy_for_loader() {
     ], &[
         ret(SECCOMP_RET_KILL_PROCESS)
     ]);
-    
+
     // Emulate supported syscalls, rely on the tracer to log and panic on others
     p.inst(ret(SECCOMP_RET_TRACE));
 
     p.activate();
 }
-

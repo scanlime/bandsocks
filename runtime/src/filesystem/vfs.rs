@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use crate::filesystem::mmap::MapRef;
 use crate::errors::VFSError;
 use std::fmt;
@@ -96,7 +94,7 @@ impl Filesystem {
     pub fn writer<'a>(&'a mut self) -> VFSWriter<'a> {
         let workdir = self.root;
         VFSWriter { workdir, fs: self }
-    }            
+    }
 
     fn get_inode(&self, num: INodeNum) -> Result<&INode, VFSError> {
         match self.inodes.get(num) {
@@ -151,7 +149,7 @@ impl Filesystem {
             }
         }
     }
-                
+
     fn resolve_path(&self, mut limits: &mut Limits, parent: INodeNum, path: &Path) -> Result<DirEntryRef, VFSError> {
         log::trace!("resolving path {:?} in {}", path, parent);
 
@@ -177,7 +175,7 @@ impl Filesystem {
                 child: parent
             })
         };
-        
+
         log::trace!("resolved path {:?} in {} -> {:?}", path, parent, result);
         result
     }
@@ -215,7 +213,7 @@ impl<'a> VFSWriter<'a> {
         assert!(self.fs.inodes[num as usize].is_none());
         self.fs.inodes[num].replace(Arc::new(inode));
     }
-    
+
     fn put_directory(&mut self, num: INodeNum) {
         let mut map = BTreeMap::new();
         map.insert(OsString::from("."), num);
@@ -254,7 +252,7 @@ impl<'a> VFSWriter<'a> {
 
     fn add_child_to_directory(&mut self, parent: INodeNum, child_name: &OsStr, child_value: INodeNum) -> Result<(), VFSError> {
         log::trace!("add_child_to_directory, parent {}, child {:?} {}", parent, child_name, child_value);
-        self.inode_incref(child_value)?;        
+        self.inode_incref(child_value)?;
         let previous = match &mut self.get_inode_mut(parent)?.data {
             Node::Directory(map) => map.insert(child_name.to_os_string(), child_value),
             other => {
@@ -267,7 +265,7 @@ impl<'a> VFSWriter<'a> {
             Some(prev_child) => self.inode_decref(prev_child)
         }
     }
-    
+
     fn alloc_child_directory(&mut self, parent: INodeNum, name: &OsStr) -> Result<INodeNum, VFSError> {
         let num = self.alloc_inode_number();
         self.put_directory(num);
@@ -327,7 +325,7 @@ impl<'a> VFSWriter<'a> {
         self.add_child_to_directory(dir, name, num)?;
         Ok(())
     }
-    
+
     pub fn write_hardlink(&mut self, path: &Path, link_to: &Path) -> Result<(), VFSError> {
         let mut limits = Limits::reset();
         let link_to_node = self.fs.resolve_path(&mut limits, self.workdir, link_to)?.child;
@@ -349,7 +347,7 @@ impl<'a> VFSWriter<'a> {
             Err(other) => Err(other),
         }
     }
-                
+
     fn resolve_or_create_path(&mut self, mut limits: &mut Limits, parent: INodeNum, path: &Path) -> Result<DirEntryRef, VFSError> {
         log::trace!("resolve/create path {:?} in {}", path, parent);
 
@@ -392,7 +390,7 @@ impl fmt::Debug for Stat {
 
 impl fmt::Debug for Filesystem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut stack = vec![( PathBuf::new(), self.root )];        
+        let mut stack = vec![( PathBuf::new(), self.root )];
         let mut memo = HashSet::new();
         while let Some((path, dir)) = stack.pop() {
             memo.insert(dir);

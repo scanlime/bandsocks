@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 compile_error!("bandsocks only works on linux or android");
 

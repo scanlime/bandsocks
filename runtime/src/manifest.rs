@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use serde::{Serialize, Deserialize};
 
 /// Partial implementation of the manifest v2 schema2 spec.

@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 #[macro_use]
 extern crate tokio;
 

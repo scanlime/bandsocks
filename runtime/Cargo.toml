@@ -1,6 +1,9 @@
 [package]
 name = "bandsocks-runtime"
 version = "0.1.0"
+description = "Experimental embeddable container sandbox (not working yet)"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/scanlime/bandsocks"
 authors = ["Micah Elizabeth Scott <micah@scanlime.org>"]
 edition = "2018"
 

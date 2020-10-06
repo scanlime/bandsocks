@@ -7,7 +7,7 @@ it's a container runtime!
 
 it's designed to nest inside unprivileged docker containers!
 
-it's highly experimental!
+it's highly experimental and doesn't actually work yet!
 
 ```
 🎶 🎹🧦 🎸🧦 🎸🧦 🎷🧦 🎺🧦 🥁🧦 🎶

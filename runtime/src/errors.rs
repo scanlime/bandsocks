@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -78,7 +76,7 @@ pub enum RuntimeError {
 
     #[error("virtual filesystem error: {0}")]
     VFSError(#[from] VFSError),
-    
+
     #[error("task join error: {0}")]
     TaskJoinError(#[from] tokio::task::JoinError),
 

@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 #![allow(dead_code)]
 
 // open
@@ -191,4 +189,3 @@ pub const CLD_DUMPED: u32 = 3;
 pub const CLD_TRAPPED: u32 = 4;
 pub const CLD_STOPPED: u32 = 5;
 pub const CLD_CONTINUED: u32 = 6;
-

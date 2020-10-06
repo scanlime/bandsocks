@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use crate::Reference;
 use crate::image::Image;
 use crate::client::Client;
@@ -67,7 +65,7 @@ impl ContainerBuilder {
                 EnvBuilder::Remove(key) => { env.remove(key); },
                 EnvBuilder::Set(key, value) => { env.insert(key.clone(), value.clone()); },
             }
-        }        
+        }
 
         // merge the command line arguments, allowing an "entry point" binary from either the config
         // or our local overrides, followed by additional "cmd" args that can be taken exactly as configured
@@ -121,7 +119,7 @@ impl ContainerBuilder {
         self.entrypoint = Some(path.as_ref().as_os_str().to_os_string());
         self
     }
-    
+
     pub fn env<K, V>(&mut self, key: K, val: V) -> &mut Self
     where
         K: AsRef<OsStr>,
@@ -129,7 +127,7 @@ impl ContainerBuilder {
     {
         self.env_list.push(EnvBuilder::Set(key.as_ref().to_os_string(),
                                            val.as_ref().to_os_string()));
-        self            
+        self
     }
 
     pub fn envs<I, K, V>(&mut self, vars: I) -> &mut Self
@@ -172,13 +170,13 @@ impl Container {
     pub async fn wait(self) -> Result<(), RuntimeError> {
         self.ipc_join.await?
     }
-    
+
     pub async fn pull(image_reference: &Reference) -> Result<ContainerBuilder, ImageError> {
         let mut builder = Container::new();
         builder.image(&Client::new()?.pull(image_reference).await?);
         Ok(builder)
     }
-    
+
     fn startup(filesystem: Filesystem, argv: Vec<OsString>, env: BTreeMap<OsString, OsString>, dir: PathBuf)
                -> Result<Container, RuntimeError> {
 
@@ -190,7 +188,7 @@ impl Container {
     }
 
     fn program_image_for_execp(&self, argv0: &OsStr) -> Result<MapRef, RuntimeError> {
-        
+
         // Following the convention of execvp() and friends, the PATH is searched
         // if and only if argv0 has no slash characters in it.
 

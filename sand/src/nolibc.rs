@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use sc::syscall;
 use core::slice;
 use core::str;
@@ -77,7 +75,7 @@ pub unsafe fn c_strv_len(strv: *const *const u8) -> usize {
         count += 1;
     }
     count
-}    
+}
 
 pub unsafe fn c_strv_slice(strv: *const *const u8) -> &'static [*const u8] {
     slice::from_raw_parts(strv, c_strv_len(strv))

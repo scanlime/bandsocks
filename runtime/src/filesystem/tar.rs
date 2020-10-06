@@ -1,5 +1,3 @@
-// This code may not be used for any purpose. Be gay, do crime.
-
 use crate::filesystem::vfs::{Filesystem, Stat};
 use crate::filesystem::mmap::MapRef;
 use crate::errors::ImageError;
@@ -42,7 +40,7 @@ fn extract_file_metadata<'a, R: Read> (fs: &mut Filesystem, entry: Entry<'a, R>,
         mtime: entry.header().mtime()?,
         ..Default::default()
     };
-            
+
     match kind {
         EntryType::Regular => fsw.write_file_mapping(&path, file, stat)?,
         EntryType::Directory => fsw.write_directory_metadata(&path, stat)?,
