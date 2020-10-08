@@ -4,8 +4,9 @@ use core::str;
 use core::ptr::null;
 use core::panic::PanicInfo;
 use core::fmt::{self, Write};
+use crate::abi;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SysFd(pub u32);
 
 impl fmt::Write for SysFd {
@@ -79,6 +80,33 @@ pub unsafe fn c_strv_len(strv: *const *const u8) -> usize {
 
 pub unsafe fn c_strv_slice(strv: *const *const u8) -> &'static [*const u8] {
     slice::from_raw_parts(strv, c_strv_len(strv))
+}
+
+pub fn signal(signum: u32, handler: extern fn(u32)) -> Result<(), isize> {
+    let sigaction = abi::SigAction {
+        sa_flags: 0,
+        sa_handler: handler,
+        sa_restorer: 0,
+        sa_mask: [0; 16],
+    };
+    match unsafe { syscall!(RT_SIGACTION,
+                            signum, (&sigaction) as *const abi::SigAction,
+                            0, core::mem::size_of::<abi::SigSet>()) } {
+        0 => Ok(()),
+        other => Err(other as isize),
+    }
+}
+
+pub fn sigreturn() -> ! {
+    unsafe { syscall!(RT_SIGRETURN) };
+    unreachable!();
+}
+
+pub fn fcntl_setfl(fd: &SysFd, flags: usize) -> Result<(), isize> {
+    match unsafe { syscall!(FCNTL, fd.0, abi::F_SETFL, flags) } {
+        0 => Ok(()),
+        other => Err(other as isize),
+    }
 }
 
 #[no_mangle]

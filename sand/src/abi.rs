@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 // open
 // linux/include/uapi/asm-generic/fcntl.h
 pub const O_RDONLY: usize = 0;
@@ -189,3 +187,31 @@ pub const CLD_DUMPED: u32 = 3;
 pub const CLD_TRAPPED: u32 = 4;
 pub const CLD_STOPPED: u32 = 5;
 pub const CLD_CONTINUED: u32 = 6;
+
+// sigaction
+// linux/include/linux/signal_types.h
+#[derive(Debug)]
+#[repr(C)]
+pub struct SigAction {
+    pub sa_handler: extern fn(u32),
+    pub sa_mask: [u64; 16],
+    pub sa_flags: u32,
+    pub sa_restorer: usize,
+}
+
+/// sigset_t
+/// linux/include/uapi/asm-generic/signal.h
+#[derive(Debug)]
+#[repr(C)]
+pub struct SigSet {
+    pub sig: [u64; 1],
+}
+
+/// linux/include/uapi/asm-generic/fcntl.h
+pub const F_SETFL: usize = 4;
+
+/// linux/include/uapi/asm-generic/fcntl.h
+pub const FASYNC: usize = 0o20000;
+
+/// linux/include/uapi/asm-generic/fcntl.h
+pub const O_NONBLOCK: usize = 0o4000;

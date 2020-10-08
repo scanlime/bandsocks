@@ -1,5 +1,5 @@
 use seccomp_tiny::{ProgramBuffer, abi::*, bpf::*};
-use sc::{syscall, nr};
+use sc::nr;
 
 // This file has two policies; the "tracer" policy is applied very early, and covers this
 // process for its entire lifetime. The "loader" policy is applied during stage 2, and it
@@ -31,7 +31,6 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
         nr::FCNTL,
         nr::EXIT_GROUP,
         nr::EXIT,
-        nr::RT_SIGRETURN,
         nr::FORK,
         nr::BRK,
         nr::COPY_FILE_RANGE,
@@ -53,6 +52,8 @@ pub fn policy_for_tracer() {
         nr::WAITID,
         nr::PTRACE,
         nr::GETPID,
+	nr::RT_SIGACTION,
+	nr::RT_SIGRETURN,
 
         // need this to get to the next stage
         // xxx: drop this privilege as soon as we initialize the tracer

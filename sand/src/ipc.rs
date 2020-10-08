@@ -2,20 +2,27 @@ use core::ptr;
 use core::mem;
 use sc::syscall;
 use crate::abi;
-use crate::nolibc::SysFd;
+use crate::nolibc::{self, SysFd};
 use crate::protocol::{MessageFromSand, MessageToSand, BUFFER_SIZE, serialize, deserialize};
 
+#[derive(Debug)]
 pub struct Socket {
     fd: SysFd
 }
 
 impl Socket {
-    pub fn from_sys_fd(fd: SysFd) -> Socket {
-       // let unsafe {
-       //     syscall!(RT_SIGACTION, abi::SIGIO, act, oact, mem::size_of_val(act)) as isize
-       // }
+    pub fn from_sys_fd(fd: &SysFd) -> Socket {
+        nolibc::signal(abi::SIGIO, Socket::handle_sigio).expect("setting up sigio handler");
+        nolibc::fcntl_setfl(fd, abi::FASYNC | abi::O_NONBLOCK).expect("setting socket flags");
+        unsafe { syscall!(KILL, syscall!(GETPID), abi::SIGIO)  };
+        Socket {
+            fd: fd.clone()
+        }
+    }
 
-        Socket { fd }
+    extern fn handle_sigio(num: u32) {
+        println!("signal! {}", num);
+        nolibc::sigreturn();
     }
 
     pub fn send(&self, message: &MessageFromSand) {

@@ -45,7 +45,7 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
         RunMode::Tracer(fd) => {
             seccomp::policy_for_tracer();
 
-            let ipc = Socket::from_sys_fd(fd);
+            let ipc = Socket::from_sys_fd(&fd);
             let mut tracer = Tracer::new(ipc);
 
             let argv = [ STAGE_2_LOADER.as_ptr(), ptr::null() ];
