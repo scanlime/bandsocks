@@ -6,7 +6,10 @@ use crate::protocol::{MessageFromSand, MessageToSand, BUFFER_SIZE, serialize, de
 
 #[derive(Debug)]
 pub struct Socket {
-    fd: SysFd
+    fd: SysFd,
+    recv_buffer: [u8; BUFFER_SIZE],
+    recv_begin: usize,
+    recv_end: usize,
 }
 
 impl Socket {
@@ -14,7 +17,10 @@ impl Socket {
         nolibc::signal(abi::SIGIO, Socket::handle_sigio).expect("setting up sigio handler");
         nolibc::fcntl_setfl(fd, abi::FASYNC | abi::O_NONBLOCK).expect("setting socket flags");
         Socket {
-            fd: fd.clone()
+            fd: fd.clone(),
+            recv_buffer: [0; BUFFER_SIZE],
+            recv_begin: 0,
+            recv_end: 0,
         }
     }
 
@@ -23,10 +29,29 @@ impl Socket {
         println!("sigio");
     }
 
-    pub fn recv(&self) -> Option<MessageToSand> {
-        let mut buffer = [0 as u8; BUFFER_SIZE];
+    pub fn recv(&mut self) -> Option<MessageToSand> {
+        if self.recv_begin == self.recv_end {
+            self.fill_recv_buffer();
+            println!("filled {} {}", self.recv_begin, self.recv_end);
+        }
+        if self.recv_begin == self.recv_end {
+            None
+        } else {
+            println!("try deserialize {} {}", self.recv_begin, self.recv_end); 
+            match deserialize(&self.recv_buffer[self.recv_begin .. self.recv_end]) {
+                Ok((message, bytes_used)) => {
+                    self.recv_begin += bytes_used;
+                    assert!(self.recv_begin <= self.recv_end);
+                    Some(message)
+                },
+                other => panic!("recvmsg deserialized to unexpected value, {:?}", other),
+            }
+        }
+    }
+
+    fn fill_recv_buffer(&mut self) {
         let mut iov = abi::IOVec {
-            base: &mut buffer[0] as *mut u8,
+            base: &mut self.recv_buffer[0] as *mut u8,
             len: BUFFER_SIZE,
         };
         let msghdr = abi::MsgHdr {
@@ -40,14 +65,14 @@ impl Socket {
         };
         let flags = abi::MSG_DONTWAIT;
         let result = unsafe { syscall!(RECVMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
-        match result {
-            len if len > 0 => match deserialize(&buffer) {
-                Ok((message, bytes_used)) if bytes_used == len as usize => Some(message),
-                other => panic!("recvmsg deserialized {} bytes to unexpected value, {:?}", len, other),
-            },
-            EAGAIN => None,
+        println!("recvmsg {}", result);
+        self.recv_begin = 0;
+        self.recv_end = match result {
+            EAGAIN => 0,
+            len if len > 0 => len as usize,
             other => panic!("recvmsg ({})", other),
-        }
+        };
+        println!("filled_ {} {}", self.recv_begin, self.recv_end);
     }
 
     pub fn send(&self, message: &MessageFromSand) {
