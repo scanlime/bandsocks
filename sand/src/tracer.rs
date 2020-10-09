@@ -8,7 +8,7 @@ use crate::abi::SyscallInfo;
 use crate::emulator::SyscallEmulator;
 use crate::process::{VPid, Process, ProcessTable, State};
 use crate::ipc::Socket;
-use crate::protocol::{SysPid, MessageFromSand};
+use crate::protocol::{SysPid, MessageFromSand, MessageToSand};
 use crate::ptrace;
 
 pub struct Tracer {
@@ -109,6 +109,10 @@ impl Tracer {
         let info_ptr = &mut info as *mut abi::SigInfo as usize;
         assert_eq!(mem::size_of_val(&info), abi::SI_MAX_SIZE);
         loop {
+            while let Some(message) = self.ipc.recv() {
+                self.handle_message(message);
+            }
+
             let which = abi::P_ALL;
             let pid = -1 as isize as usize;
             let options = abi::WEXITED | abi::WSTOPPED | abi::WCONTINUED;
@@ -120,6 +124,10 @@ impl Tracer {
                 other => panic!("waitid err ({})", other),
             }
         }
+    }
+
+    fn handle_message(&mut self, message: MessageToSand) {
+        println!("received: {:?}", message);
     }
 
     fn handle_event(&mut self, info: &abi::SigInfo) {

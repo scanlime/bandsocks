@@ -135,6 +135,7 @@ pub const SI_MAX_SIZE: usize = 128;
 // errno
 // linux/include/uapi/asm-generic/errno-base.h
 pub const ECHILD: isize = -10;
+pub const EAGAIN: isize = -11;
 
 // signo
 // linux/include/uapi/asm-generic/signal.h
