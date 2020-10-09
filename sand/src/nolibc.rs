@@ -82,11 +82,17 @@ pub unsafe fn c_strv_slice(strv: *const *const u8) -> &'static [*const u8] {
     slice::from_raw_parts(strv, c_strv_len(strv))
 }
 
+extern fn restorer() {
+    panic!("restorer");
+    unsafe { syscall!(RT_SIGRETURN) };
+    unreachable!();
+}
+
 pub fn signal(signum: u32, handler: extern fn(u32)) -> Result<(), isize> {
     let sigaction = abi::SigAction {
-        sa_flags: 0,
+        sa_flags: abi::SA_RESTORER,
         sa_handler: handler,
-        sa_restorer: 0,
+        sa_restorer: restorer,
         sa_mask: [0; 16],
     };
     match unsafe { syscall!(RT_SIGACTION,
@@ -95,11 +101,6 @@ pub fn signal(signum: u32, handler: extern fn(u32)) -> Result<(), isize> {
         0 => Ok(()),
         other => Err(other as isize),
     }
-}
-
-pub fn sigreturn() -> ! {
-    unsafe { syscall!(RT_SIGRETURN) };
-    unreachable!();
 }
 
 pub fn fcntl_setfl(fd: &SysFd, flags: usize) -> Result<(), isize> {

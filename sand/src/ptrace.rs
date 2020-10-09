@@ -69,16 +69,3 @@ pub fn geteventmsg(pid: SysPid) -> usize {
         err => panic!("ptrace geteventmsg failed ({})", err)
     }
 }
-
-pub fn syscall_info(pid: SysPid, syscall_info: &mut abi::SyscallInfo) {
-    let buf_size = span_of!(abi::SyscallInfo, ..ret_data).end;
-    let ptr = syscall_info as *mut abi::SyscallInfo as usize;
-    match unsafe { syscall!(PTRACE, abi::PTRACE_GET_SYSCALL_INFO, pid.0, buf_size, ptr) as isize } {
-        err if err < 0 => panic!("ptrace get syscall info failed ({})", err),
-        actual_size if actual_size < buf_size as isize => {
-            panic!("ptrace syscall info too short (kernel gave us {} bytes, expected {})",
-                   actual_size, buf_size);
-        },
-        _ => (),
-    }
-}

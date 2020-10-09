@@ -38,7 +38,14 @@ const STAGE_1_TRACER: &'static [u8] = b"sand\0";
 const STAGE_2_LOADER: &'static [u8] = b"sand-exec\0";
 enum RunMode { Unknown, Tracer(SysFd), Loader }
 
+extern fn handle_sigusr1(_: u32) {
+    println!("sigusr1");
+}
+
 fn main(argv: &[*const u8], envp: &[*const u8]) {
+    nolibc::signal(abi::SIGUSR1, handle_sigusr1).unwrap();
+    unsafe { syscall!(KILL, syscall!(GETPID), abi::SIGUSR1)  };
+
     match check_environment_determine_mode(argv, envp) {
         RunMode::Unknown => panic!("where am i"),
 

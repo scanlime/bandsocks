@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // open
 // linux/include/uapi/asm-generic/fcntl.h
 pub const O_RDONLY: usize = 0;
@@ -136,12 +138,19 @@ pub const ECHILD: isize = -10;
 
 // signo
 // linux/include/uapi/asm-generic/signal.h
+pub const SIGINT: u32 = 2;
 pub const SIGTRAP: u32 = 5;
+pub const SIGBUS: u32 = 7;
 pub const SIGKILL: u32 = 9;
+pub const SIGUSR1: u32 = 10;
+pub const SIGUSR2: u32 = 12;
 pub const SIGSEGV: u32 = 11;
 pub const SIGCHLD: u32 = 17;
+pub const SIGCONT: u32 = 18;
 pub const SIGSTOP: u32 = 19;
+pub const SIGURG: u32 = 23;
 pub const SIGIO: u32 = 29;
+pub const SIGSYS: u32 = 31;
 
 // sendmsg() user_msghdr
 // linux/include/linux/socket.h
@@ -189,15 +198,18 @@ pub const CLD_STOPPED: u32 = 5;
 pub const CLD_CONTINUED: u32 = 6;
 
 // sigaction
-// linux/include/linux/signal_types.h
+// linux/inclide/linux/signal_types.h
 #[derive(Debug)]
 #[repr(C)]
 pub struct SigAction {
     pub sa_handler: extern fn(u32),
-    pub sa_mask: [u64; 16],
     pub sa_flags: u32,
-    pub sa_restorer: usize,
+    pub sa_restorer: extern fn(),
+    pub sa_mask: [u64; 16],
 }
+
+// arch/x86/include/uapi/asm/signal.h
+pub const SA_RESTORER: u32 = 0x04000000;
 
 /// sigset_t
 /// linux/include/uapi/asm-generic/signal.h

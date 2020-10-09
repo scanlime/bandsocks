@@ -1,9 +1,8 @@
 use core::ptr;
-use core::mem;
 use sc::syscall;
 use crate::abi;
 use crate::nolibc::{self, SysFd};
-use crate::protocol::{MessageFromSand, MessageToSand, BUFFER_SIZE, serialize, deserialize};
+use crate::protocol::{MessageFromSand, BUFFER_SIZE, serialize};
 
 #[derive(Debug)]
 pub struct Socket {
@@ -22,7 +21,6 @@ impl Socket {
 
     extern fn handle_sigio(num: u32) {
         println!("signal! {}", num);
-        nolibc::sigreturn();
     }
 
     pub fn send(&self, message: &MessageFromSand) {
