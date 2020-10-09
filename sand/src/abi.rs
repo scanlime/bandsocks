@@ -204,7 +204,7 @@ pub const CLD_CONTINUED: u32 = 6;
 pub struct SigAction {
     pub sa_handler: extern fn(u32),
     pub sa_flags: u32,
-    pub sa_restorer: extern fn(),
+    pub sa_restorer: unsafe extern fn(),
     pub sa_mask: [u64; 16],
 }
 
