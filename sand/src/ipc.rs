@@ -32,12 +32,10 @@ impl Socket {
     pub fn recv(&mut self) -> Option<MessageToSand> {
         if self.recv_begin == self.recv_end {
             self.fill_recv_buffer();
-            println!("filled {} {}", self.recv_begin, self.recv_end);
         }
         if self.recv_begin == self.recv_end {
             None
         } else {
-            println!("try deserialize {} {}", self.recv_begin, self.recv_end); 
             match deserialize(&self.recv_buffer[self.recv_begin .. self.recv_end]) {
                 Ok((message, bytes_used)) => {
                     self.recv_begin += bytes_used;
@@ -68,11 +66,10 @@ impl Socket {
         println!("recvmsg {}", result);
         self.recv_begin = 0;
         self.recv_end = match result {
-            EAGAIN => 0,
             len if len > 0 => len as usize,
-            other => panic!("recvmsg ({})", other),
+            err if err == abi::EAGAIN => 0,
+            err => panic!("recvmsg ({})", err),
         };
-        println!("filled_ {} {}", self.recv_begin, self.recv_end);
     }
 
     pub fn send(&self, message: &MessageFromSand) {
