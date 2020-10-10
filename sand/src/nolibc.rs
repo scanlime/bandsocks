@@ -103,8 +103,8 @@ pub fn signal(signum: u32, handler: extern fn(u32)) -> Result<(), isize> {
     }
 }
 
-pub fn fcntl_setfl(fd: &SysFd, flags: usize) -> Result<(), isize> {
-    match unsafe { syscall!(FCNTL, fd.0, abi::F_SETFL, flags) } {
+pub fn fcntl(fd: &SysFd, op: usize, arg: usize) -> Result<(), isize> {
+    match unsafe { syscall!(FCNTL, fd.0, op, arg) } {
         0 => Ok(()),
         other => Err(other as isize),
     }

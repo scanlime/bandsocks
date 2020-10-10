@@ -222,9 +222,9 @@ pub struct SigSet {
 
 /// linux/include/uapi/asm-generic/fcntl.h
 pub const F_SETFL: usize = 4;
-
+/// linux/include/uapi/asm-generic/fcntl.h
+pub const F_SETOWN: usize = 8;
 /// linux/include/uapi/asm-generic/fcntl.h
 pub const FASYNC: usize = 0o20000;
-
 /// linux/include/uapi/asm-generic/fcntl.h
 pub const O_NONBLOCK: usize = 0o4000;

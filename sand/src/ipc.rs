@@ -14,8 +14,11 @@ pub struct Socket {
 
 impl Socket {
     pub fn from_sys_fd(fd: &SysFd) -> Socket {
+        // to do: lock down fcntl via seccomp, only allow SIGIO, only allow current PID.
+        //        lock down current PID at/before seccomp time
         nolibc::signal(abi::SIGIO, Socket::handle_sigio).expect("setting up sigio handler");
-        nolibc::fcntl_setfl(fd, abi::FASYNC | abi::O_NONBLOCK).expect("setting socket flags");
+        nolibc::fcntl(fd, abi::F_SETFL, abi::FASYNC | abi::O_NONBLOCK).expect("setting socket flags");
+        nolibc::fcntl(fd, abi::F_SETOWN, unsafe { syscall!(GETPID) }).expect("setting socket owner");
         Socket {
             fd: fd.clone(),
             recv_buffer: [0; BUFFER_SIZE],
