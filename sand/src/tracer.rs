@@ -8,7 +8,7 @@ use crate::abi::SyscallInfo;
 use crate::emulator::SyscallEmulator;
 use crate::process::{VPid, Process, ProcessTable, State};
 use crate::ipc::Socket;
-use crate::protocol::{SysPid, MessageFromSand, MessageToSand};
+use crate::protocol::{SysPid, MessageFromSand};
 use crate::ptrace;
 
 pub struct Tracer {
@@ -46,7 +46,7 @@ impl Tracer {
         }
     }
 
-    fn handle_new_child(&mut self, pid: VPid, sys_pid: SysPid) {
+    async fn handle_new_child(&mut self, pid: VPid, sys_pid: SysPid) {
         let mut process = self.process_table.get_mut(pid).unwrap();
         assert_eq!(sys_pid, process.sys_pid);
         println!("new child, {:?} {:?}", pid, process);
@@ -54,34 +54,25 @@ impl Tracer {
         process.state = State::Normal;
     }
 
-    fn handle_child_exit(&mut self, sys_pid: SysPid, si_code: u32) {
+    async fn handle_child_exit(&mut self, sys_pid: SysPid, si_code: u32) {
         println!("child exit, {:?} code={}", sys_pid, si_code);
     }
 
-    fn handle_child_reaped(&mut self, pid: VPid, sys_pid: SysPid) {
-        println!("child reaped, {:?} {:?}", pid, sys_pid);
-        self.process_table.free(pid);
-    }
-
-    fn handle_fork(&mut self, pid: VPid, sys_pid: SysPid) {
+    async fn handle_fork(&mut self, pid: VPid, sys_pid: SysPid) {
         let child = SysPid(ptrace::geteventmsg(sys_pid) as u32);
         println!("fork {:?} {:?} -> {:?}", pid, sys_pid, child);
         self.expect_new_child(child)
     }
 
-    fn handle_exec(&mut self, pid: VPid, sys_pid: SysPid) {
+    async fn handle_exec(&mut self, pid: VPid, sys_pid: SysPid) {
         println!("exec {:?} {:?}", pid, sys_pid);
     }
 
-    fn handle_signal(&mut self, pid: VPid, sys_pid: SysPid, signal: u8) {
+    async fn handle_signal(&mut self, pid: VPid, sys_pid: SysPid, signal: u8) {
         println!("signal {}, {:?} {:?}", signal, pid, sys_pid);
-        // to do: reap child in our own PID table after SIGCHLD
-        if signal as u32 == abi::SIGSEGV {
-            panic!("segmentation fault");
-        }
     }
 
-    fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
+    async fn handle_seccomp_trace(&mut self, pid: VPid, sys_pid: SysPid) {
         let mut regs: abi::UserRegs = Default::default();
         ptrace::get_regs(sys_pid, &mut regs);
 
@@ -95,9 +86,8 @@ impl Tracer {
             ..Default::default()
         };
 
-        // Emulate the system call; this can make additional ptrace calls to read/write memory.
         let mut emulator = SyscallEmulator::new(pid, sys_pid, &syscall_info);
-        regs.ax = emulator.dispatch() as u64;
+        regs.ax = emulator.dispatch().await as u64;
 
         // Block the real system call from executing!
         regs.orig_ax = -1 as i64 as u64;
@@ -110,7 +100,7 @@ impl Tracer {
         assert_eq!(mem::size_of_val(&info), abi::SI_MAX_SIZE);
         loop {
             while let Some(message) = self.ipc.recv() {
-                self.handle_message(message);
+                println!("received: {:?}", message);                
             }
 
             let which = abi::P_ALL;
@@ -120,29 +110,25 @@ impl Tracer {
             let result = unsafe { syscall!(WAITID, which, pid, info_ptr, options, rusage) as isize };
             match result {
                 0 => self.handle_event(&info),
-                abi::ECHILD => break,
-                other => panic!("waitid err ({})", other),
+                err if err == abi::ECHILD => break,
+                err => panic!("waitid err ({})", err),
             }
         }
     }
 
-    fn handle_message(&mut self, message: MessageToSand) {
-        println!("received: {:?}", message);
-    }
-
-    fn handle_event(&mut self, info: &abi::SigInfo) {
+    async fn handle_event(&mut self, info: &abi::SigInfo) {
         assert_eq!(info.si_signo, abi::SIGCHLD);
         let sys_pid = SysPid(info.si_pid);
         match info.si_code {
             abi::CLD_STOPPED => panic!("unexpected 'stopped' state, {:?}", info),
             abi::CLD_CONTINUED => panic!("unexpected 'continued' state, {:?}", info),
-            abi::CLD_EXITED | abi::CLD_KILLED | abi::CLD_DUMPED => self.handle_child_exit(sys_pid, info.si_code),
-            abi::CLD_TRAPPED => self.handle_ptrace_trap(sys_pid, info.si_status),
+            abi::CLD_EXITED | abi::CLD_KILLED | abi::CLD_DUMPED => self.handle_child_exit(sys_pid, info.si_code).await,
+            abi::CLD_TRAPPED => self.handle_ptrace_trap(sys_pid, info.si_status).await,
             code => panic!("unexpected siginfo, {}", code),
         }
     }
 
-    fn handle_ptrace_trap(&mut self, sys_pid: SysPid, signal: u32) {
+    async fn handle_ptrace_trap(&mut self, sys_pid: SysPid, signal: u32) {
         let (pid, process) = match self.process_table.find_sys_pid(sys_pid) {
             None => panic!("ptrace trap from unknown {:?}", sys_pid),
             Some(result) => result
@@ -150,19 +136,19 @@ impl Tracer {
         match process.state {
             State::Spawning => {
                 match signal {
-                    abi::SIGSTOP => self.handle_new_child(pid, sys_pid),
+                    abi::SIGSTOP => self.handle_new_child(pid, sys_pid).await,
                     _ => panic!("unexpected signal {} during process startup", signal),
                 }
             },
             State::Normal => {
                 match signal {
-                    abi::PTRACE_SIG_FORK => self.handle_fork(pid, sys_pid),
-                    abi::PTRACE_SIG_EXEC => self.handle_exec(pid, sys_pid),
+                    abi::PTRACE_SIG_FORK => self.handle_fork(pid, sys_pid).await,
+                    abi::PTRACE_SIG_EXEC => self.handle_exec(pid, sys_pid).await,
                     abi::PTRACE_SIG_VFORK => panic!("unhandled vfork"),
                     abi::PTRACE_SIG_CLONE => panic!("unhandled clone"),
                     abi::PTRACE_SIG_VFORK_DONE => panic!("unhandled vfork_done"),
-                    abi::PTRACE_SIG_SECCOMP => self.handle_seccomp_trace(pid, sys_pid),
-                    signal if signal < 0x100 => self.handle_signal(pid, sys_pid, signal.try_into().unwrap()),
+                    abi::PTRACE_SIG_SECCOMP => self.handle_seccomp_trace(pid, sys_pid).await,
+                    signal if signal < 0x100 => self.handle_signal(pid, sys_pid, signal.try_into().unwrap()).await,
                     other => panic!("unhandled trap 0x{:x}, {:?} {:?}", other, pid, process),
                 }
             },
