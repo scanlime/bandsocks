@@ -28,7 +28,6 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
         nr::SENDMSG,
         nr::RECVMSG,
         nr::CLOSE,
-        nr::FCNTL,
         nr::EXIT_GROUP,
         nr::EXIT,
         nr::FORK,
@@ -52,8 +51,12 @@ pub fn policy_for_tracer() {
         nr::WAITID,
         nr::PTRACE,
         nr::GETPID,
-	nr::RT_SIGACTION,
-	nr::RT_SIGRETURN,
+        nr::RT_SIGACTION,
+        nr::RT_SIGRETURN,
+
+        // xxx: this needs careful parameter conditions, since it can send signals
+        //      and probably do other weird non-fd-related things
+        nr::FCNTL,
 
         // need this to get to the next stage
         // xxx: drop this privilege as soon as we initialize the tracer
