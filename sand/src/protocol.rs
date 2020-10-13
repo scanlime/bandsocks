@@ -9,14 +9,36 @@ pub const BUFFER_SIZE: usize = 128;
 #[repr(C)]
 pub struct SysPid(pub u32);
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+#[repr(C)]
+pub struct VPid(pub u32);
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[repr(C)]
-pub enum MessageToSand {
-    Nop
+pub struct MessageToSand {
+    task: VPid,
+    op: ToSand,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[repr(C)]
-pub enum MessageFromSand {
-    Nop(usize, usize)
+pub struct MessageFromSand {
+    task: VPid,
+    op: FromSand,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[repr(C)]
+pub struct AssociatedFd(bool);
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[repr(C)]
+pub enum ToSand {
+    OpenReply(i32, AssociatedFd)
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[repr(C)]
+pub enum FromSand {
+    SysOpen(usize, usize, usize)
 }

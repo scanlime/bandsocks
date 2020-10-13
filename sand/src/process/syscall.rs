@@ -1,7 +1,7 @@
 use sc::nr;
 use crate::abi::SyscallInfo;
 use crate::protocol::SysPid;
-use crate::process::VPid;
+use crate::process::table::VPid;
 
 #[derive(Debug)]
 pub struct SyscallEmulator<'a> {

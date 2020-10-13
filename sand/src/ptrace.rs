@@ -69,3 +69,18 @@ pub fn geteventmsg(pid: SysPid) -> usize {
         err => panic!("ptrace geteventmsg failed ({})", err)
     }
 }
+
+pub fn wait(&mut info: abi::SigInfo) -> bool {
+    let info_ptr = &mut info as *mut abi::SigInfo as usize;
+    assert_eq!(mem::size_of_val(&info), abi::SI_MAX_SIZE);
+    let which = abi::P_ALL;
+    let pid = -1 as isize as usize;
+    let options = abi::WEXITED | abi::WSTOPPED | abi::WCONTINUED;
+    let rusage = null::<usize>() as usize;
+    let result = unsafe { syscall!(WAITID, which, pid, info_ptr, options, rusage) as isize };
+    match result {
+        0 => true,
+        err if err == abi::ECHILD => false,
+        err => panic!("waitid err ({})", err),
+    }
+}

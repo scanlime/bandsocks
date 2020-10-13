@@ -6,7 +6,7 @@ use sc::syscall;
 use crate::abi;
 use crate::abi::SyscallInfo;
 use crate::emulator::SyscallEmulator;
-use crate::process::{VPid, Process, ProcessTable, State};
+use crate::process::{VPid, Process, ProcessTable, PID_LIMIT, State};
 use crate::ipc::Socket;
 use crate::protocol::{SysPid, MessageFromSand};
 use crate::ptrace;
@@ -95,24 +95,18 @@ impl Tracer {
     }
 
     pub fn handle_events(&mut self) {
-        let mut info: abi::SigInfo = Default::default();
-        let info_ptr = &mut info as *mut abi::SigInfo as usize;
-        assert_eq!(mem::size_of_val(&info), abi::SI_MAX_SIZE);
-        loop {
+
+        let mut task_array = [ None; PID_LIMIT ];
+        let mut siginfo: abi::SigInfo = Default::default();
+
+        while ptrace::wait(&mut siginfo) {
+
             while let Some(message) = self.ipc.recv() {
-                println!("received: {:?}", message);                
+                println!("received: {:?}", message);
             }
 
-            let which = abi::P_ALL;
-            let pid = -1 as isize as usize;
-            let options = abi::WEXITED | abi::WSTOPPED | abi::WCONTINUED;
-            let rusage = null::<usize>() as usize;
-            let result = unsafe { syscall!(WAITID, which, pid, info_ptr, options, rusage) as isize };
-            match result {
-                0 => self.handle_event(&info),
-                err if err == abi::ECHILD => break,
-                err => panic!("waitid err ({})", err),
-            }
+            let task = self.handle_event(&info);
+            task_array[0] = Some(task);
         }
     }
 

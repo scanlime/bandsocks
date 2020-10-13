@@ -20,7 +20,6 @@ extern crate serde;
 mod nolibc;
 
 mod abi;
-mod emulator;
 mod ipc;
 mod process;
 mod protocol;
