@@ -84,7 +84,7 @@ pub unsafe fn c_strv_slice(strv: *const *const u8) -> &'static [*const u8] {
 
 #[naked]
 unsafe extern fn sigreturn() {
-    unsafe { syscall!(RT_SIGRETURN) };
+    syscall!(RT_SIGRETURN);
     unreachable!();
 }
 
