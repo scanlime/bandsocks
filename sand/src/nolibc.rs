@@ -9,6 +9,10 @@ use crate::abi;
 #[derive(Debug, Clone)]
 pub struct SysFd(pub u32);
 
+pub const EXIT_SUCCESS: usize = 0;
+pub const EXIT_PANIC: usize = 10;
+pub const EXIT_IO_ERROR: usize = 20;
+
 impl fmt::Write for SysFd {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if s.len() == unsafe { syscall!(WRITE, self.0, s.as_ptr() as usize, s.len()) } {
@@ -28,17 +32,23 @@ pub fn exit(code: usize) -> ! {
 fn panic(info: &PanicInfo) -> ! {
     let mut stderr = SysFd(2);
     if let Some(args) = info.message() {
-        drop(fmt::write(&mut stderr, *args));
+        if fmt::write(&mut stderr, *args).is_err() {
+            exit(EXIT_IO_ERROR);
+        }
     }
-    drop(write!(&mut stderr, "\npanic!\n"));
-    exit(128)
+    if write!(&mut stderr, "\npanic!\n").is_err() {
+        exit(EXIT_IO_ERROR);
+    }
+    exit(EXIT_PANIC);
 }
 
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => ({
         let mut stderr = $crate::nolibc::SysFd(2);
-        drop(core::fmt::write(&mut stderr, core::format_args!( $($arg)* )));
+        if core::fmt::write(&mut stderr, core::format_args!( $($arg)* )).is_err() {
+            crate::nolibc::exit(crate::nolibc::EXIT_IO_ERROR);
+        }
     });
 }
 
@@ -123,7 +133,7 @@ fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
     crate::main(argv_slice, envp_slice);
 
     // Must explicitly invoke exit or we are just smashing the stack
-    exit(0);
+    exit(EXIT_SUCCESS);
 }
 
 // These are never called, but the startup code takes their address

@@ -3,6 +3,7 @@
 #![feature(panic_info_message)]
 #![feature(const_in_array_repeat_expressions)]
 #![feature(naked_functions)]
+#![feature(negative_impls)]
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 compile_error!("bandsocks only works on linux or android");
@@ -10,14 +11,11 @@ compile_error!("bandsocks only works on linux or android");
 #[cfg(not(target_arch="x86_64"))]
 compile_error!("bandsocks currently only supports x86_64");
 
-#[macro_use]
-extern crate memoffset;
+#[macro_use] extern crate memoffset;
+#[macro_use] extern crate serde;
+#[macro_use] extern crate hash32_derive;
 
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-mod nolibc;
+#[macro_use] mod nolibc;
 
 mod abi;
 mod ipc;
@@ -33,9 +31,9 @@ use crate::nolibc::SysFd;
 use crate::tracer::Tracer;
 use crate::ipc::Socket;
 
-const SELF_EXE: &'static [u8] = b"/proc/self/exe\0";
-const STAGE_1_TRACER: &'static [u8] = b"sand\0";
-const STAGE_2_LOADER: &'static [u8] = b"sand-exec\0";
+const SELF_EXE: &[u8] = b"/proc/self/exe\0";
+const STAGE_1_TRACER: &[u8] = b"sand\0";
+const STAGE_2_LOADER: &[u8] = b"sand-exec\0";
 enum RunMode { Unknown, Tracer(SysFd), Loader }
 
 
@@ -47,7 +45,7 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
             seccomp::policy_for_tracer();
 
             let ipc = Socket::from_sys_fd(&fd);
-            let mut tracer = Tracer::new(ipc);
+            let mut tracer = Tracer::new(ipc, process::task::task_fn);
 
             let argv = [ STAGE_2_LOADER.as_ptr(), ptr::null() ];
             let envp: [*const u8; 1] = [ ptr::null() ];

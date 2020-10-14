@@ -1,4 +1,5 @@
 use core::mem;
+use core::ptr::null;
 use sc::syscall;
 use crate::abi;
 use crate::protocol::SysPid;
@@ -70,8 +71,8 @@ pub fn geteventmsg(pid: SysPid) -> usize {
     }
 }
 
-pub fn wait(&mut info: abi::SigInfo) -> bool {
-    let info_ptr = &mut info as *mut abi::SigInfo as usize;
+pub fn wait(info: &mut abi::SigInfo) -> bool {
+    let info_ptr = info as *mut abi::SigInfo as usize;
     assert_eq!(mem::size_of_val(&info), abi::SI_MAX_SIZE);
     let which = abi::P_ALL;
     let pid = -1 as isize as usize;

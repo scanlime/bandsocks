@@ -73,7 +73,6 @@ impl IPCServer {
 
     async fn handle_message(&mut self, message: MessageFromSand) {
         log::info!(">{:?}", message);
-        self.send_message(&MessageToSand::Nop).await.unwrap();
     }
 }
 

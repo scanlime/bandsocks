@@ -1,31 +1,26 @@
-use core::mem;
-use core::ptr::null;
 use core::default::Default;
 use core::convert::TryInto;
 use sc::syscall;
 use crate::abi;
 use crate::abi::SyscallInfo;
-use crate::emulator::SyscallEmulator;
-use crate::process::{VPid, Process, ProcessTable, PID_LIMIT, State};
+use crate::process::{Process, TaskFn};
+use crate::process::syscall::SyscallEmulator;
+use crate::process::table::ProcessTable;
 use crate::ipc::Socket;
-use crate::protocol::{SysPid, MessageFromSand};
+use crate::protocol::{VPid, SysPid};
 use crate::ptrace;
+use core::future::Future;
 
-pub struct Tracer {
+pub struct Tracer<'a, T: Future<Output=()>> {
     ipc: Socket,
-    process_table: ProcessTable,
+    process_table: ProcessTable<'a, T>,
 }
 
-impl Tracer {
-    pub fn new(ipc: Socket) -> Self {
-
-        // hi there ipc server
-        ipc.send(&MessageFromSand::Nop(1,2));
-        ipc.send(&MessageFromSand::Nop(3,4));
-
+impl<'a, T: Future<Output=()>> Tracer<'a, T> {
+    pub fn new(ipc: Socket, task_fn: TaskFn<'a, T>) -> Self {
         Tracer {
             ipc,
-            process_table: ProcessTable::new()
+            process_table: ProcessTable::new(task_fn)
         }
     }
 
@@ -33,25 +28,24 @@ impl Tracer {
         unsafe { match syscall!(FORK) as isize {
             result if result == 0 => ptrace::be_the_child_process(cmd, argv, envp),
             result if result < 0 => panic!("fork error"),
-            result => self.expect_new_child(SysPid(result as u32)),
+            result => self.expect_new_child(&SysPid(result as u32)),
         }}
     }
 
-    fn expect_new_child(&mut self, sys_pid: SysPid) {
-        if self.process_table.allocate(Process {
-            sys_pid,
-            state: State::Spawning,
-        }).is_err() {
-            panic!("virtual process limit exceeded");
-        }
+    fn expect_new_child(&mut self, sys_pid: &SysPid) {
+        self.process_table.insert(sys_pid).expect("virtual process limit exceeded");
     }
 
+    pub fn handle_events(&mut self) {
+
+    }
+
+    /*
     async fn handle_new_child(&mut self, pid: VPid, sys_pid: SysPid) {
         let mut process = self.process_table.get_mut(pid).unwrap();
         assert_eq!(sys_pid, process.sys_pid);
         println!("new child, {:?} {:?}", pid, process);
         ptrace::setoptions(process.sys_pid);
-        process.state = State::Normal;
     }
 
     async fn handle_child_exit(&mut self, sys_pid: SysPid, si_code: u32) {
@@ -149,4 +143,5 @@ impl Tracer {
         }
         ptrace::cont(sys_pid);
     }
+    */
 }
