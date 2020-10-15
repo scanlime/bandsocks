@@ -60,7 +60,11 @@ impl<'p, 't: 'p, F: Future<Output=()>> Tracer<'t, F> {
                     let vpid = self.as_mut().project().process_table.as_ref().syspid_to_v(sys_pid);
                     match vpid {
                         None => panic!("signal for unrecognized {:?}", sys_pid),
-                        Some(vpid) => self.as_mut().project().process_table.get(vpid).unwrap().enqueue(event).unwrap()
+                        Some(vpid) => {
+                            let process = self.as_mut().project().process_table.get(vpid).unwrap();
+                            process.enqueue(event).unwrap();
+                            //process.poll();
+                        }
                     }
                 },
                 err => {

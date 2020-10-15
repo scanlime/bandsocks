@@ -73,7 +73,7 @@ pub fn geteventmsg(pid: SysPid) -> usize {
 
 pub fn wait(info: &mut abi::SigInfo) -> isize {
     let info_ptr = info as *mut abi::SigInfo as usize;
-    assert_eq!(mem::size_of_val(&info), abi::SI_MAX_SIZE);
+    assert_eq!(mem::size_of_val(info), abi::SI_MAX_SIZE);
     let which = abi::P_ALL;
     let pid = -1 as isize as usize;
     let options = abi::WEXITED | abi::WSTOPPED | abi::WCONTINUED;

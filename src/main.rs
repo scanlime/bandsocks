@@ -1,11 +1,6 @@
-#[macro_use]
-extern crate tokio;
-
-#[macro_use]
-extern crate clap;
+#[macro_use] extern crate clap;
 
 use clap::{App, ArgMatches};
-use std::error::Error;
 use env_logger::{Env, from_env};
 use bandsocks_runtime::Container;
 

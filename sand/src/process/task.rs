@@ -1,5 +1,4 @@
-use crate::process::{Event, EventSource};
-use crate::process::syscall::SyscallEmulator;
+use crate::process::EventSource;
 use crate::protocol::{VPid, SysPid};
 use crate::ptrace;
 
@@ -9,7 +8,7 @@ pub struct TaskData {
     pub sys_pid: SysPid,
 }
 
-pub async fn task_fn<'a>(events: EventSource<'a>, task_data: TaskData) {
+pub async fn task_fn(events: EventSource<'_>, task_data: TaskData) {
     Task { task_data, events }.run().await;
 }
 
@@ -21,14 +20,15 @@ struct Task<'a> {
 impl<'a> Task<'a> {
     async fn run(&mut self) {
 
-        println!("{:?} NEW", self.task_data);
+        println!("NEW {:?}", self.task_data);
         ptrace::setoptions(self.task_data.sys_pid);
 
         loop {
             let event = self.events.next().await;
-            println!("{:?} {:?}", self.task_data, event);
-        }
+            println!("TASK {:?} {:?}", self.task_data, event);
 
+            ptrace::cont(self.task_data.sys_pid);
+        }
     }
 }
 
