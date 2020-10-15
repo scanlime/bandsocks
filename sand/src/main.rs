@@ -8,14 +8,15 @@
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 compile_error!("bandsocks only works on linux or android");
 
-#[cfg(not(target_arch="x86_64"))]
+#[cfg(not(target_arch = "x86_64"))]
 compile_error!("bandsocks currently only supports x86_64");
 
 #[macro_use] extern crate memoffset;
 #[macro_use] extern crate serde;
 #[macro_use] extern crate hash32_derive;
 
-#[macro_use] mod nolibc;
+#[macro_use]
+mod nolibc;
 
 mod abi;
 mod ipc;
@@ -25,17 +26,23 @@ mod ptrace;
 mod seccomp;
 mod tracer;
 
-use core::ptr;
-use core::pin::Pin;
-use sc::syscall;
-use crate::nolibc::SysFd;
-use crate::tracer::Tracer;
 use crate::ipc::Socket;
+use crate::nolibc::SysFd;
+use crate::process::task::task_fn;
+use crate::tracer::Tracer;
+use core::pin::Pin;
+use core::ptr;
+use sc::syscall;
 
 const SELF_EXE: &[u8] = b"/proc/self/exe\0";
 const STAGE_1_TRACER: &[u8] = b"sand\0";
 const STAGE_2_LOADER: &[u8] = b"sand-exec\0";
-enum RunMode { Unknown, Tracer(SysFd), Loader }
+
+enum RunMode {
+    Unknown,
+    Tracer(SysFd),
+    Loader,
+}
 
 fn main(argv: &[*const u8], envp: &[*const u8]) {
     match check_environment_determine_mode(argv, envp) {
@@ -43,18 +50,18 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
 
         RunMode::Tracer(fd) => {
             seccomp::policy_for_tracer();
-            let ipc = Socket::from_sys_fd(&fd);
-            let mut tracer = Tracer::new(ipc, crate::process::task::task_fn);
-            let argv = [ STAGE_2_LOADER.as_ptr(), ptr::null() ];
-            let envp: [*const u8; 1] = [ ptr::null() ];
-            tracer.run(SELF_EXE, &argv, &envp);
+            Tracer::new(Socket::from_sys_fd(&fd), task_fn).run(
+                SELF_EXE,
+                &[STAGE_2_LOADER.as_ptr(), ptr::null()],
+                &[ptr::null()],
+            );
         }
 
         RunMode::Loader => {
             seccomp::policy_for_loader();
             println!("loader says hey, argc={}", argv.len());
-            let argv = [ b"sh\0".as_ptr(), ptr::null() ];
-            let envp: [*const u8; 1] = [ ptr::null() ];
+            let argv = [b"sh\0".as_ptr(), ptr::null()];
+            let envp: [*const u8; 1] = [ptr::null()];
             unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };
         }
     }
@@ -71,11 +78,9 @@ fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> R
             Some(fd) => RunMode::Tracer(fd),
             None => RunMode::Unknown,
         }
-
     } else if required_tests && argv0 == STAGE_2_LOADER && argv.len() == 1 && envp.len() == 0 {
         // Stage 2: no other args, empty environment
         RunMode::Loader
-
     } else {
         RunMode::Unknown
     }
@@ -87,7 +92,7 @@ fn parse_envp_as_fd(envp: &[*const u8]) -> Option<SysFd> {
     let mut parts = envp0.splitn(2, "=");
     match (parts.next(), parts.next().map(|val| val.parse::<u32>())) {
         (Some("FD"), Some(Ok(fd))) if fd > 2 => Some(SysFd(fd)),
-        _ => None
+        _ => None,
     }
 }
 

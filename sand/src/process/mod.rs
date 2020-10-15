@@ -2,15 +2,15 @@ pub mod syscall;
 pub mod table;
 pub mod task;
 
-use crate::protocol::ToSand;
 use crate::process::task::TaskData;
+use crate::protocol::ToSand;
+use core::future::Future;
+use core::marker::PhantomData;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use heapless::spsc::{Consumer, Queue};
 use pin_project::pin_project;
 use typenum::consts::*;
-use heapless::spsc::{Queue, Consumer};
-use core::future::Future;
-use core::task::{Poll, Context};
-use core::pin::Pin;
-use core::marker::PhantomData;
 
 #[derive(Debug)]
 pub enum Event {
@@ -28,11 +28,11 @@ type EventQueueSize = U2;
 type EventQueue = Queue<Event, EventQueueSize>;
 
 pub struct EventSource<'a> {
-    consumer: Consumer<'a, Event, EventQueueSize>
+    consumer: Consumer<'a, Event, EventQueueSize>,
 }
 
 pub struct EventFuture<'a, 'b> {
-    source: &'b mut EventSource<'a>
+    source: &'b mut EventSource<'a>,
 }
 
 impl<'a, 'b> Future for EventFuture<'a, 'b> {
@@ -40,7 +40,7 @@ impl<'a, 'b> Future for EventFuture<'a, 'b> {
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.source.consumer.dequeue() {
             None => Poll::Pending,
-            Some(event) => Poll::Ready(event)
+            Some(event) => Poll::Ready(event),
         }
     }
 }
@@ -54,15 +54,17 @@ impl<'a, 'b> EventSource<'a> {
 pub type TaskFn<'t, F> = fn(EventSource<'t>, TaskData) -> F;
 
 #[pin_project]
-pub struct Process<'t, F: Future<Output=()>> {
-    #[pin] future: Option<F>,
-    #[pin] queue: EventQueue,
+pub struct Process<'t, F: Future<Output = ()>> {
+    #[pin]
+    future: Option<F>,
+    #[pin]
+    queue: EventQueue,
     task_fn: TaskFn<'t, F>,
     task_data: TaskData,
-    task_queue: PhantomData<&'t EventQueue>
+    task_queue: PhantomData<&'t EventQueue>,
 }
 
-impl<'t, 'p: 't, F: Future<Output=()>> Process<'t, F> {
+impl<'t, 'p: 't, F: Future<Output = ()>> Process<'t, F> {
     pub fn new(task_fn: TaskFn<'t, F>, task_data: TaskData) -> Self {
         Process {
             task_fn,

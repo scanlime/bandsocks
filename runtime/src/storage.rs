@@ -1,18 +1,18 @@
-use std::sync::{Arc, Weak};
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use sha2::{Digest, Sha256};
-use memmap::{Mmap, MmapOptions};
-use regex::Regex;
-use tokio::io::AsyncWriteExt;
 use crate::errors::ImageError;
 use crate::Reference;
+use memmap::{Mmap, MmapOptions};
+use regex::Regex;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Weak};
+use std::time::SystemTime;
+use tokio::io::AsyncWriteExt;
 
 pub struct FileStorage {
     path: PathBuf,
-    memo: HashMap<StorageKey, Weak<Mmap>>
+    memo: HashMap<StorageKey, Weak<Mmap>>,
 }
 
 impl FileStorage {
@@ -29,15 +29,13 @@ impl FileStorage {
             Some(arc) => {
                 log::debug!("storage get, {:?}, succeeded from memo", key);
                 Ok(Some(arc))
-            },
+            }
             None => {
                 let path = key.to_path(&self.path)?;
                 match std::fs::File::open(&path) {
-                    Err(e) => {
-                        match e.kind() {
-                            std::io::ErrorKind::NotFound => Ok(None),
-                            _ => Err(e.into()),
-                        }
+                    Err(e) => match e.kind() {
+                        std::io::ErrorKind::NotFound => Ok(None),
+                        _ => Err(e.into()),
                     },
                     Ok(file) => {
                         let mmap = unsafe { MmapOptions::new().map(&file)? };
@@ -52,7 +50,11 @@ impl FileStorage {
         }
     }
 
-    pub async fn insert(&mut self, key: &StorageKey, data: Vec<u8>) -> Result<Arc<Mmap>, ImageError> {
+    pub async fn insert(
+        &mut self,
+        key: &StorageKey,
+        data: Vec<u8>,
+    ) -> Result<Arc<Mmap>, ImageError> {
         log::debug!("storage insert, {:?}, {} bytes", key, data.len());
 
         // Prepare directories
@@ -103,15 +105,16 @@ impl PartialEq for StorageKey {
         match self {
             StorageKey::Blob(s) => match other {
                 StorageKey::Blob(o) => s == o,
-                _ => false
+                _ => false,
             },
             StorageKey::Manifest(s) => match other {
-                StorageKey::Manifest(o) =>
-                    s.registry() == o.registry() &&
-                    s.repository() == o.repository() &&
-                    s.version() == o.version(),
-                _ => false
-            }
+                StorageKey::Manifest(o) => {
+                    s.registry() == o.registry()
+                        && s.repository() == o.repository()
+                        && s.version() == o.version()
+                }
+                _ => false,
+            },
         }
     }
 }
@@ -134,7 +137,7 @@ fn push_temp_path<'a>(buf: &'a mut PathBuf) -> Result<&'a mut PathBuf, ImageErro
     let pid = std::process::id();
     let ts = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
         Ok(duration) => duration.as_millis(),
-        Err(_) => 0
+        Err(_) => 0,
     };
     push_checked_path(buf, "tmp")?;
     push_checked_path(buf, &format!("{}.{}", pid, ts))?;
@@ -161,15 +164,18 @@ impl StorageKey {
                 push_checked_path(&mut path, "blobs")?;
                 push_checked_path(&mut path, &digest.replace(":", "_"))?;
                 Ok(path)
-            },
+            }
             StorageKey::Manifest(reference) => {
                 let mut path = base_dir.to_path_buf();
                 push_checked_path(&mut path, "manifest")?;
                 push_checked_path(&mut path, &reference.registry())?;
                 push_checked_path(&mut path, &reference.repository().replace("/", "_"))?;
-                push_checked_path(&mut path, &reference.version().replace("@", "").replace(":", ""))?;
+                push_checked_path(
+                    &mut path,
+                    &reference.version().replace("@", "").replace(":", ""),
+                )?;
                 Ok(path)
-            },
+            }
         }
     }
 }

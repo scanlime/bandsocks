@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use std::ops::Deref;
 use memmap::Mmap;
+use std::ops::Deref;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct MapRef {
@@ -14,7 +14,7 @@ impl MapRef {
         MapRef {
             source: source.clone(),
             offset,
-            filesize
+            filesize,
         }
     }
 }

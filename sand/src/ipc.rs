@@ -1,8 +1,8 @@
-use core::ptr;
-use sc::syscall;
 use crate::abi;
 use crate::nolibc::{self, SysFd};
-use crate::protocol::{MessageFromSand, MessageToSand, BUFFER_SIZE, serialize, deserialize};
+use crate::protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE};
+use core::ptr;
+use sc::syscall;
 
 #[derive(Debug)]
 pub struct Socket {
@@ -17,8 +17,10 @@ impl Socket {
         // to do: lock down fcntl via seccomp, only allow SIGIO, only allow current PID.
         //        lock down current PID at/before seccomp time
         nolibc::signal(abi::SIGIO, Socket::handle_sigio).expect("setting up sigio handler");
-        nolibc::fcntl(fd, abi::F_SETFL, abi::FASYNC | abi::O_NONBLOCK).expect("setting socket flags");
-        nolibc::fcntl(fd, abi::F_SETOWN, unsafe { syscall!(GETPID) }).expect("setting socket owner");
+        nolibc::fcntl(fd, abi::F_SETFL, abi::FASYNC | abi::O_NONBLOCK)
+            .expect("setting socket flags");
+        nolibc::fcntl(fd, abi::F_SETOWN, unsafe { syscall!(GETPID) })
+            .expect("setting socket owner");
         Socket {
             fd: fd.clone(),
             recv_buffer: [0; BUFFER_SIZE],
@@ -27,8 +29,8 @@ impl Socket {
         }
     }
 
-    extern fn handle_sigio(num: u32) {
-    	assert_eq!(num, abi::SIGIO);
+    extern "C" fn handle_sigio(num: u32) {
+        assert_eq!(num, abi::SIGIO);
         println!("sigio");
     }
 
@@ -39,12 +41,12 @@ impl Socket {
         if self.recv_begin == self.recv_end {
             None
         } else {
-            match deserialize(&self.recv_buffer[self.recv_begin .. self.recv_end]) {
+            match deserialize(&self.recv_buffer[self.recv_begin..self.recv_end]) {
                 Ok((message, bytes_used)) => {
                     self.recv_begin += bytes_used;
                     assert!(self.recv_begin <= self.recv_end);
                     Some(message)
-                },
+                }
                 other => panic!("recvmsg deserialized to unexpected value, {:?}", other),
             }
         }
@@ -65,7 +67,8 @@ impl Socket {
             msg_flags: 0,
         };
         let flags = abi::MSG_DONTWAIT;
-        let result = unsafe { syscall!(RECVMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
+        let result =
+            unsafe { syscall!(RECVMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
         println!("recvmsg {}", result);
         self.recv_begin = 0;
         self.recv_end = match result {
@@ -92,7 +95,8 @@ impl Socket {
             msg_flags: 0,
         };
         let flags = abi::MSG_DONTWAIT;
-        let result = unsafe { syscall!(SENDMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
+        let result =
+            unsafe { syscall!(SENDMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
         assert_eq!(result as isize, len as isize);
     }
 }

@@ -1,5 +1,5 @@
-use seccomp_tiny::{ProgramBuffer, abi::*, bpf::*};
 use sc::nr;
+use seccomp_tiny::{abi::*, bpf::*, ProgramBuffer};
 
 // This file has two policies; the "tracer" policy is applied very early, and covers this
 // process for its entire lifetime. The "loader" policy is applied during stage 2, and it
@@ -18,25 +18,26 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
     // to do: none of this has been audited yet. this will generally be all syscalls
     //        that deal with existing fds or with memory, but nothing that deals with
     //        pids and nothing that has a pathname in it.
-    p.if_any_eq(&[
-        nr::READ,
-        nr::WRITE,
-        nr::PREAD64,
-        nr::PWRITE64,
-        nr::READV,
-        nr::WRITEV,
-        nr::SENDMSG,
-        nr::RECVMSG,
-        nr::CLOSE,
-        nr::EXIT_GROUP,
-        nr::EXIT,
-        nr::FORK,
-        nr::BRK,
-        nr::COPY_FILE_RANGE,
-        nr::SENDFILE,
-    ], &[
-        ret(SECCOMP_RET_ALLOW)
-    ]);
+    p.if_any_eq(
+        &[
+            nr::READ,
+            nr::WRITE,
+            nr::PREAD64,
+            nr::PWRITE64,
+            nr::READV,
+            nr::WRITEV,
+            nr::SENDMSG,
+            nr::RECVMSG,
+            nr::CLOSE,
+            nr::EXIT_GROUP,
+            nr::EXIT,
+            nr::FORK,
+            nr::BRK,
+            nr::COPY_FILE_RANGE,
+            nr::SENDFILE,
+        ],
+        &[ret(SECCOMP_RET_ALLOW)],
+    );
     p
 }
 
@@ -45,29 +46,26 @@ pub fn policy_for_tracer() {
 
     // these are emulated inside the sandbox, but the tracer is allowed to use them
     // to do: none of this has been audited yet
-    p.if_any_eq(&[
-        nr::ARCH_PRCTL,
-        nr::PRCTL,
-        nr::WAITID,
-        nr::PTRACE,
-        nr::GETPID,
-        nr::RT_SIGACTION,
-        nr::RT_SIGRETURN,
-
-        // xxx: this needs careful parameter conditions, since it can send signals
-        //      and probably do other weird non-fd-related things
-        nr::FCNTL,
-
-        // need this to get to the next stage
-        // xxx: drop this privilege as soon as we initialize the tracer
-        nr::EXECVE,
-
-        // xxx: can't allow this, use a different attach mechanism?
-        nr::KILL,
-
-    ], &[
-        ret(SECCOMP_RET_ALLOW)
-    ]);
+    p.if_any_eq(
+        &[
+            nr::ARCH_PRCTL,
+            nr::PRCTL,
+            nr::WAITID,
+            nr::PTRACE,
+            nr::GETPID,
+            nr::RT_SIGACTION,
+            nr::RT_SIGRETURN,
+            // xxx: this needs careful parameter conditions, since it can send signals
+            //      and probably do other weird non-fd-related things
+            nr::FCNTL,
+            // need this to get to the next stage
+            // xxx: drop this privilege as soon as we initialize the tracer
+            nr::EXECVE,
+            // xxx: can't allow this, use a different attach mechanism?
+            nr::KILL,
+        ],
+        &[ret(SECCOMP_RET_ALLOW)],
+    );
 
     // There is no tracer yet, but we want to allow tracing later.
     // With no tracer attached this blocks the syscall with ENOSYS.
@@ -80,11 +78,7 @@ pub fn policy_for_loader() {
     let mut p = base_rules_for_all_policies();
 
     // Specific deny list, of calls we don't even want to try and trace or emulate
-    p.if_any_eq(&[
-        nr::PTRACE,
-    ], &[
-        ret(SECCOMP_RET_KILL_PROCESS)
-    ]);
+    p.if_any_eq(&[nr::PTRACE], &[ret(SECCOMP_RET_KILL_PROCESS)]);
 
     // Emulate supported syscalls, rely on the tracer to log and panic on others
     p.inst(ret(SECCOMP_RET_TRACE));

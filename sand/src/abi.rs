@@ -58,7 +58,7 @@ pub const NT_PRSTATUS: usize = 1;
 #[repr(C)]
 pub struct IOVec {
     pub base: *mut u8,
-    pub len: usize
+    pub len: usize,
 }
 
 // user_regs_struct
@@ -187,7 +187,7 @@ pub struct SigInfo {
     pad1: u32,
     pub si_utime: usize,
     pub si_stime: usize,
-    pub fields: [u32; 20]
+    pub fields: [u32; 20],
 }
 
 // si_code
@@ -204,9 +204,9 @@ pub const CLD_CONTINUED: u32 = 6;
 #[derive(Debug)]
 #[repr(C)]
 pub struct SigAction {
-    pub sa_handler: extern fn(u32),
+    pub sa_handler: extern "C" fn(u32),
     pub sa_flags: u32,
-    pub sa_restorer: unsafe extern fn(),
+    pub sa_restorer: unsafe extern "C" fn(),
     pub sa_mask: [u64; 16],
 }
 

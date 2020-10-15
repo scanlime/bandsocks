@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Partial implementation of the manifest v2 schema2 spec.
 /// The dkregistry crate has its own partial version of this spec too, but it's mostly private.
@@ -14,7 +14,7 @@ pub struct Link {
     #[serde(rename = "mediaType")]
     pub media_type: String,
     pub size: u64,
-    pub digest: String
+    pub digest: String,
 }
 
 pub mod media_types {
@@ -54,5 +54,5 @@ pub const FS_TYPE: &'static str = "layers";
 pub struct Filesystem {
     #[serde(rename = "type")]
     pub fs_type: String,
-    pub diff_ids: Vec<String>
+    pub diff_ids: Vec<String>,
 }

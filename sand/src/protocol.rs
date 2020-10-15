@@ -1,7 +1,7 @@
 // The protocol is defined here canonically and then imported
 // by the runtime crate along with our finished binary.
 
-pub use ssmarshal::{serialize, deserialize};
+pub use ssmarshal::{deserialize, serialize};
 
 pub const BUFFER_SIZE: usize = 128;
 

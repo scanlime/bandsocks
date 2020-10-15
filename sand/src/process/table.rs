@@ -1,17 +1,17 @@
-use typenum::consts::*;
-use core::future::Future;
-use pin_project::pin_project;
-use typenum::marker_traits::Unsigned;
-use heapless::{FnvIndexMap};
-use core::pin::Pin;
-use crate::process::{Process, TaskFn};
 use crate::process::task::TaskData;
+use crate::process::{Process, TaskFn};
 use crate::protocol::{SysPid, VPid};
+use core::future::Future;
+use core::pin::Pin;
+use heapless::FnvIndexMap;
+use pin_project::pin_project;
+use typenum::consts::*;
+use typenum::marker_traits::Unsigned;
 
 type PidLimit = U8192;
 
 #[pin_project]
-pub struct ProcessTable<'t, F: Future<Output=()>> {
+pub struct ProcessTable<'t, F: Future<Output = ()>> {
     #[pin]
     table: [Option<Process<'t, F>>; PidLimit::USIZE],
     task_fn: TaskFn<'t, F>,
@@ -35,14 +35,14 @@ fn next_vpid_in_sequence(vpid: VPid) -> VPid {
     }
 }
 
-impl<'t, F: Future<Output=()>> ProcessTable<'t, F> {
+impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
     pub fn new(task_fn: TaskFn<'t, F>) -> Self {
         ProcessTable {
             map_v_to_sys: FnvIndexMap::new(),
             map_sys_to_v: FnvIndexMap::new(),
             table: [None; PidLimit::USIZE],
             next_vpid: VPid(1),
-            task_fn
+            task_fn,
         }
     }
 
@@ -57,7 +57,7 @@ impl<'t, F: Future<Output=()>> ProcessTable<'t, F> {
     fn allocate_vpid(self: Pin<&mut Self>) -> Option<VPid> {
         let mut result = None;
         let project = self.project();
-        for _ in 0 .. PidLimit::USIZE {
+        for _ in 0..PidLimit::USIZE {
             let vpid = *project.next_vpid;
             let index = table_index_for_vpid(vpid).unwrap();
             if project.table[index].is_none() {
@@ -85,17 +85,20 @@ impl<'t, F: Future<Output=()>> ProcessTable<'t, F> {
             assert_eq!(project.map_sys_to_v.insert(sys_pid, vpid), Ok(None));
             assert_eq!(project.map_v_to_sys.insert(vpid, sys_pid), Ok(None));
             Some(vpid)
-        }).flatten()
+        })
+        .flatten()
     }
 
     pub fn get(self: Pin<&mut Self>, vpid: VPid) -> Option<Pin<&mut Process<'t, F>>> {
-        table_index_for_vpid(vpid).map(move |index| {
-            let table_pin = self.project().table;
-            unsafe {
-                let table = table_pin.get_unchecked_mut();
-                Pin::new_unchecked(&mut table[index]).as_pin_mut()
-            }
-        }).flatten()
+        table_index_for_vpid(vpid)
+            .map(move |index| {
+                let table_pin = self.project().table;
+                unsafe {
+                    let table = table_pin.get_unchecked_mut();
+                    Pin::new_unchecked(&mut table[index]).as_pin_mut()
+                }
+            })
+            .flatten()
     }
 
     pub fn free(self: Pin<&mut Self>, vpid: VPid) {

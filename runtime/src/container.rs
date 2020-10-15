@@ -1,17 +1,17 @@
-use crate::Reference;
-use crate::image::Image;
 use crate::client::Client;
-use crate::ipcserver::IPCServer;
-use crate::filesystem::vfs::Filesystem;
-use crate::filesystem::mmap::MapRef;
 use crate::errors::{ImageError, RuntimeError, VFSError};
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::path::{Path, PathBuf};
-use std::ffi::{OsStr, OsString};
-use std::default::Default;
-use tokio::task::JoinHandle;
+use crate::filesystem::mmap::MapRef;
+use crate::filesystem::vfs::Filesystem;
+use crate::image::Image;
+use crate::ipcserver::IPCServer;
+use crate::Reference;
 use osstrtools::OsStrTools;
+use std::collections::BTreeMap;
+use std::default::Default;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 #[derive(Default)]
 pub struct ContainerBuilder {
@@ -25,7 +25,7 @@ pub struct ContainerBuilder {
 enum EnvBuilder {
     Set(OsString, OsString),
     Remove(OsString),
-    Clear
+    Clear,
 }
 
 impl ContainerBuilder {
@@ -34,7 +34,7 @@ impl ContainerBuilder {
         // worth allowing for multiple ways to load images without the types getting too complex.
         let image = match &self.image {
             None => Err(RuntimeError::NoImage)?,
-            Some(image) => image.clone()
+            Some(image) => image.clone(),
         };
 
         // this is a shallow copy of the image's reference filesystem, which the container can modify
@@ -61,9 +61,15 @@ impl ContainerBuilder {
         }
         for env_override in &self.env_list {
             match env_override {
-                EnvBuilder::Clear => { env.clear(); },
-                EnvBuilder::Remove(key) => { env.remove(key); },
-                EnvBuilder::Set(key, value) => { env.insert(key.clone(), value.clone()); },
+                EnvBuilder::Clear => {
+                    env.clear();
+                }
+                EnvBuilder::Remove(key) => {
+                    env.remove(key);
+                }
+                EnvBuilder::Set(key, value) => {
+                    env.insert(key.clone(), value.clone());
+                }
             }
         }
 
@@ -71,11 +77,11 @@ impl ContainerBuilder {
         // or our local overrides, followed by additional "cmd" args that can be taken exactly as configured
         // or replaced entirely with the arguments given to this invocation.
         let mut argv = match &self.entrypoint {
-            Some(path) => vec![ path.clone() ],
+            Some(path) => vec![path.clone()],
             None => match &image.config.config.entrypoint {
                 Some(arg_list) => arg_list.iter().map(OsString::from).collect(),
                 None => vec![],
-            }
+            },
         };
         if self.arg_list.is_empty() {
             argv.extend(image.config.config.cmd.iter().map(OsString::from));
@@ -125,8 +131,10 @@ impl ContainerBuilder {
         K: AsRef<OsStr>,
         V: AsRef<OsStr>,
     {
-        self.env_list.push(EnvBuilder::Set(key.as_ref().to_os_string(),
-                                           val.as_ref().to_os_string()));
+        self.env_list.push(EnvBuilder::Set(
+            key.as_ref().to_os_string(),
+            val.as_ref().to_os_string(),
+        ));
         self
     }
 
@@ -143,7 +151,8 @@ impl ContainerBuilder {
     }
 
     pub fn env_remove<K: AsRef<OsStr>>(&mut self, key: K) -> &mut Self {
-        self.env_list.push(EnvBuilder::Remove(key.as_ref().to_os_string()));
+        self.env_list
+            .push(EnvBuilder::Remove(key.as_ref().to_os_string()));
         self
     }
 
@@ -177,26 +186,33 @@ impl Container {
         Ok(builder)
     }
 
-    fn startup(filesystem: Filesystem, argv: Vec<OsString>, env: BTreeMap<OsString, OsString>, dir: PathBuf)
-               -> Result<Container, RuntimeError> {
-
+    fn startup(
+        filesystem: Filesystem,
+        argv: Vec<OsString>,
+        env: BTreeMap<OsString, OsString>,
+        dir: PathBuf,
+    ) -> Result<Container, RuntimeError> {
         let ipc_join = IPCServer::new()?.task();
 
         Ok(Container {
-            filesystem, argv, env, dir, ipc_join
+            filesystem,
+            argv,
+            env,
+            dir,
+            ipc_join,
         })
     }
 
     fn program_image_for_execp(&self, argv0: &OsStr) -> Result<MapRef, RuntimeError> {
-
         // Following the convention of execvp() and friends, the PATH is searched
         // if and only if argv0 has no slash characters in it.
 
         let absolute_paths = if argv0.contains("/") {
-            vec![ Path::new(argv0).to_path_buf() ]
+            vec![Path::new(argv0).to_path_buf()]
         } else {
             let env_path = self.env.get(&OsString::from("PATH"));
-            env_path.as_ref()
+            env_path
+                .as_ref()
                 .map(|env_path| env_path.split(":"))
                 .unwrap_or_else(Vec::new)
                 .iter()
@@ -204,10 +220,9 @@ impl Container {
                 .collect()
         };
         log::info!("searching paths, {:?}", absolute_paths);
-        match absolute_paths.iter()
-            .map(|path_buf| {
-                self.filesystem.get_file_data(path_buf)
-            })
+        match absolute_paths
+            .iter()
+            .map(|path_buf| self.filesystem.get_file_data(path_buf))
             .skip_while(|result| {
                 if let Err(VFSError::NotFound) = result {
                     true
@@ -215,10 +230,11 @@ impl Container {
                     false
                 }
             })
-            .next() {
-                None => Err(VFSError::NotFound)?,
-                Some(Err(other)) => Err(other)?,
-                Some(Ok(mmap)) => Ok(mmap),
-            }
+            .next()
+        {
+            None => Err(VFSError::NotFound)?,
+            Some(Err(other)) => Err(other)?,
+            Some(Ok(mmap)) => Ok(mmap),
+        }
     }
 }

@@ -1,14 +1,17 @@
-use crate::filesystem::vfs::{Filesystem, Stat};
-use crate::filesystem::mmap::MapRef;
 use crate::errors::ImageError;
-use tar::{Archive, Entry, EntryType};
-use std::io::{Read, Cursor};
-use std::sync::Arc;
+use crate::filesystem::mmap::MapRef;
+use crate::filesystem::vfs::{Filesystem, Stat};
 use memmap::Mmap;
+use std::io::{Cursor, Read};
+use std::sync::Arc;
+use tar::{Archive, Entry, EntryType};
 
 pub fn extract_metadata(mut fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<(), ImageError> {
     let mut offset: usize = 0;
-    while let Some(entry) = Archive::new(Cursor::new(&archive[offset..])).entries()?.next() {
+    while let Some(entry) = Archive::new(Cursor::new(&archive[offset..]))
+        .entries()?
+        .next()
+    {
         let entry = entry?;
         let file_begin = offset + (entry.raw_file_position() as usize);
         let file = MapRef::new(archive, file_begin, entry.size() as usize);
@@ -18,7 +21,7 @@ pub fn extract_metadata(mut fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<
     Ok(())
 }
 
-fn pad_to_block_multiple(size: usize) -> usize{
+fn pad_to_block_multiple(size: usize) -> usize {
     const BLOCK_LEN: usize = 512;
     let rem = size % BLOCK_LEN;
     if rem == 0 {
@@ -28,7 +31,11 @@ fn pad_to_block_multiple(size: usize) -> usize{
     }
 }
 
-fn extract_file_metadata<'a, R: Read> (fs: &mut Filesystem, entry: Entry<'a, R>, file: MapRef) -> Result<(), ImageError> {
+fn extract_file_metadata<'a, R: Read>(
+    fs: &mut Filesystem,
+    entry: Entry<'a, R>,
+    file: MapRef,
+) -> Result<(), ImageError> {
     let mut fsw = fs.writer();
     let kind = entry.header().entry_type();
     let path = entry.path()?;
@@ -52,7 +59,11 @@ fn extract_file_metadata<'a, R: Read> (fs: &mut Filesystem, entry: Entry<'a, R>,
             Some(link_name) => fsw.write_hardlink(&path, &link_name)?,
             None => Err(ImageError::TARFileError)?,
         },
-        _ => log::error!("skipping unsupported tar file entry type {:?}, {:?}", kind, entry.header()),
+        _ => log::error!(
+            "skipping unsupported tar file entry type {:?}, {:?}",
+            kind,
+            entry.header()
+        ),
     }
 
     Ok(())

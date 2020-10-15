@@ -1,10 +1,10 @@
-use sc::syscall;
+use crate::abi;
+use core::fmt::{self, Write};
+use core::panic::PanicInfo;
+use core::ptr::null;
 use core::slice;
 use core::str;
-use core::ptr::null;
-use core::panic::PanicInfo;
-use core::fmt::{self, Write};
-use crate::abi;
+use sc::syscall;
 
 #[derive(Debug, Clone)]
 pub struct SysFd(pub u32);
@@ -93,21 +93,27 @@ pub unsafe fn c_strv_slice(strv: *const *const u8) -> &'static [*const u8] {
 }
 
 #[naked]
-unsafe extern fn sigreturn() {
+unsafe extern "C" fn sigreturn() {
     syscall!(RT_SIGRETURN);
     unreachable!();
 }
 
-pub fn signal(signum: u32, handler: extern fn(u32)) -> Result<(), isize> {
+pub fn signal(signum: u32, handler: extern "C" fn(u32)) -> Result<(), isize> {
     let sigaction = abi::SigAction {
         sa_flags: abi::SA_RESTORER,
         sa_handler: handler,
         sa_restorer: sigreturn,
         sa_mask: [0; 16],
     };
-    match unsafe { syscall!(RT_SIGACTION,
-                            signum, (&sigaction) as *const abi::SigAction,
-                            0, core::mem::size_of::<abi::SigSet>()) } {
+    match unsafe {
+        syscall!(
+            RT_SIGACTION,
+            signum,
+            (&sigaction) as *const abi::SigAction,
+            0,
+            core::mem::size_of::<abi::SigSet>()
+        )
+    } {
         0 => Ok(()),
         other => Err(other as isize),
     }
@@ -122,7 +128,6 @@ pub fn fcntl(fd: &SysFd, op: usize, arg: usize) -> Result<(), isize> {
 
 #[no_mangle]
 fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
-
     // At this point, the argument and environment are in back-to-back
     // null terminated arrays of null terminated strings.
 
@@ -137,6 +142,9 @@ fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
 }
 
 // These are never called, but the startup code takes their address
-#[no_mangle] fn __libc_csu_init() {}
-#[no_mangle] fn __libc_csu_fini() {}
-#[no_mangle] fn main() {}
+#[no_mangle]
+fn __libc_csu_init() {}
+#[no_mangle]
+fn __libc_csu_fini() {}
+#[no_mangle]
+fn main() {}

@@ -1,6 +1,6 @@
-use sc::nr;
 use crate::abi::SyscallInfo;
-use crate::protocol::{VPid, SysPid};
+use crate::protocol::{SysPid, VPid};
+use sc::nr;
 
 #[derive(Debug)]
 pub struct SyscallEmulator<'a> {
@@ -11,9 +11,7 @@ pub struct SyscallEmulator<'a> {
 
 impl<'a> SyscallEmulator<'a> {
     pub fn new(pid: VPid, sys_pid: SysPid, info: &'a SyscallInfo) -> Self {
-        SyscallEmulator {
-            pid, sys_pid, info
-        }
+        SyscallEmulator { pid, sys_pid, info }
     }
 
     pub async fn dispatch(&mut self) -> isize {
@@ -24,7 +22,7 @@ impl<'a> SyscallEmulator<'a> {
             nr::STAT => self.sys_stat().await,
             nr::MMAP => self.sys_mmap().await,
             nr::FSTAT => self.sys_fstat().await,
-            n => panic!("unexpected syscall trace, SYS_{} {:?}", n, self)
+            n => panic!("unexpected syscall trace, SYS_{} {:?}", n, self),
         }
     }
 

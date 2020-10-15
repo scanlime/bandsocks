@@ -1,20 +1,20 @@
-use tokio::task;
-use tokio::task::JoinHandle;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use std::io::Cursor;
-use std::os::unix::process::CommandExt;
-use pentacle::SealedCommand;
+use crate::errors::RuntimeError;
+use crate::sand;
+use crate::sand::protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE};
 use fd_queue::tokio::UnixStream;
-use std::process::Child;
+use pentacle::SealedCommand;
+use std::io::Cursor;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::prelude::RawFd;
-use crate::sand;
-use crate::sand::protocol::{serialize, deserialize, BUFFER_SIZE, MessageFromSand, MessageToSand};
-use crate::errors::RuntimeError;
+use std::os::unix::process::CommandExt;
+use std::process::Child;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::task;
+use tokio::task::JoinHandle;
 
 pub struct IPCServer {
     child: Child,
-    stream: UnixStream
+    stream: UnixStream,
 }
 
 impl IPCServer {
@@ -32,7 +32,7 @@ impl IPCServer {
 
         Ok(IPCServer {
             child: cmd.spawn()?,
-            stream: server_socket
+            stream: server_socket,
         })
     }
 
@@ -47,15 +47,15 @@ impl IPCServer {
                 log::warn!("ipc read {}", len);
                 let mut offset = 0;
                 while offset < len {
-                    match deserialize(&buffer[offset .. len]) {
+                    match deserialize(&buffer[offset..len]) {
                         Err(e) => {
                             log::warn!("failed to deserialize message, {:?}", e);
                             break;
-                        },
+                        }
                         Ok((message, bytes_used)) => {
                             self.handle_message(message).await;
                             offset += bytes_used;
-                        },
+                        }
                     }
                 }
             }
@@ -77,9 +77,9 @@ impl IPCServer {
 }
 
 fn clear_close_on_exec_flag(fd: RawFd) {
-    let flags = unsafe { libc::fcntl( fd, libc::F_GETFD ) };
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
     assert!(flags >= 0);
     let flags = flags & !libc::FD_CLOEXEC;
-    let result = unsafe { libc::fcntl( fd, libc::F_SETFD, flags ) };
+    let result = unsafe { libc::fcntl(fd, libc::F_SETFD, flags) };
     assert_eq!(result, 0);
 }

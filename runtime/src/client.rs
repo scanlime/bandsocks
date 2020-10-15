@@ -1,17 +1,17 @@
-use crate::Reference;
 use crate::errors::ImageError;
-use crate::image::Image;
-use crate::manifest::{Manifest, RuntimeConfig, Link, media_types, FS_TYPE};
-use crate::storage::{FileStorage, StorageKey};
 use crate::filesystem::{tar, vfs};
+use crate::image::Image;
+use crate::manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE};
+use crate::storage::{FileStorage, StorageKey};
+use crate::Reference;
 
 use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
+use flate2::read::GzDecoder;
+use memmap::Mmap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::io::Read;
-use memmap::Mmap;
-use flate2::read::GzDecoder;
 
 pub struct ClientBuilder {
     cache_dir: Option<PathBuf>,
@@ -34,7 +34,7 @@ impl ClientBuilder {
     pub fn build(self) -> Result<Client, ImageError> {
         let cache_dir = match self.cache_dir {
             Some(dir) => dir,
-            None => ClientBuilder::default_cache_dir()?
+            None => ClientBuilder::default_cache_dir()?,
         };
         Ok(Client {
             storage: FileStorage::new(cache_dir),
@@ -54,12 +54,13 @@ impl Client {
     }
 
     pub fn configure() -> ClientBuilder {
-        ClientBuilder {
-            cache_dir: None,
-        }
+        ClientBuilder { cache_dir: None }
     }
 
-    async fn registry_client_for<'a>(&'a mut self, image: &Reference) -> Result<&'a RegistryClient, ImageError> {
+    async fn registry_client_for<'a>(
+        &'a mut self,
+        image: &Reference,
+    ) -> Result<&'a RegistryClient, ImageError> {
         let is_reusable = match &self.registry_client {
             None => false,
             Some((prev_image, _)) => {
@@ -90,12 +91,15 @@ impl Client {
             Some(mmap) => mmap,
             None => {
                 let rc = self.registry_client_for(image).await?;
-                match rc.get_manifest(&image.repository(), &image.version()).await? {
+                match rc
+                    .get_manifest(&image.repository(), &image.version())
+                    .await?
+                {
                     dkregistry::v2::manifest::Manifest::S2(schema) => {
                         let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
                         self.storage.insert(&key, spec_data).await?
                     }
-                    _ => Err(ImageError::UnsupportedManifestType)?
+                    _ => Err(ImageError::UnsupportedManifestType)?,
                 }
             }
         };
@@ -109,7 +113,10 @@ impl Client {
         self.storage.get(&key)
     }
 
-    fn local_blob_list(&mut self, digest_list: &[String]) -> Result<Option<Vec<Arc<Mmap>>>, ImageError> {
+    fn local_blob_list(
+        &mut self,
+        digest_list: &[String],
+    ) -> Result<Option<Vec<Arc<Mmap>>>, ImageError> {
         let mut result = vec![];
         for digest in digest_list {
             if let Some(mmap) = self.local_blob(digest)? {
@@ -144,14 +151,23 @@ impl Client {
         }
     }
 
-    async fn pull_runtime_config(&mut self, image: &Reference, link: &Link) -> Result<RuntimeConfig, ImageError> {
+    async fn pull_runtime_config(
+        &mut self,
+        image: &Reference,
+        link: &Link,
+    ) -> Result<RuntimeConfig, ImageError> {
         if link.media_type == media_types::RUNTIME_CONFIG {
             let mmap = self.pull_blob(image, link).await?;
             let slice = &mmap[..];
-            log::debug!("raw json runtime config, {}", String::from_utf8_lossy(slice));
+            log::debug!(
+                "raw json runtime config, {}",
+                String::from_utf8_lossy(slice)
+            );
             Ok(serde_json::from_slice(slice)?)
         } else {
-            Err(ImageError::UnsupportedRuntimeConfigType(link.media_type.clone()))
+            Err(ImageError::UnsupportedRuntimeConfigType(
+                link.media_type.clone(),
+            ))
         }
     }
 
@@ -160,7 +176,12 @@ impl Client {
         let mut output = vec![];
         decoder.read_to_end(&mut output)?;
         let key = StorageKey::from_blob_data(&output);
-        log::info!("decompressed {} bytes into {} bytes, {:?}", data.len(), output.len(), key);
+        log::info!(
+            "decompressed {} bytes into {} bytes, {:?}",
+            data.len(),
+            output.len(),
+            key
+        );
         self.storage.insert(&key, output).await?;
         Ok(())
     }
@@ -174,7 +195,9 @@ impl Client {
         // since those come from the runtime_config which has been verified by digest.
 
         if &config.rootfs.fs_type != FS_TYPE {
-            Err(ImageError::UnsupportedRootFilesystemType(config.rootfs.fs_type.clone()))?;
+            Err(ImageError::UnsupportedRootFilesystemType(
+                config.rootfs.fs_type.clone(),
+            ))?;
         }
         let ids = &config.rootfs.diff_ids;
         let content = match self.local_blob_list(ids)? {
@@ -203,7 +226,7 @@ impl Client {
         Ok(Arc::new(Image {
             digest: manifest.config.digest,
             config,
-            filesystem
+            filesystem,
         }))
     }
 }
