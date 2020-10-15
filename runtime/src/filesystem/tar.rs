@@ -1,9 +1,15 @@
-use crate::errors::ImageError;
-use crate::filesystem::mmap::MapRef;
-use crate::filesystem::vfs::{Filesystem, Stat};
+use crate::{
+    errors::ImageError,
+    filesystem::{
+        mmap::MapRef,
+        vfs::{Filesystem, Stat},
+    },
+};
 use memmap::Mmap;
-use std::io::{Cursor, Read};
-use std::sync::Arc;
+use std::{
+    io::{Cursor, Read},
+    sync::Arc,
+};
 use tar::{Archive, Entry, EntryType};
 
 pub fn extract_metadata(mut fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<(), ImageError> {

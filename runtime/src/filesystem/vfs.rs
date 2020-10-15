@@ -1,10 +1,11 @@
-use crate::errors::VFSError;
-use crate::filesystem::mmap::MapRef;
-use std::collections::{BTreeMap, HashSet};
-use std::ffi::{OsStr, OsString};
-use std::fmt;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use crate::{errors::VFSError, filesystem::mmap::MapRef};
+use std::{
+    collections::{BTreeMap, HashSet},
+    ffi::{OsStr, OsString},
+    fmt,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 type INodeNum = usize;
 

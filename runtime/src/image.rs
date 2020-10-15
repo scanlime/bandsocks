@@ -1,5 +1,4 @@
-use crate::filesystem::vfs::Filesystem;
-use crate::manifest::RuntimeConfig;
+use crate::{filesystem::vfs::Filesystem, manifest::RuntimeConfig};
 
 #[derive(Debug)]
 pub struct Image {

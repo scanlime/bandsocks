@@ -1,7 +1,5 @@
-use crate::abi;
-use crate::protocol::SysPid;
-use core::mem;
-use core::ptr::null;
+use crate::{abi, protocol::SysPid};
+use core::{mem, ptr::null};
 use sc::syscall;
 
 pub unsafe fn be_the_child_process(cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) -> ! {

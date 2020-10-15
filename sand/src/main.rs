@@ -26,12 +26,8 @@ mod ptrace;
 mod seccomp;
 mod tracer;
 
-use crate::ipc::Socket;
-use crate::nolibc::SysFd;
-use crate::process::task::task_fn;
-use crate::tracer::Tracer;
-use core::pin::Pin;
-use core::ptr;
+use crate::{ipc::Socket, nolibc::SysFd, process::task::task_fn, tracer::Tracer};
+use core::{pin::Pin, ptr};
 use sc::syscall;
 
 const SELF_EXE: &[u8] = b"/proc/self/exe\0";

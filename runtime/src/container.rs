@@ -1,16 +1,19 @@
-use crate::client::Client;
-use crate::errors::{ImageError, RuntimeError, VFSError};
-use crate::filesystem::mmap::MapRef;
-use crate::filesystem::vfs::Filesystem;
-use crate::image::Image;
-use crate::ipcserver::IPCServer;
-use crate::Reference;
+use crate::{
+    client::Client,
+    errors::{ImageError, RuntimeError, VFSError},
+    filesystem::{mmap::MapRef, vfs::Filesystem},
+    image::Image,
+    ipcserver::IPCServer,
+    Reference,
+};
 use osstrtools::OsStrTools;
-use std::collections::BTreeMap;
-use std::default::Default;
-use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    collections::BTreeMap,
+    default::Default,
+    ffi::{OsStr, OsString},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::task::JoinHandle;
 
 #[derive(Default)]

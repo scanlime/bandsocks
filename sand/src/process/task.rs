@@ -1,6 +1,8 @@
-use crate::process::EventSource;
-use crate::protocol::{SysPid, VPid};
-use crate::ptrace;
+use crate::{
+    process::EventSource,
+    protocol::{SysPid, VPid},
+    ptrace,
+};
 
 #[derive(Debug, Clone)]
 pub struct TaskData {

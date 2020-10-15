@@ -2,12 +2,13 @@ pub mod syscall;
 pub mod table;
 pub mod task;
 
-use crate::process::task::TaskData;
-use crate::protocol::ToSand;
-use core::future::Future;
-use core::marker::PhantomData;
-use core::pin::Pin;
-use core::task::{Context, Poll};
+use crate::{process::task::TaskData, protocol::ToSand};
+use core::{
+    future::Future,
+    marker::PhantomData,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use heapless::spsc::{Consumer, Queue};
 use pin_project::pin_project;
 use typenum::consts::*;

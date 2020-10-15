@@ -1,6 +1,8 @@
-use crate::abi;
-use crate::nolibc::{self, SysFd};
-use crate::protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE};
+use crate::{
+    abi,
+    nolibc::{self, SysFd},
+    protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE},
+};
 use core::ptr;
 use sc::syscall;
 

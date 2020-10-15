@@ -1,13 +1,14 @@
-use crate::errors::ImageError;
-use crate::Reference;
+use crate::{errors::ImageError, Reference};
 use memmap::{Mmap, MmapOptions};
 use regex::Regex;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Weak};
-use std::time::SystemTime;
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    path::{Path, PathBuf},
+    sync::{Arc, Weak},
+    time::SystemTime,
+};
 use tokio::io::AsyncWriteExt;
 
 pub struct FileStorage {

@@ -1,12 +1,11 @@
-use crate::process::task::TaskData;
-use crate::process::{Process, TaskFn};
-use crate::protocol::{SysPid, VPid};
-use core::future::Future;
-use core::pin::Pin;
+use crate::{
+    process::{task::TaskData, Process, TaskFn},
+    protocol::{SysPid, VPid},
+};
+use core::{future::Future, pin::Pin};
 use heapless::FnvIndexMap;
 use pin_project::pin_project;
-use typenum::consts::*;
-use typenum::marker_traits::Unsigned;
+use typenum::{consts::*, marker_traits::Unsigned};
 
 type PidLimit = U8192;
 

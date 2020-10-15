@@ -1,6 +1,5 @@
 use build_deps::rerun_if_changed_paths;
-use std::path::Path;
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 fn main() {
     let out_dir = std::env::var("OUT_DIR").unwrap();

@@ -1,9 +1,10 @@
 use crate::abi;
-use core::fmt::{self, Write};
-use core::panic::PanicInfo;
-use core::ptr::null;
-use core::slice;
-use core::str;
+use core::{
+    fmt::{self, Write},
+    panic::PanicInfo,
+    ptr::null,
+    slice, str,
+};
 use sc::syscall;
 
 #[derive(Debug, Clone)]

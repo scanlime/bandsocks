@@ -1,5 +1,7 @@
-use crate::abi::SyscallInfo;
-use crate::protocol::{SysPid, VPid};
+use crate::{
+    abi::SyscallInfo,
+    protocol::{SysPid, VPid},
+};
 use sc::nr;
 
 #[derive(Debug)]

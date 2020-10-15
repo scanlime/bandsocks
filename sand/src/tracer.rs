@@ -1,10 +1,11 @@
-use crate::abi;
-use crate::ipc::Socket;
-use crate::process::{table::ProcessTable, Event, SigInfo, TaskFn};
-use crate::protocol::SysPid;
-use crate::ptrace;
-use core::future::Future;
-use core::pin::Pin;
+use crate::{
+    abi,
+    ipc::Socket,
+    process::{table::ProcessTable, Event, SigInfo, TaskFn},
+    protocol::SysPid,
+    ptrace,
+};
+use core::{future::Future, pin::Pin};
 use pin_project::pin_project;
 use sc::syscall;
 

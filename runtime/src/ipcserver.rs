@@ -1,16 +1,20 @@
-use crate::errors::RuntimeError;
-use crate::sand;
-use crate::sand::protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE};
+use crate::{
+    errors::RuntimeError,
+    sand,
+    sand::protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE},
+};
 use fd_queue::tokio::UnixStream;
 use pentacle::SealedCommand;
-use std::io::Cursor;
-use std::os::unix::io::AsRawFd;
-use std::os::unix::prelude::RawFd;
-use std::os::unix::process::CommandExt;
-use std::process::Child;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::task;
-use tokio::task::JoinHandle;
+use std::{
+    io::Cursor,
+    os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
+    process::Child,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    task,
+    task::JoinHandle,
+};
 
 pub struct IPCServer {
     child: Child,

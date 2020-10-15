@@ -1,17 +1,21 @@
-use crate::errors::ImageError;
-use crate::filesystem::{tar, vfs};
-use crate::image::Image;
-use crate::manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE};
-use crate::storage::{FileStorage, StorageKey};
-use crate::Reference;
+use crate::{
+    errors::ImageError,
+    filesystem::{tar, vfs},
+    image::Image,
+    manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
+    storage::{FileStorage, StorageKey},
+    Reference,
+};
 
 use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
 use flate2::read::GzDecoder;
 use memmap::Mmap;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 pub struct ClientBuilder {
     cache_dir: Option<PathBuf>,

@@ -15,8 +15,5 @@ mod manifest;
 mod sand;
 mod storage;
 
-pub use crate::client::Client;
-pub use crate::container::Container;
-pub use crate::errors::ImageError;
-pub use crate::image::Image;
+pub use crate::{client::Client, container::Container, errors::ImageError, image::Image};
 pub use dkregistry::reference::Reference;
