@@ -26,6 +26,7 @@ mod seccomp;
 mod tracer;
 
 use core::ptr;
+use core::pin::Pin;
 use sc::syscall;
 use crate::nolibc::SysFd;
 use crate::tracer::Tracer;
@@ -36,26 +37,21 @@ const STAGE_1_TRACER: &[u8] = b"sand\0";
 const STAGE_2_LOADER: &[u8] = b"sand-exec\0";
 enum RunMode { Unknown, Tracer(SysFd), Loader }
 
-
 fn main(argv: &[*const u8], envp: &[*const u8]) {
     match check_environment_determine_mode(argv, envp) {
         RunMode::Unknown => panic!("where am i"),
 
         RunMode::Tracer(fd) => {
             seccomp::policy_for_tracer();
-
             let ipc = Socket::from_sys_fd(&fd);
-            let mut tracer = Tracer::new(ipc, process::task::task_fn);
-
+            let mut tracer = Tracer::new(ipc, crate::process::task::task_fn);
             let argv = [ STAGE_2_LOADER.as_ptr(), ptr::null() ];
             let envp: [*const u8; 1] = [ ptr::null() ];
-            tracer.spawn(SELF_EXE, &argv, &envp);
-            tracer.handle_events();
+            tracer.run(SELF_EXE, &argv, &envp);
         }
 
         RunMode::Loader => {
             seccomp::policy_for_loader();
-
             println!("loader says hey, argc={}", argv.len());
             let argv = [ b"sh\0".as_ptr(), ptr::null() ];
             let envp: [*const u8; 1] = [ ptr::null() ];
