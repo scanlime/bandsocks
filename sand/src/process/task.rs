@@ -3,18 +3,18 @@ use crate::process::syscall::SyscallEmulator;
 use crate::protocol::{VPid, SysPid};
 use crate::ptrace;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskData {
-    vpid: VPid,
-    sys_pid: SysPid,
+    pub vpid: VPid,
+    pub sys_pid: SysPid,
 }
 
-pub async fn task_fn<'a>(mut events: EventSource<'a>, task_data: &'a TaskData) {
+pub async fn task_fn<'a>(events: EventSource<'a>, task_data: TaskData) {
     Task { task_data, events }.run().await;
 }
 
 struct Task<'a> {
-    task_data: &'a TaskData,
+    task_data: TaskData,
     events: EventSource<'a>
 }
 

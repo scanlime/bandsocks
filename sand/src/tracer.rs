@@ -1,5 +1,5 @@
 use sc::syscall;
-use crate::process::{Event, SigInfo, TaskFn, task::TaskData, table::ProcessTable};
+use crate::process::{Event, SigInfo, TaskFn, table::ProcessTable};
 use crate::ipc::Socket;
 use crate::abi;
 use crate::protocol::SysPid;
@@ -9,26 +9,26 @@ use core::pin::Pin;
 use core::future::Future;
 
 #[pin_project]
-pub struct Tracer<'a, F: Future<Output=()>> {
+pub struct Tracer<'t, F: Future<Output=()>> {
     ipc: Socket,
-    #[pin] process_table: ProcessTable<'a, F>,
+    #[pin] process_table: ProcessTable<'t, F>,
 }
 
-impl<'a, F: Future<Output=()>> Tracer<'a, F> {
-    pub fn new(ipc: Socket, task_fn: TaskFn<'a, TaskData, F>) -> Self {
+impl<'p, 't: 'p, F: Future<Output=()>> Tracer<'t, F> {
+    pub fn new(ipc: Socket, task_fn: TaskFn<'t, F>) -> Self {
         Tracer {
             ipc,
             process_table: ProcessTable::new(task_fn)
         }
     }
 
-    pub fn run(&'a mut self, cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) {
-        let pin = unsafe { Pin::new_unchecked(self) };
+    pub fn run(&mut self, cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) {
+        let mut pin = unsafe { Pin::new_unchecked(self) };
         pin.as_mut().spawn(cmd, argv, envp);
         pin.as_mut().handle_events();
     }
 
-    fn spawn(self: Pin<&mut Self>, cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) {
+    fn spawn(self: Pin<&'p mut Self>, cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) {
         unsafe { match syscall!(FORK) as isize {
             result if result == 0 => ptrace::be_the_child_process(cmd, argv, envp),
             result if result < 0 => panic!("fork error"),
@@ -36,15 +36,12 @@ impl<'a, F: Future<Output=()>> Tracer<'a, F> {
         }}
     }
 
-    fn expect_new_child(self: Pin<&mut Self>, sys_pid: SysPid) {
+    fn expect_new_child(self: Pin<&'p mut Self>, sys_pid: SysPid) {
         self.project().process_table.insert(sys_pid).expect("virtual process limit exceeded");
     }
 
-    fn handle_events(self: Pin<&'a mut Self>) {
+    fn handle_events(mut self: Pin<&'p mut Self>) {
         let mut siginfo: abi::SigInfo = Default::default();
-        let mut project = self.project();
-        let ipc = &mut project.ipc;
-        let process_table = project.process_table;
         loop {
             match ptrace::wait(&mut siginfo) {
                 err if err == abi::ECHILD => {
@@ -60,10 +57,10 @@ impl<'a, F: Future<Output=()>> Tracer<'a, F> {
                         si_signo: siginfo.si_signo,
                         si_code: siginfo.si_code
                     });
-                    let vpid = process_table.as_ref().syspid_to_v(sys_pid);
+                    let vpid = self.as_mut().project().process_table.as_ref().syspid_to_v(sys_pid);
                     match vpid {
                         None => panic!("signal for unrecognized {:?}", sys_pid),
-                        Some(vpid) => process_table.get(vpid).unwrap().enqueue(event).unwrap()
+                        Some(vpid) => self.as_mut().project().process_table.get(vpid).unwrap().enqueue(event).unwrap()
                     }
                 },
                 err => {
@@ -71,6 +68,7 @@ impl<'a, F: Future<Output=()>> Tracer<'a, F> {
                 }
             }
 
+            let ipc = &mut self.as_mut().project().ipc;
             while let Some(message) = ipc.recv() {
                 println!("received: {:?}", message);
             }
