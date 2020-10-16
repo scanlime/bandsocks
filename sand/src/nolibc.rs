@@ -24,6 +24,10 @@ impl fmt::Write for SysFd {
     }
 }
 
+pub fn getpid() -> usize {
+    unsafe { syscall!(GETPID) }
+}
+
 pub fn exit(code: usize) -> ! {
     unsafe { syscall!(EXIT, code) };
     unreachable!()

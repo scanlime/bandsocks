@@ -125,13 +125,11 @@ unsafe fn waker_clone(_: *const ()) -> RawWaker {
 }
 
 unsafe fn waker_wake(_: *const ()) {
-    panic!("wake");
+    panic!("waker_wake");
 }
 
 unsafe fn waker_wake_by_ref(_: *const ()) {
-    panic!("wake by ref");
+    panic!("waker_wake_by_ref");
 }
 
-unsafe fn waker_drop(_: *const ()) {
-    panic!("waker drop");
-}
+unsafe fn waker_drop(_: *const ()) {}

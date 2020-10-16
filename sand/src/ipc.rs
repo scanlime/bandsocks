@@ -1,10 +1,15 @@
 use crate::{
     abi,
-    nolibc::{self, SysFd},
+    nolibc::{fcntl, getpid, signal, SysFd},
     protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE},
 };
-use core::ptr;
+use core::{
+    ptr,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use sc::syscall;
+
+static SIGIO_FLAG: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug)]
 pub struct Socket {
@@ -16,13 +21,7 @@ pub struct Socket {
 
 impl Socket {
     pub fn from_sys_fd(fd: &SysFd) -> Socket {
-        // to do: lock down fcntl via seccomp, only allow SIGIO, only allow current PID.
-        //        lock down current PID at/before seccomp time
-        nolibc::signal(abi::SIGIO, Socket::handle_sigio).expect("setting up sigio handler");
-        nolibc::fcntl(fd, abi::F_SETFL, abi::FASYNC | abi::O_NONBLOCK)
-            .expect("setting socket flags");
-        nolibc::fcntl(fd, abi::F_SETOWN, unsafe { syscall!(GETPID) })
-            .expect("setting socket owner");
+        Socket::setup_sigio(fd);
         Socket {
             fd: fd.clone(),
             recv_buffer: [0; BUFFER_SIZE],
@@ -31,14 +30,22 @@ impl Socket {
         }
     }
 
+    fn setup_sigio(fd: &SysFd) {
+        signal(abi::SIGIO, Socket::handle_sigio).expect("setting up sigio handler");
+        fcntl(fd, abi::F_SETFL, abi::FASYNC | abi::O_NONBLOCK).expect("setting socket flags");
+        fcntl(fd, abi::F_SETOWN, getpid()).expect("setting socket owner");
+    }
+
     extern "C" fn handle_sigio(num: u32) {
         assert_eq!(num, abi::SIGIO);
-        println!("sigio");
+        SIGIO_FLAG.store(true, Ordering::SeqCst);
     }
 
     pub fn recv(&mut self) -> Option<MessageToSand> {
         if self.recv_begin == self.recv_end {
-            self.fill_recv_buffer();
+            if SIGIO_FLAG.swap(false, Ordering::SeqCst) {
+                self.fill_recv_buffer();
+            }
         }
         if self.recv_begin == self.recv_end {
             None
@@ -71,7 +78,6 @@ impl Socket {
         let flags = abi::MSG_DONTWAIT;
         let result =
             unsafe { syscall!(RECVMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
-        println!("recvmsg {}", result);
         self.recv_begin = 0;
         self.recv_end = match result {
             len if len > 0 => len as usize,

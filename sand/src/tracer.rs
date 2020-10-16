@@ -17,7 +17,7 @@ pub struct Tracer<'t, F: Future<Output = ()>> {
     process_table: ProcessTable<'t, F>,
 }
 
-impl<'t, F: 't + Future<Output = ()>> Tracer<'t, F> {
+impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     pub fn new(ipc: Socket, task_fn: TaskFn<'t, F>) -> Self {
         Tracer {
             process_table: ProcessTable::new(task_fn),
@@ -28,7 +28,7 @@ impl<'t, F: 't + Future<Output = ()>> Tracer<'t, F> {
     pub fn run(mut self, args: &RawExecArgs) {
         let mut pin = unsafe { Pin::new_unchecked(&mut self) };
         pin.as_mut().spawn(args);
-        //pin.handle_events();
+        pin.handle_events();
     }
 
     fn spawn(self: Pin<&mut Self>, args: &RawExecArgs) {
@@ -54,7 +54,7 @@ impl<'t, F: 't + Future<Output = ()>> Tracer<'t, F> {
             match ptrace::wait(&mut siginfo) {
                 err if err == abi::ECHILD => break,
                 err if err == abi::EAGAIN => (),
-                //                err if err == 0 => self.as_mut().handle_siginfo(&siginfo),
+                err if err == 0 => self.as_mut().handle_siginfo(&siginfo),
                 err => panic!("unexpected waitid response ({})", err),
             }
 
@@ -65,7 +65,7 @@ impl<'t, F: 't + Future<Output = ()>> Tracer<'t, F> {
         }
     }
 
-    fn handle_siginfo(self: Pin<&'t mut Self>, siginfo: &abi::SigInfo) {
+    fn handle_siginfo(self: Pin<&mut Self>, siginfo: &abi::SigInfo) {
         let sys_pid = SysPid(siginfo.si_pid);
         let event = Event::Signal(SigInfo {
             si_signo: siginfo.si_signo,
