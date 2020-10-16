@@ -1,5 +1,5 @@
 use crate::{
-    errors::RuntimeError,
+    errors::IPCError,
     sand,
     sand::protocol::{
         deserialize, serialize, Errno, FromSand, MessageFromSand, MessageToSand, ToSand,
@@ -25,7 +25,7 @@ pub struct IPCServer {
 }
 
 impl IPCServer {
-    pub fn new() -> Result<IPCServer, RuntimeError> {
+    pub fn new() -> Result<IPCServer, IPCError> {
         let (server_socket, child_socket) = UnixStream::pair()?;
         clear_close_on_exec_flag(child_socket.as_raw_fd());
 
@@ -43,7 +43,7 @@ impl IPCServer {
         })
     }
 
-    pub fn task(mut self) -> JoinHandle<Result<(), RuntimeError>> {
+    pub fn task(mut self) -> JoinHandle<Result<(), IPCError>> {
         task::spawn(async move {
             let mut buffer = [0; BUFFER_SIZE];
 
@@ -54,19 +54,9 @@ impl IPCServer {
                 log::trace!("ipc read {}", len);
                 let mut offset = 0;
                 while offset < len {
-                    match deserialize(&buffer[offset..len]) {
-                        Err(e) => {
-                            log::warn!("failed to deserialize message, {:?}", e);
-                            break;
-                        }
-                        Ok((message, bytes_used)) => {
-                            if let Err(e) = self.handle_message(message).await {
-                                log::warn!("error while handling ipc message, {:?}", e);
-                                break;
-                            }
-                            offset += bytes_used;
-                        }
-                    }
+                    let (message, bytes_used) = deserialize(&buffer[offset..len])?;
+                    self.handle_message(message).await?;
+                    offset += bytes_used;
                 }
             }
             log::warn!("ipc server is exiting");
@@ -74,7 +64,7 @@ impl IPCServer {
         })
     }
 
-    async fn send_message(&mut self, message: &MessageToSand) -> Result<(), RuntimeError> {
+    async fn send_message(&mut self, message: &MessageToSand) -> Result<(), IPCError> {
         log::info!("<{:x?}", message);
 
         let mut buffer = [0; BUFFER_SIZE];
@@ -82,11 +72,11 @@ impl IPCServer {
         Ok(self.stream.write_all(&buffer[0..len]).await?)
     }
 
-    async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), RuntimeError> {
+    async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), IPCError> {
         log::info!(">{:x?}", message);
 
         match &message.op {
-            FromSand::OpenProcess(_sys_pid) => {
+            FromSand::OpenProcess(sys_pid) => {
                 self.send_message(&MessageToSand {
                     task: message.task,
                     op: ToSand::OpenProcessReply,

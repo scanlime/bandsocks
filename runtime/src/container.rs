@@ -1,6 +1,6 @@
 use crate::{
     client::Client,
-    errors::{ImageError, RuntimeError, VFSError},
+    errors::{IPCError, ImageError, RuntimeError, VFSError},
     filesystem::{mmap::MapRef, vfs::Filesystem},
     image::Image,
     ipcserver::IPCServer,
@@ -176,7 +176,7 @@ pub struct Container {
     dir: PathBuf,
     argv: Vec<OsString>,
     env: BTreeMap<OsString, OsString>,
-    ipc_join: JoinHandle<Result<(), RuntimeError>>,
+    ipc_join: JoinHandle<Result<(), IPCError>>,
 }
 
 impl Container {
@@ -185,7 +185,8 @@ impl Container {
     }
 
     pub async fn wait(self) -> Result<(), RuntimeError> {
-        self.ipc_join.await?
+        self.ipc_join.await??;
+        Ok(())
     }
 
     pub async fn pull(image_reference: &Reference) -> Result<ContainerBuilder, ImageError> {

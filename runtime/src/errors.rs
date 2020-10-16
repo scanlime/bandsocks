@@ -70,12 +70,27 @@ pub enum VFSError {
 }
 
 #[derive(Error, Debug)]
+pub enum IPCError {
+    #[error("ipc io error: {0}")]
+    IOError(#[from] std::io::Error),
+
+    #[error("ipc serialization error: {0}")]
+    SerdeError(#[from] ssmarshal::Error),
+
+    #[error("invalid process ID")]
+    InvalidPid,
+}
+
+#[derive(Error, Debug)]
 pub enum RuntimeError {
     #[error("runtime io error: {0}")]
-    Storage(#[from] std::io::Error),
+    IOError(#[from] std::io::Error),
 
     #[error("virtual filesystem error: {0}")]
     VFSError(#[from] VFSError),
+
+    #[error("interprocess communication error: {0}")]
+    IPCError(#[from] IPCError),
 
     #[error("task join error: {0}")]
     TaskJoinError(#[from] tokio::task::JoinError),
