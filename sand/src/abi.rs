@@ -173,6 +173,30 @@ pub struct MsgHdr {
 // linux/include/linux/socket.h
 pub const MSG_DONTWAIT: usize = 0x40;
 
+// linux/include/linux/socket.h
+#[derive(Debug)]
+#[repr(C)]
+pub struct CMsgHdr {
+    pub cmsg_len: usize,
+    pub cmsg_level: i32,
+    pub cmsg_type: i32,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct CMsgRights {
+    pub hdr: CMsgHdr,
+    pub fd: i32
+}
+
+// cmsg_type
+// linux/include/linux/socket.h
+pub const SCM_RIGHTS: i32 = 1;
+
+// cmsg_level
+// linux/include/uapi/asm-generic/socket.h
+pub const SOL_SOCKET: i32 = 1;
+
 // siginfo_t
 // linux/include/uapi/asm-generic/siginfo.h
 #[derive(Default, Debug)]
