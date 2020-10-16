@@ -3,8 +3,8 @@ use crate::{
     process::Process,
     sand,
     sand::protocol::{
-        deserialize, serialize, Errno, FileQueued, FromSand, MessageFromSand, MessageToSand,
-        ToSand, VPid, BUFFER_SIZE,
+        deserialize, serialize, Errno, FromSand, MessageFromSand, MessageToSand, SysFd, ToSand,
+        VPid,
     },
 };
 use fd_queue::{tokio::UnixStream, EnqueueFd};
@@ -27,6 +27,8 @@ pub struct IPCServer {
     stream: UnixStream,
     process_table: HashMap<VPid, Process>,
 }
+
+const BUFFER_SIZE: usize = 1024;
 
 impl IPCServer {
     pub fn new() -> Result<IPCServer, IPCError> {
@@ -124,9 +126,8 @@ impl IPCServer {
                     let path = process.read_string(access.path)?;
                     log::info!("{:x?} sys_open({:?})", message.task, path);
                     let file = std::fs::File::open("/dev/null")?;
-                    self.enqueue_file(&file)?;
-                    self.reply(&message, ToSand::SysOpenReply(Ok(FileQueued())))
-                        .await?;
+                    let fd = SysFd(file.as_raw_fd() as u32);
+                    self.reply(&message, ToSand::SysOpenReply(Ok(fd))).await?;
                     drop(file);
                 }
             },

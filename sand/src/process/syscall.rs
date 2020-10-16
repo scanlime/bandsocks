@@ -47,7 +47,10 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
                 ToSand::SysOpenReply(result),
                 result
             ) {
-                Ok(_file) => -abi::EINVAL,
+                Ok(file) => {
+                    println!("file from sys_open, in tracer: {:?}", file);
+                    -abi::EINVAL
+                },
                 Err(Errno(num)) => num as isize,
             },
 

@@ -27,7 +27,7 @@ mod seccomp;
 mod tracer;
 
 use crate::{
-    ipc::Socket, nolibc::SysFd, process::task::task_fn, ptrace::RawExecArgs, tracer::Tracer,
+    ipc::Socket, protocol::SysFd, process::task::task_fn, ptrace::RawExecArgs, tracer::Tracer,
 };
 use core::ptr::null;
 use sc::syscall;

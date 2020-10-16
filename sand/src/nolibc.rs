@@ -1,4 +1,4 @@
-use crate::abi;
+use crate::{abi, protocol::SysFd};
 use core::{
     fmt::{self, Write},
     panic::PanicInfo,
@@ -6,9 +6,6 @@ use core::{
     slice, str,
 };
 use sc::syscall;
-
-#[derive(Debug, Clone)]
-pub struct SysFd(pub u32);
 
 pub const EXIT_SUCCESS: usize = 0;
 pub const EXIT_PANIC: usize = 10;
@@ -50,7 +47,7 @@ fn panic(info: &PanicInfo) -> ! {
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => ({
-        let mut stderr = $crate::nolibc::SysFd(2);
+        let mut stderr = $crate::protocol::SysFd(2);
         if core::fmt::write(&mut stderr, core::format_args!( $($arg)* )).is_err() {
             crate::nolibc::exit(crate::nolibc::EXIT_IO_ERROR);
         }

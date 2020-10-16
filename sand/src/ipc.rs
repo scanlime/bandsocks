@@ -1,8 +1,8 @@
 use crate::{
     abi,
     abi::CMsgRights,
-    nolibc::{fcntl, getpid, signal, SysFd},
-    protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE},
+    nolibc::{fcntl, getpid, signal},
+    protocol::{deserialize, serialize, SysFd, MessageFromSand, MessageToSand},
 };
 use as_slice::AsMutSlice;
 use core::{
@@ -121,7 +121,7 @@ impl Socket {
     }
 
     pub fn send(&self, message: &MessageFromSand) {
-        let mut buffer = [0; BUFFER_SIZE];
+        let mut buffer = [0; BufferedBytesMax::USIZE];
         let len = serialize(&mut buffer, message).unwrap();
         let mut iov = abi::IOVec {
             base: &mut buffer[0] as *mut u8,
