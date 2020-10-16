@@ -29,7 +29,7 @@ mod tracer;
 use crate::{
     ipc::Socket, nolibc::SysFd, process::task::task_fn, ptrace::RawExecArgs, tracer::Tracer,
 };
-use core::{pin::Pin, ptr::null};
+use core::ptr::null;
 use sc::syscall;
 
 const SELF_EXE: &[u8] = b"/proc/self/exe\0";
