@@ -11,6 +11,7 @@ use fd_queue::{tokio::UnixStream, EnqueueFd};
 use pentacle::SealedCommand;
 use std::{
     collections::HashMap,
+    fmt::Debug,
     io::Cursor,
     os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
     process::Child,
@@ -68,7 +69,9 @@ impl IPCServer {
         })
     }
 
-    fn enqueue_file(&mut self, fd: &impl AsRawFd) -> Result<(), IPCError> {
+    fn enqueue_file(&mut self, fd: &(impl AsRawFd + Debug)) -> Result<(), IPCError> {
+        log::info!("<{:x?}", fd);
+
         self.stream.enqueue(fd)?;
         Ok(())
     }
