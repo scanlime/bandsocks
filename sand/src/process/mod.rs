@@ -4,7 +4,7 @@ macro_rules! ipc_call {
         match $task.events.next().await {
             crate::process::Event::Message($reply) => $result,
             other => panic!(
-                "unexpected ipc_call reply. task={:?} op={:?}, received: {:?}",
+                "unexpected ipc_call reply, task={:x?} op={:x?}, received: {:x?}",
                 $task, $op, other
             ),
         }

@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
-    protocol::{SysPid, VPid, FromSand, ToSand},
+    protocol::{FromSand, SysPid, ToSand, VPid},
     ptrace,
 };
 use core::fmt::{self, Debug, Formatter};
@@ -37,10 +37,8 @@ impl<'q> Debug for Task<'q> {
 
 impl<'q> Task<'q> {
     async fn run(&mut self) {
-        println!("NEW {:?}", self.task_data);
         ptrace::setoptions(self.task_data.sys_pid);
 
-        // Follow the attach sequence from ptrace::be_the_child_process()
         assert_eq!(
             self.events.next().await,
             Event::Signal {
@@ -49,6 +47,7 @@ impl<'q> Task<'q> {
                 status: abi::SIGSTOP,
             }
         );
+
         self.cont();
         assert_eq!(
             self.events.next().await,
@@ -58,9 +57,7 @@ impl<'q> Task<'q> {
                 status: abi::PTRACE_SIG_EXEC,
             }
         );
-        self.cont();
 
-        // Now let the runtime open this new process
         ipc_call!(
             self,
             FromSand::OpenProcess(self.task_data.sys_pid),
@@ -68,6 +65,7 @@ impl<'q> Task<'q> {
             ()
         );
 
+        self.cont();
         loop {
             let event = self.events.next().await;
             match event {
@@ -83,7 +81,7 @@ impl<'q> Task<'q> {
                     status: signal,
                 } if signal < 0x100 => self.handle_signal(signal).await,
 
-                e => panic!("{:?}, unexpected event: {:?}", self.task_data, e),
+                e => panic!("{:x?}, unexpected event, {:x?}", self.task_data, e),
             }
         }
     }

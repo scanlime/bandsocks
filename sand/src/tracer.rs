@@ -74,7 +74,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         let sys_pid = SysPid(siginfo.si_pid);
         let vpid = self.as_mut().project().process_table.syspid_to_v(sys_pid);
         match vpid {
-            None => panic!("signal for unrecognized {:?}", sys_pid),
+            None => panic!("signal for unrecognized task, {:x?}", sys_pid),
             Some(vpid) => {
                 self.task_event(
                     vpid,
@@ -91,7 +91,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     fn task_event(mut self: Pin<&mut Self>, task: VPid, event: Event) {
         let process = self.as_mut().project().process_table.get(task);
         match process {
-            None => panic!("message to unrecognized task {:?}", task),
+            None => panic!("message for unrecognized task, {:x?}", task),
             Some(mut process) => {
                 let result = process.as_mut().send_event(event);
                 result.expect("event queue full");

@@ -51,7 +51,7 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
                 Err(Errno(num)) => num as isize,
             },
 
-            _ => panic!("unexpected syscall trace {:x?}", self),
+            _ => panic!("unexpected syscall trace, {:x?}", self),
         }
     }
 }

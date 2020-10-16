@@ -56,7 +56,7 @@ impl Socket {
                     assert!(self.recv_begin <= self.recv_end);
                     Some(message)
                 }
-                other => panic!("recvmsg deserialized to unexpected value, {:?}", other),
+                other => panic!("deserialize failed, {:x?}", other),
             }
         }
     }

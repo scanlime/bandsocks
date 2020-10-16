@@ -2,7 +2,8 @@ use crate::{
     errors::RuntimeError,
     sand,
     sand::protocol::{
-        deserialize, serialize, FromSand, MessageFromSand, MessageToSand, ToSand, BUFFER_SIZE,
+        deserialize, serialize, Errno, FromSand, MessageFromSand, MessageToSand, ToSand,
+        BUFFER_SIZE,
     },
 };
 use fd_queue::tokio::UnixStream;
@@ -84,17 +85,38 @@ impl IPCServer {
     async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), RuntimeError> {
         log::info!(">{:x?}", message);
 
-        tokio::time::delay_for(std::time::Duration::from_millis(500)).await;
-
         match &message.op {
-            FromSand::SysAccess(_) => {
+            FromSand::OpenProcess(_sys_pid) => {
+                self.send_message(&MessageToSand {
+                    task: message.task,
+                    op: ToSand::OpenProcessReply,
+                })
+                .await?
+            }
+
+            FromSand::SysAccess(_access) => {
                 self.send_message(&MessageToSand {
                     task: message.task,
                     op: ToSand::SysAccessReply(Ok(())),
                 })
                 .await?
             }
-            _ => (),
+
+            FromSand::SysOpen(_access, _flags) => {
+                self.send_message(&MessageToSand {
+                    task: message.task,
+                    op: ToSand::SysOpenReply(Err(Errno(-libc::EINVAL))),
+                })
+                .await?
+            }
+
+            FromSand::SysKill(_vpid, _signal) => {
+                self.send_message(&MessageToSand {
+                    task: message.task,
+                    op: ToSand::SysKillReply(Ok(())),
+                })
+                .await?
+            }
         }
 
         Ok(())
