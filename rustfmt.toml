@@ -1,2 +1,3 @@
 inline_attribute_width = 40
 merge_imports = true
+wrap_comments = true

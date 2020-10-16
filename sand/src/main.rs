@@ -26,8 +26,10 @@ mod ptrace;
 mod seccomp;
 mod tracer;
 
-use crate::{ipc::Socket, nolibc::SysFd, process::task::task_fn, tracer::Tracer};
-use core::{pin::Pin, ptr};
+use crate::{
+    ipc::Socket, nolibc::SysFd, process::task::task_fn, ptrace::RawExecArgs, tracer::Tracer,
+};
+use core::{pin::Pin, ptr::null};
 use sc::syscall;
 
 const SELF_EXE: &[u8] = b"/proc/self/exe\0";
@@ -46,18 +48,16 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
 
         RunMode::Tracer(fd) => {
             seccomp::policy_for_tracer();
-            Tracer::new(Socket::from_sys_fd(&fd), task_fn).run(
-                SELF_EXE,
-                &[STAGE_2_LOADER.as_ptr(), ptr::null()],
-                &[ptr::null()],
-            );
+            Tracer::new(Socket::from_sys_fd(&fd), task_fn).run(unsafe {
+                &RawExecArgs::new(SELF_EXE, &[STAGE_2_LOADER.as_ptr(), null()], &[null()])
+            });
         }
 
         RunMode::Loader => {
             seccomp::policy_for_loader();
             println!("loader says hey, argc={}", argv.len());
-            let argv = [b"sh\0".as_ptr(), ptr::null()];
-            let envp: [*const u8; 1] = [ptr::null()];
+            let argv = [b"sh\0".as_ptr(), null()];
+            let envp: [*const u8; 1] = [null()];
             unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };
         }
     }
@@ -93,10 +93,11 @@ fn parse_envp_as_fd(envp: &[*const u8]) -> Option<SysFd> {
 }
 
 fn check_sealed_exe_environment() -> Result<(), ()> {
-    // This is probably not super important, but as part of checking out the runtime environment
-    // during startup, it's easy to make sure this seems to be the sealed binary that we expected
-    // the runtime to create for us. This is invoked unconditionally; in stage 1 it will run
-    // normally, *before* the seccomp filter, so these will all be real syscalls. In stage 2
+    // This is probably not super important, but as part of checking out the runtime
+    // environment during startup, it's easy to make sure this seems to be the
+    // sealed binary that we expected the runtime to create for us. This is
+    // invoked unconditionally; in stage 1 it will run normally, *before* the
+    // seccomp filter, so these will all be real syscalls. In stage 2
     // these syscalls will be emulated by the tracer.
 
     let exe_fd = unsafe { syscall!(OPEN, SELF_EXE.as_ptr(), abi::O_RDONLY, 0) as isize };

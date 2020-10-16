@@ -194,9 +194,10 @@ impl Client {
         let manifest = self.pull_manifest(image).await?;
         let config = self.pull_runtime_config(image, &manifest.config).await?;
 
-        // The manifest includes a list of compressed layers, which we will need to do the download,
-        // but the content IDs we are really trying to follow are the digests of the decompressed rootfs,
-        // since those come from the runtime_config which has been verified by digest.
+        // The manifest includes a list of compressed layers, which we will need to do
+        // the download, but the content IDs we are really trying to follow are
+        // the digests of the decompressed rootfs, since those come from the
+        // runtime_config which has been verified by digest.
 
         if &config.rootfs.fs_type != FS_TYPE {
             Err(ImageError::UnsupportedRootFilesystemType(

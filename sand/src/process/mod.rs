@@ -5,13 +5,30 @@ pub mod task;
 use crate::{process::task::TaskData, protocol::ToSand};
 use core::{
     future::Future,
-    marker::PhantomData,
+    mem::replace,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
 use heapless::spsc::{Consumer, Queue};
 use pin_project::pin_project;
 use typenum::consts::*;
+
+pub type TaskFn<'t, F> = fn(EventSource<'t>, TaskData) -> F;
+
+#[pin_project]
+pub struct Process<'t, F: Future<Output = ()>> {
+    #[pin]
+    state: TaskState<'t, F>,
+    #[pin]
+    queue: EventQueue,
+}
+
+#[pin_project(project = TaskStateProj)]
+enum TaskState<'t, F: Future<Output = ()>> {
+    Initial(TaskFn<'t, F>, TaskData),
+    Pollable(#[pin] F),
+    None,
+}
 
 #[derive(Debug)]
 pub enum Event {
@@ -27,16 +44,17 @@ pub struct SigInfo {
 
 type EventQueueSize = U2;
 type EventQueue = Queue<Event, EventQueueSize>;
+type EventConsumer<'q> = Consumer<'q, Event, EventQueueSize>;
 
-pub struct EventSource<'a> {
-    consumer: Consumer<'a, Event, EventQueueSize>,
+pub struct EventSource<'q> {
+    consumer: EventConsumer<'q>,
 }
 
-pub struct EventFuture<'a, 'b> {
-    source: &'b mut EventSource<'a>,
+pub struct EventFuture<'q, 's> {
+    source: &'s mut EventSource<'q>,
 }
 
-impl<'a, 'b> Future for EventFuture<'a, 'b> {
+impl<'q, 's> Future for EventFuture<'q, 's> {
     type Output = Event;
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.source.consumer.dequeue() {
@@ -46,32 +64,16 @@ impl<'a, 'b> Future for EventFuture<'a, 'b> {
     }
 }
 
-impl<'a, 'b> EventSource<'a> {
-    fn next(&'b mut self) -> EventFuture<'a, 'b> {
+impl<'q, 's> EventSource<'q> {
+    fn next(&'s mut self) -> EventFuture<'q, 's> {
         EventFuture { source: self }
     }
 }
 
-pub type TaskFn<'t, F> = fn(EventSource<'t>, TaskData) -> F;
-
-#[pin_project]
-pub struct Process<'t, F: Future<Output = ()>> {
-    #[pin]
-    future: Option<F>,
-    #[pin]
-    queue: EventQueue,
-    task_fn: TaskFn<'t, F>,
-    task_data: TaskData,
-    task_queue: PhantomData<&'t EventQueue>,
-}
-
-impl<'t, 'p: 't, F: Future<Output = ()>> Process<'t, F> {
+impl<'p, 't: 'p, F: Future<Output = ()>> Process<'t, F> {
     pub fn new(task_fn: TaskFn<'t, F>, task_data: TaskData) -> Self {
         Process {
-            task_fn,
-            task_data,
-            task_queue: PhantomData,
-            future: None,
+            state: TaskState::Initial(task_fn, task_data),
             queue: EventQueue::new(),
         }
     }
@@ -81,16 +83,55 @@ impl<'t, 'p: 't, F: Future<Output = ()>> Process<'t, F> {
         producer.enqueue(event)
     }
 
-    pub fn poll(self: Pin<&'p mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        let project = self.project();
-        let mut future = project.future;
-        let task_fn = project.task_fn;
-        let task_data = project.task_data.clone();
-        if future.as_mut().as_pin_mut().is_none() {
-            let consumer = unsafe { project.queue.get_unchecked_mut().split().1 };
-            let fut = task_fn(EventSource { consumer }, task_data);
-            unsafe { *future.as_mut().get_unchecked_mut() = Some(fut) };
-        }
-        future.as_pin_mut().unwrap().poll(cx)
+    fn event_source(self: Pin<&'p mut Self>) -> EventSource<'t> {
+        let queue = unsafe { self.project().queue.get_unchecked_mut() } as *mut EventQueue;
+        let queue = unsafe { &mut *queue };
+        let consumer = queue.split().1;
+        EventSource { consumer }
     }
+
+    pub fn poll(mut self: Pin<&'p mut Self>) -> Poll<()> {
+        loop {
+            let mut state_pin = self.as_mut().project().state;
+            match state_pin.as_mut().project() {
+                TaskStateProj::None => unreachable!(),
+                TaskStateProj::Initial(_, _) => (),
+                TaskStateProj::Pollable(future) => {
+                    let raw_waker = RawWaker::new(core::ptr::null(), &WAKER_VTABLE);
+                    let waker = unsafe { Waker::from_raw(raw_waker) };
+                    let mut cx = Context::from_waker(&waker);
+                    break future.poll(&mut cx);
+                }
+            }
+
+            let prev_state = unsafe { replace(state_pin.get_unchecked_mut(), TaskState::None) };
+            let next_state = match prev_state {
+                TaskState::Initial(task_fn, task_data) => {
+                    let event_source = self.as_mut().event_source();
+                    TaskState::Pollable(task_fn(event_source, task_data))
+                }
+                _ => unreachable!(),
+            };
+            unsafe { self.as_mut().get_unchecked_mut().state = next_state };
+        }
+    }
+}
+
+const WAKER_VTABLE: RawWakerVTable =
+    RawWakerVTable::new(waker_clone, waker_wake, waker_wake_by_ref, waker_drop);
+
+unsafe fn waker_clone(_: *const ()) -> RawWaker {
+    panic!("waker_clone");
+}
+
+unsafe fn waker_wake(_: *const ()) {
+    panic!("wake");
+}
+
+unsafe fn waker_wake_by_ref(_: *const ()) {
+    panic!("wake by ref");
+}
+
+unsafe fn waker_drop(_: *const ()) {
+    panic!("waker drop");
 }

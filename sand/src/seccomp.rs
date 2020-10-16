@@ -1,12 +1,13 @@
 use sc::nr;
 use seccomp_tiny::{abi::*, bpf::*, ProgramBuffer};
 
-// This file has two policies; the "tracer" policy is applied very early, and covers this
-// process for its entire lifetime. The "loader" policy is applied during stage 2, and it
-// applies additional ruless which the sandbox contents use but not the tracer.
+// This file has two policies; the "tracer" policy is applied very early, and
+// covers this process for its entire lifetime. The "loader" policy is applied
+// during stage 2, and it applies additional ruless which the sandbox contents
+// use but not the tracer.
 //
-// For comparison, the container we might be running in likely has a policy like this one:
-// https://github.com/moby/moby/blob/master/profiles/seccomp/default.json
+// For comparison, the container we might be running in likely has a policy like
+// this one: https://github.com/moby/moby/blob/master/profiles/seccomp/default.json
 
 fn base_rules_for_all_policies() -> ProgramBuffer {
     let mut p = ProgramBuffer::new();
@@ -16,8 +17,8 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
 
     // Fully allowed in all modes
     // to do: none of this has been audited yet. this will generally be all syscalls
-    //        that deal with existing fds or with memory, but nothing that deals with
-    //        pids and nothing that has a pathname in it.
+    //        that deal with existing fds or with memory, but nothing that deals
+    // with        pids and nothing that has a pathname in it.
     p.if_any_eq(
         &[
             nr::READ,

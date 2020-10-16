@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Partial implementation of the manifest v2 schema2 spec.
-/// The dkregistry crate has its own partial version of this spec too, but it's mostly private.
-/// https://docs.docker.com/registry/spec/manifest-v2-2/
+/// The dkregistry crate has its own partial version of this spec too, but it's
+/// mostly private. https://docs.docker.com/registry/spec/manifest-v2-2/
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Manifest {
     pub config: Link,

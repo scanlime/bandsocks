@@ -2,7 +2,19 @@ use crate::{abi, protocol::SysPid};
 use core::{mem, ptr::null};
 use sc::syscall;
 
-pub unsafe fn be_the_child_process(cmd: &[u8], argv: &[*const u8], envp: &[*const u8]) -> ! {
+pub struct RawExecArgs<'a> {
+    cmd: &'a [u8],
+    argv: &'a [*const u8],
+    envp: &'a [*const u8],
+}
+
+impl<'a> RawExecArgs<'a> {
+    pub unsafe fn new(cmd: &'a [u8], argv: &'a [*const u8], envp: &'a [*const u8]) -> Self {
+        RawExecArgs { cmd, argv, envp }
+    }
+}
+
+pub unsafe fn be_the_child_process(args: &RawExecArgs) -> ! {
     // Make attachable, but doesn't wait for the tracer
     match syscall!(PTRACE, abi::PTRACE_TRACEME, 0, 0, 0) as isize {
         0 => {}
@@ -12,7 +24,12 @@ pub unsafe fn be_the_child_process(cmd: &[u8], argv: &[*const u8], envp: &[*cons
     // Let the tracer attach before we exec
     syscall!(KILL, syscall!(GETPID), abi::SIGSTOP);
 
-    let result = syscall!(EXECVE, cmd.as_ptr(), argv.as_ptr(), envp.as_ptr()) as isize;
+    let result = syscall!(
+        EXECVE,
+        args.cmd.as_ptr(),
+        args.argv.as_ptr(),
+        args.envp.as_ptr()
+    ) as isize;
     panic!("exec failed, {}", result);
 }
 

@@ -33,24 +33,28 @@ enum EnvBuilder {
 
 impl ContainerBuilder {
     pub fn spawn(&self) -> Result<Container, RuntimeError> {
-        // it might be nice to enforce this at compile-time instead... right now it seemed
-        // worth allowing for multiple ways to load images without the types getting too complex.
+        // it might be nice to enforce this at compile-time instead... right now it
+        // seemed worth allowing for multiple ways to load images without the
+        // types getting too complex.
         let image = match &self.image {
             None => Err(RuntimeError::NoImage)?,
             Some(image) => image.clone(),
         };
 
-        // this is a shallow copy of the image's reference filesystem, which the container can modify
+        // this is a shallow copy of the image's reference filesystem, which the
+        // container can modify
         let filesystem = image.filesystem.clone();
 
-        // working directory is the configured one joined with an optional relative or absolute override
+        // working directory is the configured one joined with an optional relative or
+        // absolute override
         let mut dir = PathBuf::new();
         dir.push(&image.config.config.working_dir);
         if let Some(dir_override) = &self.current_dir {
             dir.push(dir_override);
         }
 
-        // merge the environment, allowing arbitrary overrides to the configured environment
+        // merge the environment, allowing arbitrary overrides to the configured
+        // environment
         let mut env = BTreeMap::new();
         for configured_env in &image.config.config.env {
             let mut iter = configured_env.splitn(2, "=");
@@ -76,9 +80,10 @@ impl ContainerBuilder {
             }
         }
 
-        // merge the command line arguments, allowing an "entry point" binary from either the config
-        // or our local overrides, followed by additional "cmd" args that can be taken exactly as configured
-        // or replaced entirely with the arguments given to this invocation.
+        // merge the command line arguments, allowing an "entry point" binary from
+        // either the config or our local overrides, followed by additional
+        // "cmd" args that can be taken exactly as configured or replaced
+        // entirely with the arguments given to this invocation.
         let mut argv = match &self.entrypoint {
             Some(path) => vec![path.clone()],
             None => match &image.config.config.entrypoint {

@@ -78,8 +78,9 @@ impl FileStorage {
         // This part is atomic
         tokio::fs::rename(temp_path, dest_path).await?;
 
-        // The resulting mmap might be a different file than the one we just wrote, if another
-        // process or thread was racing with us. The content should be identical.
+        // The resulting mmap might be a different file than the one we just wrote, if
+        // another process or thread was racing with us. The content should be
+        // identical.
         match self.get(key)? {
             Some(mapping) => Ok(mapping),
             None => Err(ImageError::StorageMissingAfterInsert),

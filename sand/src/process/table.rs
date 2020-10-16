@@ -88,6 +88,11 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
         .flatten()
     }
 
+    pub fn get_sys(self: Pin<&mut Self>, sys_pid: SysPid) -> Option<Pin<&mut Process<'t, F>>> {
+        let vpid = self.as_ref().syspid_to_v(sys_pid);
+        vpid.map(move |vpid| self.get(vpid)).flatten()
+    }
+
     pub fn get(self: Pin<&mut Self>, vpid: VPid) -> Option<Pin<&mut Process<'t, F>>> {
         table_index_for_vpid(vpid)
             .map(move |index| {
