@@ -49,10 +49,9 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     fn event_loop(mut self: Pin<&mut Self>) {
         let mut siginfo: abi::SigInfo = Default::default();
         loop {
-            println!("event loop");
             match ptrace::wait(&mut siginfo) {
                 err if err == abi::ECHILD => break,
-                err if err == abi::EAGAIN => (),
+                err if err == abi::EINTR => (),
                 err if err == 0 => self.as_mut().siginfo_event(&siginfo),
                 err => panic!("unexpected waitid response ({})", err),
             }

@@ -1,7 +1,8 @@
 use crate::{
     abi::SyscallInfo,
+    process::Event,
     process::task::Task,
-    protocol::FromSand,
+    protocol::{ToSand, FromSand, Errno},
 };
 use sc::nr;
 
@@ -30,8 +31,11 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
 
     async fn sys_access(&mut self) -> isize {
         self.task.msg.send(FromSand::SysAccess(self.call.args[0], self.call.args[1]));
-        println!("ACCESS IS NOT HAPPENING {:x?}", self);
-        0
+        match self.task.events.next().await {
+            Event::Message(ToSand::AccessReply(Ok(()))) => 0,
+            Event::Message(ToSand::AccessReply(Err(Errno(num)))) => num as isize,
+            other => panic!("unexpected sys_access reply {:?}", other)
+        }
     }
 
     async fn sys_openat(&mut self) -> isize {

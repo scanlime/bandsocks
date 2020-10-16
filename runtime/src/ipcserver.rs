@@ -1,7 +1,9 @@
 use crate::{
     errors::RuntimeError,
     sand,
-    sand::protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE},
+    sand::protocol::{
+        deserialize, serialize, FromSand, MessageFromSand, MessageToSand, ToSand, BUFFER_SIZE,
+    },
 };
 use fd_queue::tokio::UnixStream;
 use pentacle::SealedCommand;
@@ -48,7 +50,7 @@ impl IPCServer {
                 if len <= 0 {
                     break;
                 }
-                log::warn!("ipc read {}", len);
+                log::trace!("ipc read {}", len);
                 let mut offset = 0;
                 while offset < len {
                     match deserialize(&buffer[offset..len]) {
@@ -57,7 +59,10 @@ impl IPCServer {
                             break;
                         }
                         Ok((message, bytes_used)) => {
-                            self.handle_message(message).await;
+                            if let Err(e) = self.handle_message(message).await {
+                                log::warn!("error while handling ipc message, {:?}", e);
+                                break;
+                            }
                             offset += bytes_used;
                         }
                     }
@@ -75,8 +80,20 @@ impl IPCServer {
         Ok(self.stream.write_all(&buffer[0..len]).await?)
     }
 
-    async fn handle_message(&mut self, message: MessageFromSand) {
+    async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), RuntimeError> {
         log::info!(">{:?}", message);
+
+        tokio::time::delay_for(std::time::Duration::from_millis(2000)).await;
+
+        match &message.op {
+            FromSand::SysAccess(_, _) => self.send_message(&MessageToSand {
+                task: message.task,
+                op: ToSand::AccessReply(Ok(()))
+            }).await?,
+            _ => (),
+        }
+
+        Ok(())
     }
 }
 

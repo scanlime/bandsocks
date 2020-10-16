@@ -7,7 +7,7 @@ use heapless::FnvIndexMap;
 use pin_project::pin_project;
 use typenum::{consts::*, marker_traits::Unsigned};
 
-type PidLimit = U8192;
+type PidLimit = U1024;
 
 #[pin_project]
 pub struct ProcessTable<'t, F: Future<Output = ()>> {

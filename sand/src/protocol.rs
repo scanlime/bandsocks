@@ -42,6 +42,7 @@ pub struct MessageFromSand {
 #[repr(C)]
 pub enum ToSand {
     OpenReply(Result<File, Errno>),
+    AccessReply(Result<(), Errno>),
     KillReply(Result<(), Errno>),
 }
 
