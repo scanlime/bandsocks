@@ -14,6 +14,7 @@ mod ipcserver;
 mod manifest;
 mod sand;
 mod storage;
+mod process;
 
-pub use crate::{client::Client, container::Container, errors::ImageError, image::Image};
+pub use crate::{client::Client, container::Container, image::Image};
 pub use dkregistry::reference::Reference;

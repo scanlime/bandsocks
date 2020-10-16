@@ -1,14 +1,17 @@
 use crate::{
     errors::IPCError,
+    process::Process,
     sand,
     sand::protocol::{
-        deserialize, serialize, Errno, FromSand, MessageFromSand, MessageToSand, ToSand,
+        deserialize, serialize, Errno, FromSand, MessageFromSand, MessageToSand, SysPid, ToSand,
         BUFFER_SIZE,
     },
 };
 use fd_queue::tokio::UnixStream;
+use memmap::MmapMut;
 use pentacle::SealedCommand;
 use std::{
+    fs::OpenOptions,
     io::Cursor,
     os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
     process::Child,
@@ -77,6 +80,7 @@ impl IPCServer {
 
         match &message.op {
             FromSand::OpenProcess(sys_pid) => {
+                let _process = Process::open(*sys_pid, &self.child)?;
                 self.send_message(&MessageToSand {
                     task: message.task,
                     op: ToSand::OpenProcessReply,

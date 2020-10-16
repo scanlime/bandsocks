@@ -82,6 +82,7 @@ impl Socket {
         self.recv_end = match result {
             len if len > 0 => len as usize,
             err if err == -abi::EAGAIN => 0,
+            err if err == 0 => panic!("disconnected from ipc server"),
             err => panic!("recvmsg ({})", err),
         };
     }

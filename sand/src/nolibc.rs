@@ -41,7 +41,7 @@ fn panic(info: &PanicInfo) -> ! {
             exit(EXIT_IO_ERROR);
         }
     }
-    if write!(&mut stderr, "\npanic!\n").is_err() {
+    if write!(&mut stderr, "\ncontainer panic!\n").is_err() {
         exit(EXIT_IO_ERROR);
     }
     exit(EXIT_PANIC);
