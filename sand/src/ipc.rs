@@ -1,22 +1,30 @@
 use crate::{
     abi,
+    abi::CMsgRights,
     nolibc::{fcntl, getpid, signal, SysFd},
     protocol::{deserialize, serialize, MessageFromSand, MessageToSand, BUFFER_SIZE},
 };
+use as_slice::AsMutSlice;
 use core::{
+    mem::size_of,
     ptr,
     sync::atomic::{AtomicBool, Ordering},
 };
+use heapless::Vec;
 use sc::syscall;
+use typenum::*;
 
 static SIGIO_FLAG: AtomicBool = AtomicBool::new(false);
+type BufferedBytesMax = U256;
+type BufferedFilesMax = U16;
 
 #[derive(Debug)]
 pub struct Socket {
     fd: SysFd,
-    recv_buffer: [u8; BUFFER_SIZE],
-    recv_begin: usize,
-    recv_end: usize,
+    recv_byte_buffer: Vec<u8, BufferedBytesMax>,
+    recv_byte_offset: usize,
+    recv_file_buffer: Vec<CMsgRights, BufferedFilesMax>,
+    recv_file_offset: usize,
 }
 
 impl Socket {
@@ -24,9 +32,10 @@ impl Socket {
         Socket::setup_sigio(fd);
         Socket {
             fd: fd.clone(),
-            recv_buffer: [0; BUFFER_SIZE],
-            recv_begin: 0,
-            recv_end: 0,
+            recv_byte_buffer: Vec::new(),
+            recv_byte_offset: 0,
+            recv_file_buffer: Vec::new(),
+            recv_file_offset: 0,
         }
     }
 
@@ -42,18 +51,18 @@ impl Socket {
     }
 
     pub fn recv(&mut self) -> Option<MessageToSand> {
-        if self.recv_begin == self.recv_end {
+        if self.recv_byte_offset == self.recv_byte_buffer.len() {
             if SIGIO_FLAG.swap(false, Ordering::SeqCst) {
-                self.fill_recv_buffer();
+                self.recv_to_buffer();
             }
         }
-        if self.recv_begin == self.recv_end {
+        if self.recv_byte_offset == self.recv_byte_buffer.len() {
             None
         } else {
-            match deserialize(&self.recv_buffer[self.recv_begin..self.recv_end]) {
+            match deserialize(&self.recv_byte_buffer[self.recv_byte_offset..]) {
                 Ok((message, bytes_used)) => {
-                    self.recv_begin += bytes_used;
-                    assert!(self.recv_begin <= self.recv_end);
+                    self.recv_byte_offset += bytes_used;
+                    assert!(self.recv_byte_offset <= self.recv_byte_buffer.len());
                     Some(message)
                 }
                 other => panic!("deserialize failed, {:x?}", other),
@@ -61,30 +70,54 @@ impl Socket {
         }
     }
 
-    fn fill_recv_buffer(&mut self) {
+    pub fn recv_file(&mut self) -> Option<SysFd> {
+        if self.recv_file_offset == self.recv_file_buffer.len() {
+            None
+        } else {
+            let rights = &self.recv_file_buffer[self.recv_file_offset];
+            self.recv_file_offset += 1;
+            assert_eq!(rights.hdr.cmsg_len, size_of::<CMsgRights>());
+            assert_eq!(rights.hdr.cmsg_level, abi::SOL_SOCKET);
+            assert_eq!(rights.hdr.cmsg_type, abi::SCM_RIGHTS);
+            assert!(rights.fd > 0);
+            Some(SysFd(rights.fd as u32))
+        }
+    }
+
+    fn recv_to_buffer(&mut self) {
+        assert_eq!(self.recv_byte_offset, self.recv_byte_buffer.len());
+        assert_eq!(self.recv_file_offset, self.recv_file_buffer.len());
+        self.recv_byte_offset = 0;
+        self.recv_byte_buffer.clear();
+        self.recv_file_offset = 0;
+        self.recv_file_buffer.clear();
+
         let mut iov = abi::IOVec {
-            base: &mut self.recv_buffer[0] as *mut u8,
-            len: BUFFER_SIZE,
+            base: self.recv_byte_buffer.as_mut_slice().as_mut_ptr(),
+            len: self.recv_byte_buffer.capacity(),
         };
-        let msghdr = abi::MsgHdr {
+        let mut msghdr = abi::MsgHdr {
             msg_name: ptr::null_mut(),
             msg_namelen: 0,
             msg_iov: &mut iov as *mut abi::IOVec,
             msg_iovlen: 1,
-            msg_control: ptr::null_mut(),
-            msg_controllen: 0,
+            msg_control: self.recv_file_buffer.as_mut_slice().as_mut_ptr() as *mut usize,
+            msg_controllen: self.recv_file_buffer.capacity() * size_of::<CMsgRights>(),
             msg_flags: 0,
         };
         let flags = abi::MSG_DONTWAIT;
-        let result =
-            unsafe { syscall!(RECVMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
-        self.recv_begin = 0;
-        self.recv_end = match result {
-            len if len > 0 => len as usize,
-            err if err == -abi::EAGAIN => 0,
-            err if err == 0 => panic!("disconnected from ipc server"),
-            err => panic!("recvmsg ({})", err),
-        };
+        unsafe {
+            match syscall!(RECVMSG, self.fd.0, &mut msghdr as *mut abi::MsgHdr, flags) as isize {
+                len if len > 0 => {
+                    self.recv_byte_buffer.set_len(len as usize);
+                    self.recv_file_buffer
+                        .set_len(msghdr.msg_controllen as usize / size_of::<CMsgRights>());
+                }
+                err if err == -abi::EAGAIN => (),
+                err if err == 0 => panic!("disconnected from ipc server"),
+                err => panic!("recvmsg ({})", err),
+            }
+        }
     }
 
     pub fn send(&self, message: &MessageFromSand) {
