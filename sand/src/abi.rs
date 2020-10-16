@@ -134,9 +134,10 @@ pub const SI_MAX_SIZE: usize = 128;
 
 // errno
 // linux/include/uapi/asm-generic/errno-base.h
-pub const EINTR: isize = -4;
-pub const ECHILD: isize = -10;
-pub const EAGAIN: isize = -11;
+pub const EINTR: isize = 4;
+pub const ECHILD: isize = 10;
+pub const EAGAIN: isize = 11;
+pub const EINVAL: isize = 22;
 
 // signo
 // linux/include/uapi/asm-generic/signal.h
@@ -229,3 +230,6 @@ pub const F_SETOWN: usize = 8;
 pub const FASYNC: usize = 0o20000;
 /// linux/include/uapi/asm-generic/fcntl.h
 pub const O_NONBLOCK: usize = 0o4000;
+
+/// linux/include/uapi/linux/fcntl.h
+pub const AT_FDCWD: i32 = -100;

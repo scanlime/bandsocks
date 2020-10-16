@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
-    protocol::{SysPid, VPid},
+    protocol::{SysPid, VPid, FromSand, ToSand},
     ptrace,
 };
 use core::fmt::{self, Debug, Formatter};
@@ -59,6 +59,14 @@ impl<'q> Task<'q> {
             }
         );
         self.cont();
+
+        // Now let the runtime open this new process
+        ipc_call!(
+            self,
+            FromSand::OpenProcess(self.task_data.sys_pid),
+            ToSand::OpenProcessReply,
+            ()
+        );
 
         loop {
             let event = self.events.next().await;

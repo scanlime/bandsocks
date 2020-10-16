@@ -74,22 +74,26 @@ impl IPCServer {
     }
 
     async fn send_message(&mut self, message: &MessageToSand) -> Result<(), RuntimeError> {
-        log::info!("<{:?}", message);
+        log::info!("<{:x?}", message);
+
         let mut buffer = [0; BUFFER_SIZE];
         let len = serialize(&mut buffer, message).unwrap();
         Ok(self.stream.write_all(&buffer[0..len]).await?)
     }
 
     async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), RuntimeError> {
-        log::info!(">{:?}", message);
+        log::info!(">{:x?}", message);
 
-        tokio::time::delay_for(std::time::Duration::from_millis(2000)).await;
+        tokio::time::delay_for(std::time::Duration::from_millis(500)).await;
 
         match &message.op {
-            FromSand::SysAccess(_, _) => self.send_message(&MessageToSand {
-                task: message.task,
-                op: ToSand::AccessReply(Ok(()))
-            }).await?,
+            FromSand::SysAccess(_) => {
+                self.send_message(&MessageToSand {
+                    task: message.task,
+                    op: ToSand::SysAccessReply(Ok(())),
+                })
+                .await?
+            }
             _ => (),
         }
 

@@ -2,7 +2,7 @@ macro_rules! ipc_call {
     ( $task:expr, $op:expr, $reply:pat, $result:expr ) => {{
         $task.msg.send($op);
         match $task.events.next().await {
-            $reply => $result,
+            crate::process::Event::Message($reply) => $result,
             other => panic!(
                 "unexpected ipc_call reply. task={:?} op={:?}, received: {:?}",
                 $task, $op, other
@@ -25,7 +25,7 @@ use core::{
     pin::Pin,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
-use heapless::spsc::{Producer, Consumer, Queue};
+use heapless::spsc::{Consumer, Producer, Queue};
 use pin_project::pin_project;
 use typenum::consts::*;
 

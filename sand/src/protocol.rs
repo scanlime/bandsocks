@@ -19,6 +19,14 @@ pub struct Signal(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
+pub struct VPtr(pub usize);
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+#[repr(C)]
+pub struct VString(pub VPtr);
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+#[repr(C)]
 pub struct Errno(pub i32);
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -41,15 +49,25 @@ pub struct MessageFromSand {
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub enum ToSand {
-    OpenReply(Result<File, Errno>),
-    AccessReply(Result<(), Errno>),
-    KillReply(Result<(), Errno>),
+    OpenProcessReply,
+    SysOpenReply(Result<File, Errno>),
+    SysAccessReply(Result<(), Errno>),
+    SysKillReply(Result<(), Errno>),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[repr(C)]
+pub struct SysAccess {
+    pub dir: Option<File>,
+    pub path: VString,
+    pub mode: i32,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub enum FromSand {
-    SysAccess(u64, u64),
-    SysOpen(u64, u64, u64),
+    OpenProcess(SysPid),
+    SysAccess(SysAccess),
+    SysOpen(SysAccess, i32),
     SysKill(VPid, Signal),
 }

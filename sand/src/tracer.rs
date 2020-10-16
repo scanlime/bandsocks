@@ -50,8 +50,8 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         let mut siginfo: abi::SigInfo = Default::default();
         loop {
             match ptrace::wait(&mut siginfo) {
-                err if err == abi::ECHILD => break,
-                err if err == abi::EINTR => (),
+                err if err == -abi::ECHILD => break,
+                err if err == -abi::EINTR => (),
                 err if err == 0 => self.as_mut().siginfo_event(&siginfo),
                 err => panic!("unexpected waitid response ({})", err),
             }

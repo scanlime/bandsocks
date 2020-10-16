@@ -81,7 +81,7 @@ impl Socket {
         self.recv_begin = 0;
         self.recv_end = match result {
             len if len > 0 => len as usize,
-            err if err == abi::EAGAIN => 0,
+            err if err == -abi::EAGAIN => 0,
             err => panic!("recvmsg ({})", err),
         };
     }
