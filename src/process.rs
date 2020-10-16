@@ -44,19 +44,19 @@ impl Process {
         Ok(Process { sys_pid, mem_file })
     }
 
-    pub fn read_bytes(&mut self, vptr: VPtr, buf: &mut [u8]) -> Result<(), IPCError> {
+    pub fn read_bytes(&self, vptr: VPtr, buf: &mut [u8]) -> Result<(), IPCError> {
         self.mem_file
             .read_exact_at(buf, vptr.0 as u64)
             .map_err(|_| IPCError::MemAccess)
     }
 
-    pub fn read_string(&mut self, vstr: VString) -> Result<String, IPCError> {
+    pub fn read_string(&self, vstr: VString) -> Result<String, IPCError> {
         self.read_string_os(vstr)?
             .into_string()
             .map_err(|_| IPCError::StringDecoding)
     }
 
-    pub fn read_string_os(&mut self, vstr: VString) -> Result<OsString, IPCError> {
+    pub fn read_string_os(&self, vstr: VString) -> Result<OsString, IPCError> {
         let mut ptr = vstr.0;
         let mut result = OsString::new();
         let mut page_buffer = Vec::with_capacity(*PAGE_SIZE);

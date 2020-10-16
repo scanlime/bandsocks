@@ -34,6 +34,23 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
                 Err(Errno(num)) => num as isize,
             },
 
+            nr::OPEN => match ipc_call!(
+                self.task,
+                FromSand::SysOpen(
+                    SysAccess {
+                        dir: None,
+                        path: VString(VPtr(args[0] as usize)),
+                        mode: args[2] as i32,
+                    },
+                    args[1] as i32
+                ),
+                ToSand::SysOpenReply(result),
+                result
+            ) {
+                Ok(_file) => -abi::EINVAL,
+                Err(Errno(num)) => num as isize,
+            },
+
             nr::OPENAT if args[0] as i32 == abi::AT_FDCWD => match ipc_call!(
                 self.task,
                 FromSand::SysOpen(

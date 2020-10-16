@@ -17,8 +17,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
 
     // Fully allowed in all modes
     // to do: none of this has been audited yet. this will generally be all syscalls
-    //        that deal with existing fds or with memory, but nothing that deals
-    // with        pids and nothing that has a pathname in it.
+    // that deal with existing fds or with memory, but nothing that deals with pids and nothing that has a pathname in it.
     p.if_any_eq(
         &[
             nr::READ,
@@ -36,6 +35,8 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::BRK,
             nr::COPY_FILE_RANGE,
             nr::SENDFILE,
+            nr::MMAP,
+            nr::MPROTECT,
         ],
         &[ret(SECCOMP_RET_ALLOW)],
     );
