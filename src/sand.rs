@@ -8,5 +8,5 @@ pub const PROGRAM_DATA: &'static [u8] = include_bytes!(concat!(
 ));
 
 pub mod protocol {
-    include!("../../sand/src/protocol.rs");
+    include!("../sand/src/protocol.rs");
 }

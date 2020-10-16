@@ -1,6 +1,6 @@
 #[macro_use] extern crate clap;
 
-use bandsocks_runtime::Container;
+use bandsocks::Container;
 use clap::{App, ArgMatches};
 use env_logger::{from_env, Env};
 
