@@ -30,7 +30,7 @@ pub struct VString(pub VPtr);
 pub struct Errno(pub i32);
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct File();
+pub struct FileQueued();
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
@@ -50,7 +50,7 @@ pub struct MessageFromSand {
 #[repr(C)]
 pub enum ToSand {
     OpenProcessReply,
-    SysOpenReply(Result<File, Errno>),
+    SysOpenReply(Result<FileQueued, Errno>),
     SysAccessReply(Result<(), Errno>),
     SysKillReply(Result<(), Errno>),
 }
@@ -58,7 +58,7 @@ pub enum ToSand {
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub struct SysAccess {
-    pub dir: Option<File>,
+    pub dir: Option<FileQueued>,
     pub path: VString,
     pub mode: i32,
 }

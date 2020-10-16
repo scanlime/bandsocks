@@ -3,11 +3,11 @@ use crate::{
     process::Process,
     sand,
     sand::protocol::{
-        deserialize, serialize, Errno, FromSand, MessageFromSand, MessageToSand, ToSand, VPid,
-        BUFFER_SIZE,
+        deserialize, serialize, Errno, FileQueued, FromSand, MessageFromSand, MessageToSand,
+        ToSand, VPid, BUFFER_SIZE,
     },
 };
-use fd_queue::tokio::UnixStream;
+use fd_queue::{tokio::UnixStream, EnqueueFd};
 use pentacle::SealedCommand;
 use std::{
     collections::HashMap,
@@ -68,12 +68,19 @@ impl IPCServer {
         })
     }
 
+    fn enqueue_file(&mut self, fd: &impl AsRawFd) -> Result<(), IPCError> {
+        self.stream.enqueue(fd)?;
+        Ok(())
+    }
+
     async fn send_message(&mut self, message: &MessageToSand) -> Result<(), IPCError> {
         log::info!("<{:x?}", message);
 
         let mut buffer = [0; BUFFER_SIZE];
         let len = serialize(&mut buffer, message).unwrap();
-        Ok(self.stream.write_all(&buffer[0..len]).await?)
+        self.stream.write_all(&buffer[0..len]).await?;
+        self.stream.flush().await?;
+        Ok(())
     }
 
     async fn reply(&mut self, message: &MessageFromSand, op: ToSand) -> Result<(), IPCError> {
@@ -98,36 +105,35 @@ impl IPCServer {
                 }
             }
 
-            FromSand::SysAccess(access) => {
-                match self.process_table.get_mut(&message.task) {
-                    None => Err(IPCError::WrongProcessState)?,
-                    Some(mut process) => {
-                        let path = process.read_string(access.path)?;
-                        log::info!("{:x?} sys_access({:?})", message.task, path);
-                        self.reply(&message, ToSand::SysAccessReply(Err(Errno(-libc::ENOENT)))).await?;
-                    }
+            FromSand::SysAccess(access) => match self.process_table.get_mut(&message.task) {
+                None => Err(IPCError::WrongProcessState)?,
+                Some(mut process) => {
+                    let path = process.read_string(access.path)?;
+                    log::info!("{:x?} sys_access({:?})", message.task, path);
+                    self.reply(&message, ToSand::SysAccessReply(Err(Errno(-libc::ENOENT))))
+                        .await?;
                 }
-            }
+            },
 
-            FromSand::SysOpen(access, flags) => {
-                match self.process_table.get_mut(&message.task) {
-                    None => Err(IPCError::WrongProcessState)?,
-                    Some(mut process) => {
-                        let path = process.read_string(access.path)?;
-                        log::info!("{:x?} sys_open({:?})", message.task, path);
-                        self.reply(&message, ToSand::SysOpenReply(Err(Errno(-libc::ENOENT)))).await?;
-                    }
+            FromSand::SysOpen(access, flags) => match self.process_table.get_mut(&message.task) {
+                None => Err(IPCError::WrongProcessState)?,
+                Some(mut process) => {
+                    let path = process.read_string(access.path)?;
+                    log::info!("{:x?} sys_open({:?})", message.task, path);
+                    let file = std::fs::File::open("/dev/null")?;
+                    self.enqueue_file(&file)?;
+                    self.reply(&message, ToSand::SysOpenReply(Ok(FileQueued())))
+                        .await?;
+                    drop(file);
                 }
-            }
+            },
 
-            FromSand::SysKill(_vpid, _signal) => {
-                match self.process_table.get_mut(&message.task) {
-                    None => Err(IPCError::WrongProcessState)?,
-                    Some(mut process) => {
-                        self.reply(&message, ToSand::SysKillReply(Ok(()))).await?;
-                    },
+            FromSand::SysKill(_vpid, _signal) => match self.process_table.get_mut(&message.task) {
+                None => Err(IPCError::WrongProcessState)?,
+                Some(mut process) => {
+                    self.reply(&message, ToSand::SysKillReply(Ok(()))).await?;
                 }
-            }
+            },
         }
 
         Ok(())

@@ -77,6 +77,9 @@ pub enum IPCError {
     #[error("ipc serialization error: {0}")]
     SerdeError(#[from] ssmarshal::Error),
 
+    #[error("file queue full error")]
+    FileQueueFullError(#[from] fd_queue::QueueFullError),
+
     #[error("invalid process ID")]
     InvalidPid,
 
