@@ -79,6 +79,15 @@ pub enum IPCError {
 
     #[error("invalid process ID")]
     InvalidPid,
+
+    #[error("incorrect ipc process state")]
+    WrongProcessState,
+
+    #[error("string decoding error")]
+    StringDecoding,
+
+    #[error("memory access error")]
+    MemAccess,
 }
 
 #[derive(Error, Debug)]

@@ -3,15 +3,14 @@ use crate::{
     process::Process,
     sand,
     sand::protocol::{
-        deserialize, serialize, Errno, FromSand, MessageFromSand, MessageToSand, SysPid, ToSand,
+        deserialize, serialize, Errno, FromSand, MessageFromSand, MessageToSand, ToSand, VPid,
         BUFFER_SIZE,
     },
 };
 use fd_queue::tokio::UnixStream;
-use memmap::MmapMut;
 use pentacle::SealedCommand;
 use std::{
-    fs::OpenOptions,
+    collections::HashMap,
     io::Cursor,
     os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
     process::Child,
@@ -23,8 +22,9 @@ use tokio::{
 };
 
 pub struct IPCServer {
-    child: Child,
+    tracer: Child,
     stream: UnixStream,
+    process_table: HashMap<VPid, Process>,
 }
 
 impl IPCServer {
@@ -41,8 +41,9 @@ impl IPCServer {
         cmd.env("FD", child_socket.as_raw_fd().to_string());
 
         Ok(IPCServer {
-            child: cmd.spawn()?,
+            tracer: cmd.spawn()?,
             stream: server_socket,
+            process_table: HashMap::new(),
         })
     }
 
@@ -75,41 +76,55 @@ impl IPCServer {
         Ok(self.stream.write_all(&buffer[0..len]).await?)
     }
 
+    async fn reply(&mut self, message: &MessageFromSand, op: ToSand) -> Result<(), IPCError> {
+        self.send_message(&MessageToSand {
+            task: message.task,
+            op,
+        })
+        .await
+    }
+
     async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), IPCError> {
         log::info!(">{:x?}", message);
 
         match &message.op {
             FromSand::OpenProcess(sys_pid) => {
-                let _process = Process::open(*sys_pid, &self.child)?;
-                self.send_message(&MessageToSand {
-                    task: message.task,
-                    op: ToSand::OpenProcessReply,
-                })
-                .await?
+                if self.process_table.contains_key(&message.task) {
+                    Err(IPCError::WrongProcessState)?;
+                } else {
+                    let process = Process::open(*sys_pid, &self.tracer)?;
+                    assert!(self.process_table.insert(message.task, process).is_none());
+                    self.reply(&message, ToSand::OpenProcessReply).await?;
+                }
             }
 
-            FromSand::SysAccess(_access) => {
-                self.send_message(&MessageToSand {
-                    task: message.task,
-                    op: ToSand::SysAccessReply(Ok(())),
-                })
-                .await?
+            FromSand::SysAccess(access) => {
+                match self.process_table.get_mut(&message.task) {
+                    None => Err(IPCError::WrongProcessState)?,
+                    Some(mut process) => {
+                        let path = process.read_string(access.path)?;
+                        log::info!("{:x?} {:x?} {:x?}", process, access, path);
+                        self.reply(&message, ToSand::SysAccessReply(Ok(()))).await?;
+                    }
+                }
             }
 
             FromSand::SysOpen(_access, _flags) => {
-                self.send_message(&MessageToSand {
-                    task: message.task,
-                    op: ToSand::SysOpenReply(Err(Errno(-libc::EINVAL))),
-                })
-                .await?
+                match self.process_table.get_mut(&message.task) {
+                    None => Err(IPCError::WrongProcessState)?,
+                    Some(mut process) => {
+                        self.reply(&message, ToSand::SysOpenReply(Err(Errno(-libc::EINVAL)))).await?;
+                    }
+                }
             }
 
             FromSand::SysKill(_vpid, _signal) => {
-                self.send_message(&MessageToSand {
-                    task: message.task,
-                    op: ToSand::SysKillReply(Ok(())),
-                })
-                .await?
+                match self.process_table.get_mut(&message.task) {
+                    None => Err(IPCError::WrongProcessState)?,
+                    Some(mut process) => {
+                        self.reply(&message, ToSand::SysKillReply(Ok(()))).await?;
+                    },
+                }
             }
         }
 
