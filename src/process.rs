@@ -2,13 +2,12 @@ use crate::{
     errors::IPCError,
     sand::protocol::{SysPid, VPtr, VString},
 };
-use memmap::{MmapMut, MmapOptions};
 use regex::Regex;
 use std::{
-    collections::HashMap,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs::{File, OpenOptions},
     io::Read,
+    os::unix::{ffi::OsStrExt, fs::FileExt},
     process::Child,
 };
 
@@ -22,19 +21,18 @@ fn determine_page_size() -> usize {
     page_size
 }
 
-fn page_floor(vptr: VPtr) -> VPtr {
-    VPtr(vptr.0 & !(*PAGE_SIZE - 1))
-}
-
 fn page_offset(vptr: VPtr) -> usize {
     vptr.0 & (*PAGE_SIZE - 1)
+}
+
+fn page_remaining(vptr: VPtr) -> usize {
+    *PAGE_SIZE - page_offset(vptr)
 }
 
 #[derive(Debug)]
 pub struct Process {
     sys_pid: SysPid,
     mem_file: File,
-    mapped_pages: HashMap<VPtr, MmapMut>,
 }
 
 impl Process {
@@ -43,30 +41,40 @@ impl Process {
         check_can_open(sys_pid, tracer)?;
         let mem_file = open_mem_file(sys_pid)?;
         check_can_open(sys_pid, tracer)?;
-        Ok(Process {
-            sys_pid,
-            mem_file,
-            mapped_pages: HashMap::new(),
-        })
+        Ok(Process { sys_pid, mem_file })
     }
 
-    fn map_page<'a>(&'a mut self, vptr: VPtr) -> Result<&'a MmapMut, IPCError> {
-        assert_eq!(page_offset(vptr), 0);
-        Err(IPCError::MemAccess)
+    pub fn read_bytes(&mut self, vptr: VPtr, buf: &mut [u8]) -> Result<(), IPCError> {
+        self.mem_file
+            .read_exact_at(buf, vptr.0 as u64)
+            .map_err(|_| IPCError::MemAccess)
     }
 
     pub fn read_string(&mut self, vstr: VString) -> Result<String, IPCError> {
-        self.read_str_os(vstr)?
+        self.read_string_os(vstr)?
             .into_string()
             .map_err(|_| IPCError::StringDecoding)
     }
 
-    pub fn read_str_os(&mut self, vstr: VString) -> Result<OsString, IPCError> {
-        Err(IPCError::MemAccess)
-    }
-
-    pub fn read_bytes(&mut self, vptr: VPtr, len: usize) -> Result<Vec<u8>, IPCError> {
-        Err(IPCError::MemAccess)
+    pub fn read_string_os(&mut self, vstr: VString) -> Result<OsString, IPCError> {
+        let mut ptr = vstr.0;
+        let mut result = OsString::new();
+        let mut page_buffer = Vec::with_capacity(*PAGE_SIZE);
+        loop {
+            page_buffer.resize(page_remaining(ptr), 0u8);
+            self.read_bytes(ptr, &mut page_buffer[..]);
+            match page_buffer.iter().position(|i| *i == 0) {
+                None => {
+                    result.push(OsStr::from_bytes(&page_buffer));
+                    ptr = VPtr(ptr.0 + page_buffer.len());
+                }
+                Some(index) => {
+                    result.push(OsStr::from_bytes(&page_buffer[0..index]));
+                    break Ok(result);
+                }
+            }
+            result.push(OsStr::from_bytes(&page_buffer));
+        }
     }
 }
 
