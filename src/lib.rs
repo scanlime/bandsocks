@@ -12,9 +12,9 @@ mod filesystem;
 mod image;
 mod ipcserver;
 mod manifest;
+mod process;
 mod sand;
 mod storage;
-mod process;
 
 pub use crate::{client::Client, container::Container, image::Image};
 pub use dkregistry::reference::Reference;

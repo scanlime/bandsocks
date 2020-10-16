@@ -9,10 +9,8 @@ use crate::{
 use memmap::MmapMut;
 use regex::Regex;
 use std::{
-    fs::OpenOptions,
-    fs::File,
-    io::Read,
-    io::Cursor,
+    fs::{File, OpenOptions},
+    io::{Cursor, Read},
     os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
     process::Child,
 };
@@ -57,7 +55,7 @@ fn check_can_open(sys_pid: SysPid, tracer: &Child) -> Result<(), IPCError> {
             let tracer_pid = captures.get(2).map(|s| s.as_str().parse());
             if pid == Some(Ok(sys_pid.0)) && tracer_pid == Some(Ok(tracer.id())) {
                 Ok(())
-            } else{
+            } else {
                 Err(IPCError::InvalidPid)
             }
         }
