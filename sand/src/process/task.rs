@@ -108,7 +108,7 @@ impl<'q> Task<'q> {
 
         // Block the real system call from executing!
         regs.orig_ax = -1 as i64 as u64;
-        ptrace::set_regs(self.task_data.sys_pid, &mut regs);
+        ptrace::set_regs(self.task_data.sys_pid, &regs);
         self.cont();
     }
 }

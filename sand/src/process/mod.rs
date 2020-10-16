@@ -1,3 +1,16 @@
+macro_rules! ipc_call {
+    ( $task:expr, $op:expr, $reply:pat, $result:expr ) => {{
+        $task.msg.send($op);
+        match $task.events.next().await {
+            $reply => $result,
+            other => panic!(
+                "unexpected ipc_call reply. task={:?} op={:?}, received: {:?}",
+                $task, $op, other
+            ),
+        }
+    }};
+}
+
 pub mod syscall;
 pub mod table;
 pub mod task;
