@@ -62,7 +62,7 @@ impl Process {
         let mut page_buffer = Vec::with_capacity(*PAGE_SIZE);
         loop {
             page_buffer.resize(page_remaining(ptr), 0u8);
-            self.read_bytes(ptr, &mut page_buffer[..]);
+            self.read_bytes(ptr, &mut page_buffer[..])?;
             match page_buffer.iter().position(|i| *i == 0) {
                 None => {
                     result.push(OsStr::from_bytes(&page_buffer));
@@ -87,7 +87,7 @@ fn read_proc_status(sys_pid: SysPid) -> Result<String, IPCError> {
     let path = format!("/proc/{}/status", sys_pid.0);
     let mut file = File::open(path)?;
     let mut string = String::with_capacity(4096);
-    file.read_to_string(&mut string);
+    file.read_to_string(&mut string)?;
     Ok(string)
 }
 
