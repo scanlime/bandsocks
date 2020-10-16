@@ -1,10 +1,11 @@
 use crate::{
     abi,
     abi::SyscallInfo,
-    process::{syscall::SyscallEmulator, Event, EventSource},
+    process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
     protocol::{SysPid, VPid},
     ptrace,
 };
+use core::fmt::{self, Debug, Formatter};
 
 #[derive(Debug, Clone)]
 pub struct TaskData {
@@ -12,13 +13,26 @@ pub struct TaskData {
     pub sys_pid: SysPid,
 }
 
-pub async fn task_fn(events: EventSource<'_>, task_data: TaskData) {
-    Task { task_data, events }.run().await;
+pub async fn task_fn(events: EventSource<'_>, msg: MessageSender<'_>, task_data: TaskData) {
+    Task {
+        events,
+        msg,
+        task_data,
+    }
+    .run()
+    .await;
 }
 
-struct Task<'q> {
-    task_data: TaskData,
-    events: EventSource<'q>,
+pub struct Task<'q> {
+    pub task_data: TaskData,
+    pub msg: MessageSender<'q>,
+    pub events: EventSource<'q>,
+}
+
+impl<'q> Debug for Task<'q> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.task_data.fmt(f)
+    }
 }
 
 impl<'q> Task<'q> {
@@ -89,7 +103,7 @@ impl<'q> Task<'q> {
             ..Default::default()
         };
 
-        let mut emulator = SyscallEmulator::new(&self.task_data, &syscall_info);
+        let mut emulator = SyscallEmulator::new(self, &syscall_info);
         regs.ax = emulator.dispatch().await as u64;
 
         // Block the real system call from executing!

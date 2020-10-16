@@ -27,15 +27,15 @@ pub struct File();
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub struct MessageToSand {
-    task: VPid,
-    op: ToSand,
+    pub task: VPid,
+    pub op: ToSand,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub struct MessageFromSand {
-    task: VPid,
-    op: FromSand,
+    pub task: VPid,
+    pub op: FromSand,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
@@ -48,6 +48,7 @@ pub enum ToSand {
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub enum FromSand {
-    SysOpen(usize, usize, usize),
+    SysAccess(u64, u64),
+    SysOpen(u64, u64, u64),
     SysKill(VPid, Signal),
 }

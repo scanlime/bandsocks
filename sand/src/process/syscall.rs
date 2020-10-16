@@ -1,34 +1,35 @@
 use crate::{
     abi::SyscallInfo,
-    process::task::TaskData,
-    protocol::{SysPid, VPid},
+    process::task::Task,
+    protocol::FromSand,
 };
 use sc::nr;
 
 #[derive(Debug)]
-pub struct SyscallEmulator<'a> {
-    task: &'a TaskData,
-    info: &'a SyscallInfo,
+pub struct SyscallEmulator<'t, 'c, 'q> {
+    task: &'t mut Task<'q>,
+    call: &'c SyscallInfo,
 }
 
-impl<'a> SyscallEmulator<'a> {
-    pub fn new(task: &'a TaskData, info: &'a SyscallInfo) -> Self {
-        SyscallEmulator { task, info }
+impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
+    pub fn new(task: &'t mut Task<'q>, call: &'c SyscallInfo) -> Self {
+        SyscallEmulator { task, call }
     }
 
     pub async fn dispatch(&mut self) -> isize {
-        match self.info.nr as usize {
+        match self.call.nr as usize {
             nr::ACCESS => self.sys_access().await,
             nr::OPENAT => self.sys_openat().await,
             nr::UNAME => self.sys_uname().await,
             nr::STAT => self.sys_stat().await,
             nr::MMAP => self.sys_mmap().await,
             nr::FSTAT => self.sys_fstat().await,
-            n => panic!("unexpected syscall trace, SYS_{} {:?}", n, self),
+            n => panic!("unexpected syscall trace {:?}", self)
         }
     }
 
     async fn sys_access(&mut self) -> isize {
+        self.task.msg.send(FromSand::SysAccess(self.call.args[0], self.call.args[1]));
         println!("ACCESS IS NOT HAPPENING {:x?}", self);
         0
     }

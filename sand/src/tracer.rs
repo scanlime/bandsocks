@@ -2,7 +2,7 @@ use crate::{
     abi,
     ipc::Socket,
     process::{table::ProcessTable, Event, TaskFn},
-    protocol::SysPid,
+    protocol::{MessageFromSand, MessageToSand, SysPid, VPid},
     ptrace,
     ptrace::RawExecArgs,
 };
@@ -28,16 +28,14 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     pub fn run(mut self, args: &RawExecArgs) {
         let mut pin = unsafe { Pin::new_unchecked(&mut self) };
         pin.as_mut().spawn(args);
-        pin.handle_events();
+        pin.event_loop();
     }
 
     fn spawn(self: Pin<&mut Self>, args: &RawExecArgs) {
-        unsafe {
-            match syscall!(FORK) as isize {
-                result if result == 0 => ptrace::be_the_child_process(args),
-                result if result < 0 => panic!("fork error"),
-                result => self.expect_new_child(SysPid(result as u32)),
-            }
+        match unsafe { syscall!(FORK) } as isize {
+            result if result == 0 => unsafe { ptrace::be_the_child_process(args) },
+            result if result < 0 => panic!("fork error"),
+            result => self.expect_new_child(SysPid(result as u32)),
         }
     }
 
@@ -48,35 +46,68 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
             .expect("virtual process limit exceeded");
     }
 
-    fn handle_events(mut self: Pin<&mut Self>) {
+    fn event_loop(mut self: Pin<&mut Self>) {
         let mut siginfo: abi::SigInfo = Default::default();
         loop {
+            println!("event loop");
             match ptrace::wait(&mut siginfo) {
                 err if err == abi::ECHILD => break,
                 err if err == abi::EAGAIN => (),
-                err if err == 0 => self.as_mut().handle_siginfo(&siginfo),
+                err if err == 0 => self.as_mut().siginfo_event(&siginfo),
                 err => panic!("unexpected waitid response ({})", err),
             }
-
-            let ipc = &mut self.as_mut().project().ipc;
-            while let Some(message) = ipc.recv() {
-                println!("received: {:?}", message);
+            loop {
+                let ipc = &mut self.as_mut().project().ipc;
+                let message = ipc.recv();
+                match message {
+                    None => break,
+                    Some(m) => self.as_mut().message_event(m),
+                }
             }
         }
     }
 
-    fn handle_siginfo(self: Pin<&mut Self>, siginfo: &abi::SigInfo) {
+    fn message_event(self: Pin<&mut Self>, message: MessageToSand) {
+        self.task_event(message.task, Event::Message(message.op));
+    }
+
+    fn siginfo_event(mut self: Pin<&mut Self>, siginfo: &abi::SigInfo) {
         let sys_pid = SysPid(siginfo.si_pid);
-        match self.project().process_table.get_sys(sys_pid) {
+        let vpid = self.as_mut().project().process_table.syspid_to_v(sys_pid);
+        match vpid {
             None => panic!("signal for unrecognized {:?}", sys_pid),
+            Some(vpid) => {
+                self.task_event(
+                    vpid,
+                    Event::Signal {
+                        sig: siginfo.si_signo,
+                        code: siginfo.si_code,
+                        status: siginfo.si_status,
+                    },
+                );
+            }
+        }
+    }
+
+    fn task_event(mut self: Pin<&mut Self>, task: VPid, event: Event) {
+        let process = self.as_mut().project().process_table.get(task);
+        match process {
+            None => panic!("message to unrecognized task {:?}", task),
             Some(mut process) => {
-                let event = Event::Signal {
-                    sig: siginfo.si_signo,
-                    code: siginfo.si_code,
-                    status: siginfo.si_status,
-                };
-                process.as_mut().enqueue(event).unwrap();
-                assert_eq!(process.poll(), Poll::Pending);
+                let result = process.as_mut().send_event(event);
+                result.expect("event queue full");
+                assert_eq!(process.as_mut().poll(), Poll::Pending);
+            }
+        }
+        loop {
+            let process = self.as_mut().project().process_table.get(task);
+            let outbox = process.unwrap().as_mut().check_outbox();
+            match outbox {
+                None => break,
+                Some(op) => {
+                    let ipc = self.as_mut().project().ipc;
+                    ipc.send(&MessageFromSand { task, op });
+                }
             }
         }
     }
