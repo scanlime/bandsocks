@@ -103,17 +103,19 @@ impl IPCServer {
                     None => Err(IPCError::WrongProcessState)?,
                     Some(mut process) => {
                         let path = process.read_string(access.path)?;
-                        log::info!("{:x?} {:x?} {:x?}", process, access, path);
-                        self.reply(&message, ToSand::SysAccessReply(Ok(()))).await?;
+                        log::info!("{:x?} sys_access({:?})", message.task, path);
+                        self.reply(&message, ToSand::SysAccessReply(Err(Errno(-libc::ENOENT)))).await?;
                     }
                 }
             }
 
-            FromSand::SysOpen(_access, _flags) => {
+            FromSand::SysOpen(access, flags) => {
                 match self.process_table.get_mut(&message.task) {
                     None => Err(IPCError::WrongProcessState)?,
                     Some(mut process) => {
-                        self.reply(&message, ToSand::SysOpenReply(Err(Errno(-libc::EINVAL)))).await?;
+                        let path = process.read_string(access.path)?;
+                        log::info!("{:x?} sys_open({:?})", message.task, path);
+                        self.reply(&message, ToSand::SysOpenReply(Err(Errno(-libc::ENOENT)))).await?;
                     }
                 }
             }
