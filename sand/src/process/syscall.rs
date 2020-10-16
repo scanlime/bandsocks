@@ -1,19 +1,19 @@
 use crate::{
     abi::SyscallInfo,
+    process::task::TaskData,
     protocol::{SysPid, VPid},
 };
 use sc::nr;
 
 #[derive(Debug)]
 pub struct SyscallEmulator<'a> {
-    pid: VPid,
-    sys_pid: SysPid,
+    task: &'a TaskData,
     info: &'a SyscallInfo,
 }
 
 impl<'a> SyscallEmulator<'a> {
-    pub fn new(pid: VPid, sys_pid: SysPid, info: &'a SyscallInfo) -> Self {
-        SyscallEmulator { pid, sys_pid, info }
+    pub fn new(task: &'a TaskData, info: &'a SyscallInfo) -> Self {
+        SyscallEmulator { task, info }
     }
 
     pub async fn dispatch(&mut self) -> isize {

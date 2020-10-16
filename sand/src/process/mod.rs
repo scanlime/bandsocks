@@ -30,16 +30,10 @@ enum TaskState<'t, F: Future<Output = ()>> {
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Event {
     Message(ToSand),
-    Signal(SigInfo),
-}
-
-#[derive(Debug)]
-pub struct SigInfo {
-    pub si_signo: u32,
-    pub si_code: u32,
+    Signal { sig: u32, code: u32, status: u32 },
 }
 
 type EventQueueSize = U2;

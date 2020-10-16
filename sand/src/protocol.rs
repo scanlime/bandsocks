@@ -21,31 +21,31 @@ pub struct Signal(pub u32);
 #[repr(C)]
 pub struct Errno(pub i32);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct File();
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub struct MessageToSand {
     task: VPid,
     op: ToSand,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub struct MessageFromSand {
     task: VPid,
     op: FromSand,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub enum ToSand {
     OpenReply(Result<File, Errno>),
     KillReply(Result<(), Errno>),
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
 pub enum FromSand {
     SysOpen(usize, usize, usize),

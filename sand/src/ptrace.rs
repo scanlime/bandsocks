@@ -21,7 +21,7 @@ pub unsafe fn be_the_child_process(args: &RawExecArgs) -> ! {
         result => panic!("ptrace error, {}", result),
     }
 
-    // Let the tracer attach before we exec
+    // Let the tracer attach before we exec.
     syscall!(KILL, syscall!(GETPID), abi::SIGSTOP);
 
     let result = syscall!(

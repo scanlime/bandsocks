@@ -1,7 +1,7 @@
 use crate::{
     abi,
     ipc::Socket,
-    process::{table::ProcessTable, Event, SigInfo, TaskFn},
+    process::{table::ProcessTable, Event, TaskFn},
     protocol::SysPid,
     ptrace,
     ptrace::RawExecArgs,
@@ -67,13 +67,14 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
 
     fn handle_siginfo(self: Pin<&mut Self>, siginfo: &abi::SigInfo) {
         let sys_pid = SysPid(siginfo.si_pid);
-        let event = Event::Signal(SigInfo {
-            si_signo: siginfo.si_signo,
-            si_code: siginfo.si_code,
-        });
         match self.project().process_table.get_sys(sys_pid) {
             None => panic!("signal for unrecognized {:?}", sys_pid),
             Some(mut process) => {
+                let event = Event::Signal {
+                    sig: siginfo.si_signo,
+                    code: siginfo.si_code,
+                    status: siginfo.si_status,
+                };
                 process.as_mut().enqueue(event).unwrap();
                 assert_eq!(process.poll(), Poll::Pending);
             }
