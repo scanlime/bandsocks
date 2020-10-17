@@ -3,8 +3,7 @@ use crate::{
     process::Process,
     sand,
     sand::protocol::{
-        deserialize, serialize, Errno, FromSand, MessageFromSand, MessageToSand, SysFd, ToSand,
-        VPid,
+        Errno, FromSand, IPCBuffer, MessageFromSand, MessageToSand, SysFd, ToSand, VPid,
     },
 };
 use fd_queue::{tokio::UnixStream, EnqueueFd};
@@ -28,8 +27,6 @@ pub struct IPCServer {
     process_table: HashMap<VPid, Process>,
 }
 
-const BUFFER_SIZE: usize = 1024;
-
 impl IPCServer {
     pub fn new() -> Result<IPCServer, IPCError> {
         let (server_socket, child_socket) = UnixStream::pair()?;
@@ -52,38 +49,32 @@ impl IPCServer {
 
     pub fn task(mut self) -> JoinHandle<Result<(), IPCError>> {
         task::spawn(async move {
-            let mut buffer = [0; BUFFER_SIZE];
-
-            while let Ok(len) = self.stream.read(&mut buffer[..]).await {
-                if len <= 0 {
-                    break;
+            let mut buffer = IPCBuffer::new();
+            loop {
+                buffer.reset();
+                let (bytes, files) = buffer.as_mut_parts();
+                unsafe { bytes.set_len(bytes.capacity()) };
+                match self.stream.read(&mut bytes[..]).await? {
+                    len if len > 0 => unsafe { bytes.set_len(len) },
+                    _ => {
+                        log::warn!("ipc server is exiting");
+                        break Ok(());
+                    }
                 }
-                log::trace!("ipc read {}", len);
-                let mut offset = 0;
-                while offset < len {
-                    let (message, bytes_used) = deserialize(&buffer[offset..len])?;
+                while !buffer.is_empty() {
+                    let message = buffer.pop_front()?;
                     self.handle_message(message).await?;
-                    offset += bytes_used;
                 }
             }
-            log::warn!("ipc server is exiting");
-            Ok(())
         })
-    }
-
-    fn enqueue_file(&mut self, fd: &(impl AsRawFd + Debug)) -> Result<(), IPCError> {
-        log::info!("<{:x?}", fd);
-
-        self.stream.enqueue(fd)?;
-        Ok(())
     }
 
     async fn send_message(&mut self, message: &MessageToSand) -> Result<(), IPCError> {
         log::info!("<{:x?}", message);
 
-        let mut buffer = [0; BUFFER_SIZE];
-        let len = serialize(&mut buffer, message).unwrap();
-        self.stream.write_all(&buffer[0..len]).await?;
+        let mut buffer = IPCBuffer::new();
+        buffer.push_back(message)?;
+        self.stream.write_all(buffer.as_mut_parts().0).await?;
         self.stream.flush().await?;
         Ok(())
     }

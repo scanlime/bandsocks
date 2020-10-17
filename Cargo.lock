@@ -94,20 +94,22 @@ dependencies = [
  "flate2",
  "hash32",
  "hash32-derive",
+ "heapless",
  "lazy_static",
  "libc",
  "log",
  "memmap",
  "osstrtools",
  "pentacle",
+ "postcard",
  "regex",
  "serde",
  "serde_json",
  "sha2",
- "ssmarshal",
  "tar",
  "thiserror",
  "tokio",
+ "typenum",
 ]
 
 [[package]]
@@ -121,10 +123,10 @@ dependencies = [
  "heapless",
  "memoffset",
  "pin-project 1.0.1",
+ "postcard",
  "sc",
  "seccomp-tiny",
  "serde",
- "ssmarshal",
  "typenum",
 ]
 
@@ -321,12 +323,6 @@ name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
-
-[[package]]
-name = "encode_unicode"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
 
 [[package]]
 name = "encoding_rs"
@@ -621,6 +617,7 @@ dependencies = [
  "as-slice",
  "generic-array 0.13.2",
  "hash32",
+ "serde",
  "stable_deref_trait",
 ]
 
@@ -1089,6 +1086,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
 
 [[package]]
+name = "postcard"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3e3f5c2e9a91383c6594ec68aa2dfdfe19a3c86f34b088ba7203f2483d2682f"
+dependencies = [
+ "heapless",
+ "postcard-cobs",
+ "serde",
+]
+
+[[package]]
+name = "postcard-cobs"
+version = "0.1.5-pre"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c68cb38ed13fd7bc9dd5db8f165b7c8d9c1a315104083a2b10f11354c2af97f"
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1409,16 +1423,6 @@ dependencies = [
  "libc",
  "redox_syscall",
  "winapi 0.3.9",
-]
-
-[[package]]
-name = "ssmarshal"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3e6ad23b128192ed337dfa4f1b8099ced0c2bf30d61e551b65fda5916dbb850"
-dependencies = [
- "encode_unicode",
- "serde",
 ]
 
 [[package]]

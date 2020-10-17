@@ -138,6 +138,7 @@ pub const EINTR: isize = 4;
 pub const ECHILD: isize = 10;
 pub const EAGAIN: isize = 11;
 pub const EINVAL: isize = 22;
+pub const ECONNRESET: isize = 104;
 
 // signo
 // linux/include/uapi/asm-generic/signal.h

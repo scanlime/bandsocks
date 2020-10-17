@@ -1,8 +1,8 @@
 use crate::{
     abi,
-    abi::CMsgRights,
+    abi::{CMsgHdr, CMsgRights, IOVec, MsgHdr},
     nolibc::{fcntl, getpid, signal},
-    protocol::{deserialize, serialize, SysFd, MessageFromSand, MessageToSand},
+    protocol::{BufferedFilesMax, IPCBuffer, MessageFromSand, MessageToSand, SysFd},
 };
 use as_slice::AsMutSlice;
 use core::{
@@ -12,19 +12,12 @@ use core::{
 };
 use heapless::Vec;
 use sc::syscall;
-use typenum::*;
 
 static SIGIO_FLAG: AtomicBool = AtomicBool::new(false);
-type BufferedBytesMax = U256;
-type BufferedFilesMax = U16;
 
-#[derive(Debug)]
 pub struct Socket {
     fd: SysFd,
-    recv_byte_buffer: Vec<u8, BufferedBytesMax>,
-    recv_byte_offset: usize,
-    recv_file_buffer: Vec<CMsgRights, BufferedFilesMax>,
-    recv_file_offset: usize,
+    recv_buffer: IPCBuffer,
 }
 
 impl Socket {
@@ -32,10 +25,7 @@ impl Socket {
         Socket::setup_sigio(fd);
         Socket {
             fd: fd.clone(),
-            recv_byte_buffer: Vec::new(),
-            recv_byte_offset: 0,
-            recv_file_buffer: Vec::new(),
-            recv_file_offset: 0,
+            recv_buffer: IPCBuffer::new(),
         }
     }
 
@@ -51,94 +41,91 @@ impl Socket {
     }
 
     pub fn recv(&mut self) -> Option<MessageToSand> {
-        if self.recv_byte_offset == self.recv_byte_buffer.len() {
-            if SIGIO_FLAG.swap(false, Ordering::SeqCst) {
-                self.recv_to_buffer();
-            }
+        if self.recv_buffer.is_empty() && SIGIO_FLAG.swap(false, Ordering::SeqCst) {
+            self.recv_to_buffer();
         }
-        if self.recv_byte_offset == self.recv_byte_buffer.len() {
+        if self.recv_buffer.is_empty() {
             None
         } else {
-            match deserialize(&self.recv_byte_buffer[self.recv_byte_offset..]) {
-                Ok((message, bytes_used)) => {
-                    self.recv_byte_offset += bytes_used;
-                    assert!(self.recv_byte_offset <= self.recv_byte_buffer.len());
-                    Some(message)
-                }
+            match self.recv_buffer.pop_front() {
+                Ok(message) => Some(message),
                 other => panic!("deserialize failed, {:x?}", other),
             }
         }
     }
 
-    pub fn recv_file(&mut self) -> Option<SysFd> {
-        if self.recv_file_offset == self.recv_file_buffer.len() {
-            None
-        } else {
-            let rights = &self.recv_file_buffer[self.recv_file_offset];
-            self.recv_file_offset += 1;
-            assert_eq!(rights.hdr.cmsg_len, size_of::<CMsgRights>());
-            assert_eq!(rights.hdr.cmsg_level, abi::SOL_SOCKET);
-            assert_eq!(rights.hdr.cmsg_type, abi::SCM_RIGHTS);
-            assert!(rights.fd > 0);
-            Some(SysFd(rights.fd as u32))
-        }
-    }
-
     fn recv_to_buffer(&mut self) {
-        assert_eq!(self.recv_byte_offset, self.recv_byte_buffer.len());
-        assert_eq!(self.recv_file_offset, self.recv_file_buffer.len());
-        self.recv_byte_offset = 0;
-        self.recv_byte_buffer.clear();
-        self.recv_file_offset = 0;
-        self.recv_file_buffer.clear();
-
-        let mut iov = abi::IOVec {
-            base: self.recv_byte_buffer.as_mut_slice().as_mut_ptr(),
-            len: self.recv_byte_buffer.capacity(),
+        self.recv_buffer.reset();
+        let (byte_buffer, file_buffer) = self.recv_buffer.as_mut_parts();
+        let mut cmsg_buffer: Vec<CMsgRights, BufferedFilesMax> = Vec::new();
+        let mut iov = IOVec {
+            base: byte_buffer.as_mut_slice().as_mut_ptr(),
+            len: byte_buffer.capacity(),
         };
-        let mut msghdr = abi::MsgHdr {
+        let mut msghdr = MsgHdr {
             msg_name: ptr::null_mut(),
             msg_namelen: 0,
-            msg_iov: &mut iov as *mut abi::IOVec,
+            msg_iov: &mut iov as *mut IOVec,
             msg_iovlen: 1,
-            msg_control: self.recv_file_buffer.as_mut_slice().as_mut_ptr() as *mut usize,
-            msg_controllen: self.recv_file_buffer.capacity() * size_of::<CMsgRights>(),
+            msg_control: cmsg_buffer.as_mut_slice().as_mut_ptr() as *mut usize,
+            msg_controllen: cmsg_buffer.capacity() * size_of::<CMsgRights>(),
             msg_flags: 0,
         };
         let flags = abi::MSG_DONTWAIT;
-        unsafe {
-            match syscall!(RECVMSG, self.fd.0, &mut msghdr as *mut abi::MsgHdr, flags) as isize {
-                len if len > 0 => {
-                    self.recv_byte_buffer.set_len(len as usize);
-                    self.recv_file_buffer
-                        .set_len(msghdr.msg_controllen as usize / size_of::<CMsgRights>());
+        let result = unsafe { syscall!(RECVMSG, self.fd.0, &mut msghdr as *mut MsgHdr, flags) };
+        match result as isize {
+            len if len > 0 => {
+                unsafe {
+                    byte_buffer.set_len(len as usize);
+                    cmsg_buffer.set_len(msghdr.msg_controllen as usize / size_of::<CMsgRights>());
                 }
-                err if err == -abi::EAGAIN => (),
-                err if err == 0 => panic!("disconnected from ipc server"),
-                err => panic!("recvmsg ({})", err),
+                for rights in &cmsg_buffer {
+                    assert_eq!(rights.hdr.cmsg_len, size_of::<CMsgRights>());
+                    assert_eq!(rights.hdr.cmsg_level, abi::SOL_SOCKET);
+                    assert_eq!(rights.hdr.cmsg_type, abi::SCM_RIGHTS);
+                    assert!(rights.fd > 0);
+                    file_buffer.push(SysFd(rights.fd as u32)).unwrap();
+                }
             }
+            e if e == -abi::EAGAIN => (),
+            e if e == 0 || e == -abi::ECONNRESET => panic!("disconnected from ipc server"),
+            e => panic!("ipc recvmsg error, ({})", e),
         }
     }
 
     pub fn send(&self, message: &MessageFromSand) {
-        let mut buffer = [0; BufferedBytesMax::USIZE];
-        let len = serialize(&mut buffer, message).unwrap();
-        let mut iov = abi::IOVec {
-            base: &mut buffer[0] as *mut u8,
-            len,
+        let mut buffer = IPCBuffer::new();
+        buffer.push_back(message).expect("serialize failed");
+        let (bytes, files) = buffer.as_mut_parts();
+        let mut cmsg_buffer: Vec<CMsgRights, BufferedFilesMax> = Vec::new();
+        for file in files {
+            cmsg_buffer
+                .push(CMsgRights {
+                    fd: file.0 as i32,
+                    hdr: CMsgHdr {
+                        cmsg_len: size_of::<CMsgRights>(),
+                        cmsg_level: abi::SOL_SOCKET,
+                        cmsg_type: abi::SCM_RIGHTS,
+                    },
+                })
+                .unwrap();
+        }
+        let mut iov = IOVec {
+            base: bytes.as_mut_slice().as_mut_ptr(),
+            len: bytes.len(),
         };
-        let msghdr = abi::MsgHdr {
+        let msghdr = MsgHdr {
             msg_name: ptr::null_mut(),
             msg_namelen: 0,
-            msg_iov: &mut iov as *mut abi::IOVec,
+            msg_iov: &mut iov as *mut IOVec,
             msg_iovlen: 1,
-            msg_control: ptr::null_mut(),
-            msg_controllen: 0,
+            msg_control: cmsg_buffer.as_mut_slice().as_mut_ptr() as *mut usize,
+            msg_controllen: cmsg_buffer.len() * size_of::<CMsgRights>(),
             msg_flags: 0,
         };
         let flags = abi::MSG_DONTWAIT;
         let result =
             unsafe { syscall!(SENDMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
-        assert_eq!(result as isize, len as isize);
+        assert_eq!(result as usize, bytes.len());
     }
 }

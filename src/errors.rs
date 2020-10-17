@@ -75,7 +75,7 @@ pub enum IPCError {
     IOError(#[from] std::io::Error),
 
     #[error("ipc serialization error: {0}")]
-    SerdeError(#[from] ssmarshal::Error),
+    SerdeError(#[from] postcard::Error),
 
     #[error("file queue full error")]
     FileQueueFullError(#[from] fd_queue::QueueFullError),
