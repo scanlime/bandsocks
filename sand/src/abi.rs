@@ -187,7 +187,7 @@ pub struct CMsgHdr {
 #[repr(C)]
 pub struct CMsgRights {
     pub hdr: CMsgHdr,
-    pub fd: i32
+    pub fd: i32,
 }
 
 // cmsg_type
