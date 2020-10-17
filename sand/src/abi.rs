@@ -190,6 +190,9 @@ pub struct CMsgRights {
     pub fd: i32,
 }
 
+// size of CMsgRights without padding
+pub const CMSG_RIGHTS_SIZE: usize = 20;
+
 // cmsg_type
 // linux/include/linux/socket.h
 pub const SCM_RIGHTS: i32 = 1;

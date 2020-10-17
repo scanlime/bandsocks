@@ -84,21 +84,19 @@ impl Socket {
                     self.recv_buffer.set_len(len as usize, num_files);
                 }
                 for file in 0..num_files {
-                    println!(">{}", file);
                     let rights = &cmsg_buffer[file];
-                    assert_eq!(rights.hdr.cmsg_len, size_of::<CMsgRights>());
+                    assert!(abi::CMSG_RIGHTS_SIZE <= size_of::<CMsgRights>());
+                    assert_eq!(rights.hdr.cmsg_len, abi::CMSG_RIGHTS_SIZE);
                     assert_eq!(rights.hdr.cmsg_level, abi::SOL_SOCKET);
                     assert_eq!(rights.hdr.cmsg_type, abi::SCM_RIGHTS);
                     assert!(rights.fd > 0);
                     self.recv_buffer.as_slice_mut().files[file] = SysFd(rights.fd as u32);
-                    println!("<{}", file);
                 }
             }
             e if e == -abi::EAGAIN => (),
             e if e == 0 || e == -abi::ECONNRESET => panic!("disconnected from ipc server"),
             e => panic!("ipc recvmsg error, ({})", e),
         }
-        println!("did recv_to_buffer");
     }
 
     pub fn send(&self, message: &MessageFromSand) {
@@ -110,7 +108,7 @@ impl Socket {
                 .push(CMsgRights {
                     fd: file.0 as i32,
                     hdr: CMsgHdr {
-                        cmsg_len: size_of::<CMsgRights>(),
+                        cmsg_len: abi::CMSG_RIGHTS_SIZE,
                         cmsg_level: abi::SOL_SOCKET,
                         cmsg_type: abi::SCM_RIGHTS,
                     },
