@@ -3,7 +3,7 @@ use crate::{
     process::Process,
     sand,
     sand::protocol::{
-        Errno, FromSand, buffer::IPCBuffer, MessageFromSand, MessageToSand, SysFd, ToSand, VPid,
+        buffer::IPCBuffer, Errno, FromSand, MessageFromSand, MessageToSand, SysFd, ToSand, VPid,
     },
 };
 use fd_queue::{tokio::UnixStream, EnqueueFd};
@@ -52,10 +52,9 @@ impl IPCServer {
             let mut buffer = IPCBuffer::new();
             loop {
                 buffer.reset();
-                let (bytes, files) = buffer.as_mut_parts();
-                unsafe { bytes.set_len(bytes.capacity()) };
-                match self.stream.read(&mut bytes[..]).await? {
-                    len if len > 0 => unsafe { bytes.set_len(len) },
+                unsafe { buffer.set_len(buffer.byte_capacity(), 0) };
+                match self.stream.read(buffer.as_mut().bytes).await? {
+                    len if len > 0 => unsafe { buffer.set_len(len, 0) },
                     _ => {
                         log::warn!("ipc server is exiting");
                         break Ok(());
@@ -74,7 +73,7 @@ impl IPCServer {
 
         let mut buffer = IPCBuffer::new();
         buffer.push_back(message)?;
-        self.stream.write_all(buffer.as_mut_parts().0).await?;
+        self.stream.write_all(buffer.as_mut().bytes).await?;
         self.stream.flush().await?;
         Ok(())
     }

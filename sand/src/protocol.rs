@@ -87,7 +87,12 @@ pub mod buffer {
         file_offset: usize,
     }
 
-    impl IPCBuffer {
+    pub struct IPCSlice<'a> {
+        pub bytes: &'a mut [u8],
+        pub files: &'a mut [SysFd],
+    }
+
+    impl<'a> IPCBuffer {
         pub fn new() -> Self {
             IPCBuffer {
                 bytes: Vec::new(),
@@ -98,21 +103,34 @@ pub mod buffer {
         }
 
         pub fn reset(&mut self) {
-            assert!(self.is_empty());
             self.bytes.clear();
             self.files.clear();
             self.byte_offset = 0;
             self.file_offset = 0;
         }
 
+        pub fn byte_capacity(&self) -> usize {
+            self.bytes.capacity()
+        }
+
+        pub unsafe fn set_len(&mut self, num_bytes: usize, num_files: usize) {
+            assert_eq!(self.byte_offset, 0);
+            assert_eq!(self.file_offset, 0);
+            assert!(num_bytes <= self.bytes.capacity());
+            assert!(num_files <= self.files.capacity());
+            self.bytes.set_len(num_bytes);
+            self.files.set_len(num_files);
+        }
+
         pub fn is_empty(&self) -> bool {
             self.byte_offset == self.bytes.len() && self.file_offset == self.files.len()
         }
 
-        pub fn as_mut_parts(&mut self) -> (&mut Bytes, &mut Files) {
-            assert_eq!(self.byte_offset, 0);
-            assert_eq!(self.file_offset, 0);
-            (&mut self.bytes, &mut self.files)
+        pub fn as_mut(&'a mut self) -> IPCSlice<'a> {
+            IPCSlice {
+                bytes: &mut self.bytes[self.byte_offset..],
+                files: &mut self.files[self.file_offset..],
+            }
         }
 
         pub fn push_back<T: Serialize>(&mut self, message: &T) -> Result<(), Error> {
@@ -121,6 +139,14 @@ pub mod buffer {
 
         pub fn pop_front<'d, T: Deserialize<'d>>(&'d mut self) -> Result<T, Error> {
             deserialize(self)
+        }
+
+        pub fn extend_bytes(&mut self, data: &[u8]) -> Result<(), ()> {
+            self.bytes.extend_from_slice(data)
+        }
+
+        pub fn push_back_byte(&mut self, data: u8) -> Result<(), ()> {
+            self.bytes.push(data).map_err(|_| ())
         }
     }
 }
@@ -187,11 +213,13 @@ mod ser {
         type Output = &'a mut IPCBuffer;
 
         fn try_extend(&mut self, data: &[u8]) -> Result<(), ()> {
-            self.0.as_mut_parts().0.extend_from_slice(data)
+            self.0.extend_bytes(data)
         }
+
         fn try_push(&mut self, data: u8) -> Result<(), ()> {
-            self.0.as_mut_parts().0.push(data).map_err(|_| ())
+            self.0.push_back_byte(data)
         }
+
         fn release(self) -> Result<Self::Output, ()> {
             unreachable!();
         }
@@ -396,8 +424,8 @@ mod de {
     use serde::de::*;
 
     pub fn deserialize<'a, T: Deserialize<'a>>(buffer: &'a mut IPCBuffer) -> Result<T, Error> {
-        let (bytes, files) = buffer.as_mut_parts();
-        let (message, remainder): (T, &[u8]) = postcard::take_from_bytes(bytes)?;
+      //  let (bytes, files) = buffer.as_mut_parts();
+      //  let (message, remainder): (T, &[u8]) = postcard::take_from_bytes(bytes)?;
         unreachable!();
     }
 
