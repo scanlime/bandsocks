@@ -3,7 +3,7 @@ use crate::{
     process::Process,
     sand,
     sand::protocol::{
-        Errno, FromSand, IPCBuffer, MessageFromSand, MessageToSand, SysFd, ToSand, VPid,
+        Errno, FromSand, buffer::IPCBuffer, MessageFromSand, MessageToSand, SysFd, ToSand, VPid,
     },
 };
 use fd_queue::{tokio::UnixStream, EnqueueFd};

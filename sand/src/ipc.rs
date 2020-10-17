@@ -2,7 +2,10 @@ use crate::{
     abi,
     abi::{CMsgHdr, CMsgRights, IOVec, MsgHdr},
     nolibc::{fcntl, getpid, signal},
-    protocol::{BufferedFilesMax, IPCBuffer, MessageFromSand, MessageToSand, SysFd},
+    protocol::{
+        buffer::{FilesMax, IPCBuffer},
+        MessageFromSand, MessageToSand, SysFd,
+    },
 };
 use as_slice::AsMutSlice;
 use core::{
@@ -57,7 +60,7 @@ impl Socket {
     fn recv_to_buffer(&mut self) {
         self.recv_buffer.reset();
         let (byte_buffer, file_buffer) = self.recv_buffer.as_mut_parts();
-        let mut cmsg_buffer: Vec<CMsgRights, BufferedFilesMax> = Vec::new();
+        let mut cmsg_buffer: Vec<CMsgRights, FilesMax> = Vec::new();
         let mut iov = IOVec {
             base: byte_buffer.as_mut_slice().as_mut_ptr(),
             len: byte_buffer.capacity(),
@@ -97,7 +100,7 @@ impl Socket {
         let mut buffer = IPCBuffer::new();
         buffer.push_back(message).expect("serialize failed");
         let (bytes, files) = buffer.as_mut_parts();
-        let mut cmsg_buffer: Vec<CMsgRights, BufferedFilesMax> = Vec::new();
+        let mut cmsg_buffer: Vec<CMsgRights, FilesMax> = Vec::new();
         for file in files {
             cmsg_buffer
                 .push(CMsgRights {
