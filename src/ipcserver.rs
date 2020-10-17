@@ -73,6 +73,9 @@ impl IPCServer {
 
         let mut buffer = IPCBuffer::new();
         buffer.push_back(message)?;
+        for file in buffer.as_slice().files {
+            self.stream.enqueue(&(file.0 as RawFd))?;
+        }
         self.stream.write_all(buffer.as_slice().bytes).await?;
         self.stream.flush().await?;
         Ok(())

@@ -71,7 +71,7 @@ pub mod buffer {
     use super::{de::deserialize, ser::serialize, SysFd};
     use heapless::Vec;
     use postcard::Error;
-    use serde::{de::DeserializeOwned, Deserialize, Serialize};
+    use serde::{de::DeserializeOwned, Serialize};
     use typenum::*;
 
     pub type BytesMax = U128;
@@ -166,6 +166,10 @@ pub mod buffer {
             self.bytes.push(data).map_err(|_| ())
         }
 
+        pub fn push_back_file(&mut self, file: SysFd) -> Result<(), ()> {
+            self.files.push(file).map_err(|_| ())
+        }
+
         pub fn pop_front_bytes(&mut self, len: usize) {
             let new_offset = self.byte_offset + len;
             assert!(new_offset <= self.bytes.len());
@@ -175,9 +179,9 @@ pub mod buffer {
 }
 
 mod serde_marker {
-    pub const SYSFD: &str = "_SysFd";
+    pub const SYSFD: &str = "_@SysFd";
     pub fn is_sysfd(s: &str) -> bool {
-        s as *const str == SYSFD as *const str
+        s == SYSFD
     }
 }
 
@@ -215,35 +219,33 @@ mod ser {
     use postcard::{flavors::SerFlavor, Error};
     use serde::ser::*;
 
-    pub fn serialize<T: Serialize>(buffer: &mut IPCBuffer, message: &T) -> Result<(), Error> {
+    pub fn serialize<T: Serialize>(output: &mut IPCBuffer, message: &T) -> Result<(), Error> {
         let mut serializer = IPCSerializer {
-            inner: postcard::Serializer {
-                output: IPCBufferRef(buffer),
-            },
+            in_sysfd_tuple_struct: false,
+            inner: postcard::Serializer { output },
         };
         message.serialize(&mut serializer)
     }
 
-    struct IPCBufferRef<'a>(&'a mut IPCBuffer);
-
-    type Inner<'a> = postcard::Serializer<IPCBufferRef<'a>>;
+    type Inner<'a> = postcard::Serializer<&'a mut IPCBuffer>;
 
     struct IPCSerializer<'a> {
+        in_sysfd_tuple_struct: bool,
         inner: Inner<'a>,
     }
 
-    impl<'a> SerFlavor for IPCBufferRef<'a> {
-        type Output = &'a mut IPCBuffer;
+    impl<'a> SerFlavor for &'a mut IPCBuffer {
+        type Output = ();
 
         fn try_extend(&mut self, data: &[u8]) -> Result<(), ()> {
-            self.0.extend_bytes(data)
+            self.extend_bytes(data)
         }
 
         fn try_push(&mut self, data: u8) -> Result<(), ()> {
-            self.0.push_back_byte(data)
+            self.push_back_byte(data)
         }
 
-        fn release(self) -> Result<Self::Output, ()> {
+        fn release(self) -> Result<(), ()> {
             unreachable!();
         }
     }
@@ -253,6 +255,12 @@ mod ser {
             let mut tuple = serializer.serialize_tuple_struct(serde_marker::SYSFD, 1)?;
             tuple.serialize_field(&self.0)?;
             tuple.end()
+        }
+    }
+
+    impl<'a> IPCSerializer<'a> {
+        fn serialize_sysfd(&mut self, value: SysFd) -> Result<(), Error> {
+            self.inner.output.push_back_file(value).map_err(|_| Error::SerializeBufferFull)
         }
     }
 
@@ -267,19 +275,6 @@ mod ser {
         type SerializeStruct = Self;
         type SerializeStructVariant = Self;
 
-        fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self, Error> {
-            if serde_marker::is_sysfd(name) {
-                unreachable!();
-            } else {
-                (&mut self.inner).serialize_tuple_struct(name, len)?;
-                Ok(self)
-            }
-        }
-
-        fn is_human_readable(&self) -> bool {
-            false
-        }
-
         forward! {
             fn collect_str<T: ?Sized + Display>(self, v: &T);
             fn serialize_bool(self, v: bool);
@@ -289,7 +284,6 @@ mod ser {
             fn serialize_u16(self, v: u16);
             fn serialize_i32(self, v: i32);
             fn serialize_f32(self, v: f32);
-            fn serialize_u32(self, v: u32);
             fn serialize_i64(self, v: i64);
             fn serialize_f64(self, v: f64);
             fn serialize_u64(self, v: u64);
@@ -297,13 +291,52 @@ mod ser {
             fn serialize_str(self, v: &str);
             fn serialize_bytes(self, v: &[u8]);
             fn serialize_none(self);
+            fn serialize_some<T: ?Sized + Serialize>(self, v: &T);
             fn serialize_unit(self);
             fn serialize_unit_struct(self, name: &'static str);
             fn serialize_unit_variant(self, name: &'static str, varidx: u32, var: &'static str);
-            fn serialize_some<T: ?Sized + Serialize>(self, v: &T);
-            fn serialize_newtype_struct<T: ?Sized + Serialize>(self, name: &'static str, v: &T);
-            fn serialize_newtype_variant<T: ?Sized + Serialize>(self, name: &'static str,
-                                    variant_index: u32, variant: &'static str, value: &T);
+        }
+
+        fn is_human_readable(&self) -> bool {
+            false
+        }
+
+        fn serialize_u32(mut self, v: u32) -> Result<(), Error> {
+            if self.in_sysfd_tuple_struct {
+                (&mut self).serialize_sysfd(SysFd(v))
+            } else {
+                (&mut self.inner).serialize_u32(v)
+            }
+        }
+
+        fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self, Error> {
+            if serde_marker::is_sysfd(name) {
+                assert_eq!(self.in_sysfd_tuple_struct, false);
+                self.in_sysfd_tuple_struct = true;
+            }
+            (&mut self.inner).serialize_tuple_struct(name, len)?;
+            Ok(self)
+        }
+
+        fn serialize_newtype_struct<T>(self, _: &'static str, value: &T) -> Result<(), Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            value.serialize(self)
+        }
+
+        fn serialize_newtype_variant<T>(
+            self,
+            name: &'static str,
+            variant_index: u32,
+            variant: &'static str,
+            value: &T,
+        ) -> Result<(), Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            (&mut self.inner).serialize_unit_variant(name, variant_index, variant)?;
+            value.serialize(self)
         }
 
         fn serialize_seq(self, len: Option<usize>) -> Result<Self, Error> {
@@ -350,95 +383,112 @@ mod ser {
     }
 
     impl<'a, 'b> SerializeSeq for &'b mut IPCSerializer<'a> {
-        type Ok = <&'b mut Inner<'a> as Serializer>::Ok;
-        type Error = <&'b mut Inner<'a> as Serializer>::Error;
-        fn serialize_element<T: ?Sized + Serialize>(
-            &mut self,
-            value: &T,
-        ) -> Result<(), Self::Error> {
-            <&mut Inner<'a> as SerializeSeq>::serialize_element(&mut &mut self.inner, value)
+        type Ok = ();
+        type Error = Error;
+        fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            value.serialize(&mut **self)
         }
         fn end(self) -> Result<Self::Ok, Self::Error> {
+            assert_eq!(self.in_sysfd_tuple_struct, false);
             Ok(())
         }
     }
 
     impl<'a, 'b> SerializeTuple for &'b mut IPCSerializer<'a> {
-        type Ok = <&'b mut Inner<'a> as Serializer>::Ok;
-        type Error = <&'b mut Inner<'a> as Serializer>::Error;
-        fn serialize_element<T: ?Sized + Serialize>(
-            &mut self,
-            value: &T,
-        ) -> Result<(), Self::Error> {
-            <&mut Inner<'a> as SerializeTuple>::serialize_element(&mut &mut self.inner, value)
+        type Ok = ();
+        type Error = Error;
+        fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            value.serialize(&mut **self)
         }
         fn end(self) -> Result<Self::Ok, Self::Error> {
+            assert_eq!(self.in_sysfd_tuple_struct, false);
             Ok(())
         }
     }
 
     impl<'a, 'b> SerializeTupleStruct for &'b mut IPCSerializer<'a> {
-        type Ok = <&'b mut Inner<'a> as Serializer>::Ok;
-        type Error = <&'b mut Inner<'a> as Serializer>::Error;
-        fn serialize_field<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
-            <&mut Inner<'a> as SerializeTupleStruct>::serialize_field(&mut &mut self.inner, value)
+        type Ok = ();
+        type Error = Error;
+        fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            value.serialize(&mut **self)
         }
         fn end(self) -> Result<Self::Ok, Self::Error> {
+            self.in_sysfd_tuple_struct = false;
             Ok(())
         }
     }
 
     impl<'a, 'b> SerializeTupleVariant for &'b mut IPCSerializer<'a> {
-        type Ok = <&'b mut Inner<'a> as Serializer>::Ok;
-        type Error = <&'b mut Inner<'a> as Serializer>::Error;
-        fn serialize_field<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
-            <&mut Inner<'a> as SerializeTupleVariant>::serialize_field(&mut &mut self.inner, value)
+        type Ok = ();
+        type Error = Error;
+        fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            value.serialize(&mut **self)
         }
         fn end(self) -> Result<Self::Ok, Self::Error> {
+            assert_eq!(self.in_sysfd_tuple_struct, false);
             Ok(())
         }
     }
 
     impl<'a, 'b> SerializeMap for &'b mut IPCSerializer<'a> {
-        type Ok = <&'b mut Inner<'a> as Serializer>::Ok;
-        type Error = <&'b mut Inner<'a> as Serializer>::Error;
-        fn serialize_key<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
-            <&mut Inner<'a> as SerializeMap>::serialize_key(&mut &mut self.inner, value)
+        type Ok = ();
+        type Error = Error;
+        fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            key.serialize(&mut **self)
         }
-        fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
-            <&mut Inner<'a> as SerializeMap>::serialize_value(&mut &mut self.inner, value)
+        fn serialize_value<T>(&mut self, value: &T) -> Result<(), Self::Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            value.serialize(&mut **self)
         }
         fn end(self) -> Result<Self::Ok, Self::Error> {
+            assert_eq!(self.in_sysfd_tuple_struct, false);
             Ok(())
         }
     }
 
     impl<'a, 'b> SerializeStruct for &'b mut IPCSerializer<'a> {
-        type Ok = <&'b mut Inner<'a> as Serializer>::Ok;
-        type Error = <&'b mut Inner<'a> as Serializer>::Error;
-        fn serialize_field<T: ?Sized + Serialize>(
-            &mut self,
-            k: &'static str,
-            v: &T,
-        ) -> Result<(), Self::Error> {
-            <&mut Inner<'a> as SerializeStruct>::serialize_field(&mut &mut self.inner, k, v)
+        type Ok = ();
+        type Error = Error;
+        fn serialize_field<T>(&mut self, _name: &'static str, value: &T) -> Result<(), Self::Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            value.serialize(&mut **self)
         }
         fn end(self) -> Result<Self::Ok, Self::Error> {
+            assert_eq!(self.in_sysfd_tuple_struct, false);
             Ok(())
         }
     }
 
     impl<'a, 'b> SerializeStructVariant for &'b mut IPCSerializer<'a> {
-        type Ok = <&'b mut Inner<'a> as Serializer>::Ok;
-        type Error = <&'b mut Inner<'a> as Serializer>::Error;
-        fn serialize_field<T: ?Sized + Serialize>(
-            &mut self,
-            k: &'static str,
-            v: &T,
-        ) -> Result<(), Self::Error> {
-            <&mut Inner<'a> as SerializeStructVariant>::serialize_field(&mut &mut self.inner, k, v)
+        type Ok = ();
+        type Error = Error;
+        fn serialize_field<T>(&mut self, _name: &'static str, value: &T) -> Result<(), Self::Error>
+        where
+            T: ?Sized + Serialize,
+        {
+            value.serialize(&mut **self)
         }
         fn end(self) -> Result<Self::Ok, Self::Error> {
+            assert_eq!(self.in_sysfd_tuple_struct, false);
             Ok(())
         }
     }
@@ -454,6 +504,7 @@ mod de {
     where
         T: Deserialize<'a>,
     {
+        println!("deserialize {} bytes and {} files", buffer.bytes.len(), buffer.files.len());
         let (message, bytes) = postcard::take_from_bytes(buffer.bytes)?;
         let files = buffer.files;
         Ok((message, IPCSlice { bytes, files }))

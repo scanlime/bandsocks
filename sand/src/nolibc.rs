@@ -7,6 +7,24 @@ use core::{
 };
 use sc::syscall;
 
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => (
+        $crate::nolibc::write_stderr(core::format_args!( $($arg)* ))
+    );
+}
+
+#[macro_export]
+macro_rules! println {
+    () => ({
+        print!("\n");
+    });
+    ($($arg:tt)*) => ({
+        print!( $($arg)* );
+        println!();
+    });
+}
+
 pub const EXIT_SUCCESS: usize = 0;
 pub const EXIT_PANIC: usize = 10;
 pub const EXIT_IO_ERROR: usize = 20;
@@ -30,39 +48,24 @@ pub fn exit(code: usize) -> ! {
     unreachable!()
 }
 
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
+pub fn write_stderr(msg: fmt::Arguments) {
     let mut stderr = SysFd(2);
-    if let Some(args) = info.message() {
-        if fmt::write(&mut stderr, *args).is_err() {
-            exit(EXIT_IO_ERROR);
-        }
-    }
-    if write!(&mut stderr, "\ncontainer panic!\n").is_err() {
+    if fmt::write(&mut stderr, msg).is_err() {
         exit(EXIT_IO_ERROR);
     }
+}
+
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    if let Some(message) = info.message() {
+        write_stderr(*message);
+    }
+    print!("\ncontainer panic!");
+    if let Some(location) = info.location() {
+        print!(" at {}:{}", location.file(), location.line());
+    }
+    println!();
     exit(EXIT_PANIC);
-}
-
-#[macro_export]
-macro_rules! print {
-    ($($arg:tt)*) => ({
-        let mut stderr = $crate::protocol::SysFd(2);
-        if core::fmt::write(&mut stderr, core::format_args!( $($arg)* )).is_err() {
-            crate::nolibc::exit(crate::nolibc::EXIT_IO_ERROR);
-        }
-    });
-}
-
-#[macro_export]
-macro_rules! println {
-    () => ({
-        print!("\n");
-    });
-    ($($arg:tt)*) => ({
-        print!( $($arg)* );
-        println!();
-    });
 }
 
 pub unsafe fn c_strlen(s: *const u8) -> usize {
