@@ -132,11 +132,39 @@ mod serde_marker {
     }
 }
 
+#[macro_use]
+mod serde_macro {
+    macro_rules! forward {
+        () => {};
+        ( @result ) => { core::result::Result<Self::Ok, Self::Error> };
+        ( @collect $fn:ident, $generics:tt, $args:tt ) => {
+            forward!{ @expand $fn, $generics, $args, $args }
+        };
+        ( @expand $fn:ident, ($($g:tt)*), ($($p1:ident : $t1:ty),*), ($($p2:ident : $t2:ty),*) ) => {
+            fn $fn $($g)* (self, $($p1 : $t1),*) -> forward!{@result} {
+                (&mut self.inner).$fn($($p1),*)
+            }
+        };
+        ( fn $fn:ident(self); $($tail:tt)* ) => {
+            forward!{ @collect $fn, (), () }
+            forward!{ $($tail)* }
+        };
+        ( fn $fn:ident(self, $($par:ident : $t:ty),* ); $($tail:tt)* ) => {
+            forward!{ @collect $fn, (), ( $( $par : $t ),* )}
+            forward!{ $($tail)* }
+        };
+        ( fn $fn:ident<T: ?Sized + Serialize>(self, $($par:ident : $t:ty),* ); $($tail:tt)* ) => {
+            forward!{ @collect $fn, (<T: ?Sized + Serialize>), ( $( $par : $t ),* )}
+            forward!{ $($tail)* }
+        };
+    }
+}
+
 mod ser {
     use super::{buffer::IPCBuffer, serde_marker, SysFd};
+    use core::fmt;
     use postcard::{flavors::SerFlavor, Error};
     use serde::ser::*;
-    use core::fmt;
 
     pub fn serialize<T: Serialize>(buffer: &mut IPCBuffer, message: &T) -> Result<(), Error> {
         let mut serializer = IPCSerializer {
@@ -178,8 +206,8 @@ mod ser {
     }
 
     impl<'a, 'b> Serializer for &'b mut IPCSerializer<'a> {
-        type Ok = <&'b mut Inner<'a> as Serializer>::Ok;
-        type Error = <&'b mut Inner<'a> as Serializer>::Error;
+        type Ok = ();
+        type Error = Error;
         type SerializeSeq = Self;
         type SerializeTuple = Self;
         type SerializeTupleStruct = Self;
@@ -191,100 +219,48 @@ mod ser {
         fn is_human_readable(&self) -> bool {
             false
         }
-        fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
-            (&mut self.inner).serialize_bool(v)
+
+        forward! {
+            fn serialize_bool(self, v: bool);
+            fn serialize_i8(self, v: i8);
+            fn serialize_u8(self, v: u8);
+            fn serialize_i16(self, v: i16);
+            fn serialize_u16(self, v: u16);
+            fn serialize_i32(self, v: i32);
+            fn serialize_f32(self, v: f32);
+            fn serialize_u32(self, v: u32);
+            fn serialize_i64(self, v: i64);
+            fn serialize_f64(self, v: f64);
+            fn serialize_u64(self, v: u64);
+            fn serialize_char(self, v: char);
+            fn serialize_str(self, v: &str);
+            fn serialize_bytes(self, v: &[u8]);
+            fn serialize_none(self);
+            fn serialize_unit(self);
+            fn serialize_unit_struct(self, name: &'static str);
+            fn serialize_unit_variant(self, name: &'static str, varidx: u32, var: &'static str);
+            fn serialize_some<T: ?Sized + Serialize>(self, v: &T);
+            fn serialize_newtype_struct<T: ?Sized + Serialize>(self, name: &'static str, v: &T);
+            fn serialize_newtype_variant<T: ?Sized + Serialize>(self, name: &'static str,
+                                                                variant_index: u32, variant: &'static str,
+                                                                value: &T);
         }
-        fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_i8(&mut self.inner, v)
-        }
-        fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_u8(&mut self.inner, v)
-        }
-        fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_i16(&mut self.inner, v)
-        }
-        fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_u16(&mut self.inner, v)
-        }
-        fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_i32(&mut self.inner, v)
-        }
-        fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_f32(&mut self.inner, v)
-        }
-        fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_u32(&mut self.inner, v)
-        }
-        fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_i64(&mut self.inner, v)
-        }
-        fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_f64(&mut self.inner, v)
-        }
-        fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_u64(&mut self.inner, v)
-        }
-        fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_char(&mut self.inner, v)
-        }
-        fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_str(&mut self.inner, v)
-        }
-        fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_bytes(&mut self.inner, v)
-        }
-        fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_none(&mut self.inner)
-        }
-        fn serialize_some<T: ?Sized + Serialize>(self, v: &T) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_some(&mut self.inner, v)
-        }
-        fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_unit(&mut self.inner)
-        }
-        fn serialize_unit_struct(self, n: &'static str) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_unit_struct(&mut self.inner, n)
-        }
-        fn serialize_unit_variant(
-            self,
-            n: &'static str,
-            i: u32,
-            v: &'static str,
-        ) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_unit_variant(&mut self.inner, n, i, v)
-        }
-        fn serialize_newtype_struct<T: ?Sized + Serialize>(
-            self,
-            n: &'static str,
-            v: &T,
-        ) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_newtype_struct(&mut self.inner, n, v)
-        }
-        fn serialize_newtype_variant<T: ?Sized + Serialize>(
-            self,
-            n: &'static str,
-            i: u32,
-            v: &'static str,
-            t: &T,
-        ) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_newtype_variant(&mut self.inner, n, i, v, t)
-        }
-        fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_seq(&mut self.inner, len)?;
+
+        fn serialize_seq(self, len: Option<usize>) -> Result<Self, Error> {
+            (&mut self.inner).serialize_seq(len)?;
             Ok(self)
         }
-        fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_tuple(&mut self.inner, len)?;
+
+        fn serialize_tuple(self, len: usize) -> Result<Self, Error> {
+            (&mut self.inner).serialize_tuple(len)?;
             Ok(self)
         }
-        fn serialize_tuple_struct(
-            self,
-            name: &'static str,
-            len: usize,
-        ) -> Result<Self::SerializeTupleStruct, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_tuple_struct(&mut self.inner, name, len)?;
+
+        fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self, Error> {
+            (&mut self.inner).serialize_tuple_struct(name, len)?;
             Ok(self)
         }
+
         fn serialize_tuple_variant(
             self,
             n: &'static str,
