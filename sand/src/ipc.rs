@@ -3,7 +3,7 @@ use crate::{
     abi::{CMsgHdr, CMsgRights, IOVec, MsgHdr},
     nolibc::{fcntl, getpid, signal},
     protocol::{
-        buffer::{FilesMax, IPCBuffer, MessageBuf},
+        buffer::{FilesMax, IPCBuffer},
         MessageFromSand, MessageToSand, SysFd,
     },
 };
@@ -23,7 +23,7 @@ pub struct Socket {
     recv_buffer: IPCBuffer,
 }
 
-impl<'a> Socket {
+impl Socket {
     pub fn from_sys_fd(fd: &SysFd) -> Socket {
         Socket::setup_sigio(fd);
         Socket {
@@ -43,7 +43,7 @@ impl<'a> Socket {
         SIGIO_FLAG.store(true, Ordering::SeqCst);
     }
 
-    pub fn recv(&'a mut self) -> Option<MessageBuf<'a, MessageToSand>> {
+    pub fn recv(&mut self) -> Option<MessageToSand> {
         if self.recv_buffer.is_empty() && SIGIO_FLAG.swap(false, Ordering::SeqCst) {
             self.recv_to_buffer();
         }

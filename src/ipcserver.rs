@@ -53,7 +53,7 @@ impl IPCServer {
             loop {
                 buffer.reset();
                 unsafe { buffer.set_len(buffer.byte_capacity(), 0) };
-                match self.stream.read(buffer.as_mut().bytes).await? {
+                match self.stream.read(buffer.as_slice_mut().bytes).await? {
                     len if len > 0 => unsafe { buffer.set_len(len, 0) },
                     _ => {
                         log::warn!("ipc server is exiting");
@@ -73,7 +73,7 @@ impl IPCServer {
 
         let mut buffer = IPCBuffer::new();
         buffer.push_back(message)?;
-        self.stream.write_all(buffer.as_mut().bytes).await?;
+        self.stream.write_all(buffer.as_slice().bytes).await?;
         self.stream.flush().await?;
         Ok(())
     }

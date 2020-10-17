@@ -71,7 +71,7 @@ pub mod buffer {
     use super::{de::deserialize, ser::serialize, SysFd};
     use heapless::Vec;
     use postcard::Error;
-    use serde::{Deserialize, Serialize};
+    use serde::{de::DeserializeOwned, Deserialize, Serialize};
     use typenum::*;
 
     pub type BytesMax = U128;
@@ -95,19 +95,6 @@ pub mod buffer {
     pub struct IPCSliceMut<'a> {
         pub bytes: &'a mut [u8],
         pub files: &'a mut [SysFd],
-    }
-
-    pub struct MessageBuf<'a, T: Deserialize<'a>> {
-        pub message: T,
-        buffer: &'a mut IPCBuffer,
-        bytes_used: usize,
-        files_used: usize,
-    }
-
-    impl<'a, T: Deserialize<'a>> Drop for MessageBuf<'a, T> {
-        fn drop(&mut self) {
-            self.buffer.pop_front_bytes(self.bytes_used);
-        }
     }
 
     impl<'a> IPCBuffer {
@@ -162,14 +149,13 @@ pub mod buffer {
             serialize(self, message)
         }
 
-        pub fn pop_front<'d, T: Deserialize<'d>>(&'d mut self) -> Result<MessageBuf<'d, T>, Error> {
+        pub fn pop_front<T: Clone + DeserializeOwned>(&'a mut self) -> Result<T, Error> {
             let original = self.as_slice();
             let original_bytes_len = original.bytes.len();
-            let (message, remainder) = deserialize::<'d, T>(original)?;
+            let (message, remainder) = deserialize::<T>(original)?;
             let bytes_used = original_bytes_len - remainder.bytes.len();
-            let files_used = 0;
-            let buffer = &mut self;
-            Ok(MessageBuf { message, buffer, bytes_used, files_used })
+            self.pop_front_bytes(bytes_used);
+            Ok(message)
         }
 
         pub fn extend_bytes(&mut self, data: &[u8]) -> Result<(), ()> {

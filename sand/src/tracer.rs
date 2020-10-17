@@ -55,11 +55,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
                 err if err == 0 => self.as_mut().siginfo_event(&siginfo),
                 err => panic!("unexpected waitid response ({})", err),
             }
-            loop {
-                let message = match self.as_mut().project().ipc.recv() {
-                    None => break,
-                    Some(buffer) => buffer.message.clone(),
-                };
+            while let Some(message) = self.as_mut().project().ipc.recv() {
                 self.as_mut().message_event(message);
             }
         }
