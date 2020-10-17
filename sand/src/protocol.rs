@@ -153,8 +153,8 @@ mod serde_macro {
             forward!{ @collect $fn, (), ( $( $par : $t ),* )}
             forward!{ $($tail)* }
         };
-        ( fn $fn:ident<T: ?Sized + Serialize>(self, $($par:ident : $t:ty),* ); $($tail:tt)* ) => {
-            forward!{ @collect $fn, (<T: ?Sized + Serialize>), ( $( $par : $t ),* )}
+        ( fn $fn:ident<T: ?$t1:ident + $t2:ident>(self, $($par:ident : $t:ty),* ); $($tail:tt)* ) => {
+            forward!{ @collect $fn, (<T: ?$t1 + $t2>), ( $( $par : $t ),* )}
             forward!{ $($tail)* }
         };
     }
@@ -162,7 +162,7 @@ mod serde_macro {
 
 mod ser {
     use super::{buffer::IPCBuffer, serde_marker, SysFd};
-    use core::fmt;
+    use core::fmt::Display;
     use postcard::{flavors::SerFlavor, Error};
     use serde::ser::*;
 
@@ -221,6 +221,7 @@ mod ser {
         }
 
         forward! {
+            fn collect_str<T: ?Sized + Display>(self, v: &T);
             fn serialize_bool(self, v: bool);
             fn serialize_i8(self, v: i8);
             fn serialize_u8(self, v: u8);
@@ -242,8 +243,7 @@ mod ser {
             fn serialize_some<T: ?Sized + Serialize>(self, v: &T);
             fn serialize_newtype_struct<T: ?Sized + Serialize>(self, name: &'static str, v: &T);
             fn serialize_newtype_variant<T: ?Sized + Serialize>(self, name: &'static str,
-                                                                variant_index: u32, variant: &'static str,
-                                                                value: &T);
+                                    variant_index: u32, variant: &'static str, value: &T);
         }
 
         fn serialize_seq(self, len: Option<usize>) -> Result<Self, Error> {
@@ -261,40 +261,36 @@ mod ser {
             Ok(self)
         }
 
+        fn serialize_map(self, len: Option<usize>) -> Result<Self, Error> {
+            (&mut self.inner).serialize_map(len)?;
+            Ok(self)
+        }
+
+        fn serialize_struct(self, name: &'static str, len: usize) -> Result<Self, Error> {
+            (&mut self.inner).serialize_struct(name, len)?;
+            Ok(self)
+        }
+
         fn serialize_tuple_variant(
             self,
-            n: &'static str,
-            i: u32,
-            v: &'static str,
-            l: usize,
-        ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_tuple_variant(&mut self.inner, n, i, v, l)?;
-            Ok(self)
-        }
-        fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_map(&mut self.inner, len)?;
-            Ok(self)
-        }
-        fn serialize_struct(
-            self,
             name: &'static str,
+            variant_index: u32,
+            variant: &'static str,
             len: usize,
-        ) -> Result<Self::SerializeStruct, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_struct(&mut self.inner, name, len)?;
+        ) -> Result<Self, Error> {
+            (&mut self.inner).serialize_tuple_variant(name, variant_index, variant, len)?;
             Ok(self)
         }
+
         fn serialize_struct_variant(
             self,
-            n: &'static str,
-            i: u32,
-            v: &'static str,
-            l: usize,
-        ) -> Result<Self::SerializeStructVariant, Self::Error> {
-            <&mut Inner<'a> as Serializer>::serialize_struct_variant(&mut self.inner, n, i, v, l)?;
+            name: &'static str,
+            variant_index: u32,
+            variant: &'static str,
+            len: usize,
+        ) -> Result<Self, Error> {
+            (&mut self.inner).serialize_struct_variant(name, variant_index, variant, len)?;
             Ok(self)
-        }
-        fn collect_str<T: ?Sized + fmt::Display>(self, v: &T) -> Result<Self::Ok, Self::Error> {
-            <&mut Inner<'a> as Serializer>::collect_str(&mut self.inner, v)
         }
     }
 
@@ -395,7 +391,7 @@ mod ser {
 
 mod de {
     use super::{buffer::IPCBuffer, serde_marker, SysFd};
-    use core::fmt;
+    use core::fmt::{self, Formatter};
     use postcard::Error;
     use serde::de::*;
 
@@ -409,7 +405,7 @@ mod de {
 
     impl<'d> Visitor<'d> for SysFdVisitor {
         type Value = SysFd;
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
             write!(formatter, "a `SysFd`")
         }
     }
