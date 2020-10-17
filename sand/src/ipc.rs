@@ -3,7 +3,7 @@ use crate::{
     abi::{CMsgHdr, CMsgRights, IOVec, MsgHdr},
     nolibc::{fcntl, getpid, signal},
     protocol::{
-        buffer::{FilesMax, IPCBuffer},
+        buffer::{FilesMax, IPCBuffer, MessageBuf},
         MessageFromSand, MessageToSand, SysFd,
     },
 };
@@ -23,7 +23,7 @@ pub struct Socket {
     recv_buffer: IPCBuffer,
 }
 
-impl Socket {
+impl<'a> Socket {
     pub fn from_sys_fd(fd: &SysFd) -> Socket {
         Socket::setup_sigio(fd);
         Socket {
@@ -43,7 +43,7 @@ impl Socket {
         SIGIO_FLAG.store(true, Ordering::SeqCst);
     }
 
-    pub fn recv(&mut self) -> Option<MessageToSand> {
+    pub fn recv(&'a mut self) -> Option<MessageBuf<'a, MessageToSand>> {
         if self.recv_buffer.is_empty() && SIGIO_FLAG.swap(false, Ordering::SeqCst) {
             self.recv_to_buffer();
         }
@@ -52,7 +52,7 @@ impl Socket {
         } else {
             match self.recv_buffer.pop_front() {
                 Ok(message) => Some(message),
-                other => panic!("deserialize failed, {:x?}", other),
+                Err(e) => panic!("deserialize failed, {:x?}", e),
             }
         }
     }
@@ -62,7 +62,7 @@ impl Socket {
         self.recv_buffer.reset();
         let mut cmsg_buffer: Vec<CMsgRights, FilesMax> = Vec::new();
         let mut iov = IOVec {
-            base: self.recv_buffer.as_mut().bytes.as_mut_ptr(),
+            base: self.recv_buffer.as_slice_mut().bytes.as_mut_ptr(),
             len: self.recv_buffer.byte_capacity(),
         };
         let mut msghdr = MsgHdr {
@@ -86,7 +86,7 @@ impl Socket {
                     assert_eq!(rights.hdr.cmsg_level, abi::SOL_SOCKET);
                     assert_eq!(rights.hdr.cmsg_type, abi::SCM_RIGHTS);
                     assert!(rights.fd > 0);
-                    self.recv_buffer.as_mut().files[file] = SysFd(rights.fd as u32);
+                    self.recv_buffer.as_slice_mut().files[file] = SysFd(rights.fd as u32);
                 }
             }
             e if e == -abi::EAGAIN => (),
@@ -99,7 +99,7 @@ impl Socket {
         let mut buffer = IPCBuffer::new();
         buffer.push_back(message).expect("serialize failed");
         let mut cmsg_buffer: Vec<CMsgRights, FilesMax> = Vec::new();
-        for file in buffer.as_mut().files {
+        for file in buffer.as_slice().files {
             cmsg_buffer
                 .push(CMsgRights {
                     fd: file.0 as i32,
@@ -112,8 +112,8 @@ impl Socket {
                 .unwrap();
         }
         let mut iov = IOVec {
-            base: buffer.as_mut().bytes.as_mut_ptr(),
-            len: buffer.as_mut().bytes.len(),
+            base: buffer.as_slice_mut().bytes.as_mut_ptr(),
+            len: buffer.as_slice().bytes.len(),
         };
         let msghdr = MsgHdr {
             msg_name: ptr::null_mut(),
@@ -127,6 +127,6 @@ impl Socket {
         let flags = abi::MSG_DONTWAIT;
         let result =
             unsafe { syscall!(SENDMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
-        assert_eq!(result as usize, buffer.as_mut().bytes.len());
+        assert_eq!(result as usize, buffer.as_slice().bytes.len());
     }
 }

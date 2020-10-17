@@ -88,8 +88,26 @@ pub mod buffer {
     }
 
     pub struct IPCSlice<'a> {
+        pub bytes: &'a [u8],
+        pub files: &'a [SysFd],
+    }
+
+    pub struct IPCSliceMut<'a> {
         pub bytes: &'a mut [u8],
         pub files: &'a mut [SysFd],
+    }
+
+    pub struct MessageBuf<'a, T: Deserialize<'a>> {
+        pub message: T,
+        buffer: &'a mut IPCBuffer,
+        bytes_used: usize,
+        files_used: usize,
+    }
+
+    impl<'a, T: Deserialize<'a>> Drop for MessageBuf<'a, T> {
+        fn drop(&mut self) {
+            self.buffer.pop_front_bytes(self.bytes_used);
+        }
     }
 
     impl<'a> IPCBuffer {
@@ -126,8 +144,15 @@ pub mod buffer {
             self.byte_offset == self.bytes.len() && self.file_offset == self.files.len()
         }
 
-        pub fn as_mut(&'a mut self) -> IPCSlice<'a> {
+        pub fn as_slice(&'a self) -> IPCSlice<'a> {
             IPCSlice {
+                bytes: &self.bytes[self.byte_offset..],
+                files: &self.files[self.file_offset..],
+            }
+        }
+
+        pub fn as_slice_mut(&'a mut self) -> IPCSliceMut<'a> {
+            IPCSliceMut {
                 bytes: &mut self.bytes[self.byte_offset..],
                 files: &mut self.files[self.file_offset..],
             }
@@ -137,8 +162,14 @@ pub mod buffer {
             serialize(self, message)
         }
 
-        pub fn pop_front<'d, T: Deserialize<'d>>(&'d mut self) -> Result<T, Error> {
-            deserialize(self)
+        pub fn pop_front<'d, T: Deserialize<'d>>(&'d mut self) -> Result<MessageBuf<'d, T>, Error> {
+            let original = self.as_slice();
+            let original_bytes_len = original.bytes.len();
+            let (message, remainder) = deserialize::<'d, T>(original)?;
+            let bytes_used = original_bytes_len - remainder.bytes.len();
+            let files_used = 0;
+            let buffer = &mut self;
+            Ok(MessageBuf { message, buffer, bytes_used, files_used })
         }
 
         pub fn extend_bytes(&mut self, data: &[u8]) -> Result<(), ()> {
@@ -147,6 +178,12 @@ pub mod buffer {
 
         pub fn push_back_byte(&mut self, data: u8) -> Result<(), ()> {
             self.bytes.push(data).map_err(|_| ())
+        }
+
+        pub fn pop_front_bytes(&mut self, len: usize) {
+            let new_offset = self.byte_offset + len;
+            assert!(new_offset <= self.bytes.len());
+            self.byte_offset = new_offset;
         }
     }
 }
@@ -244,6 +281,15 @@ mod ser {
         type SerializeStruct = Self;
         type SerializeStructVariant = Self;
 
+        fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self, Error> {
+            if serde_marker::is_sysfd(name) {
+                unreachable!();
+            } else {
+                (&mut self.inner).serialize_tuple_struct(name, len)?;
+                Ok(self)
+            }
+        }
+
         fn is_human_readable(&self) -> bool {
             false
         }
@@ -281,11 +327,6 @@ mod ser {
 
         fn serialize_tuple(self, len: usize) -> Result<Self, Error> {
             (&mut self.inner).serialize_tuple(len)?;
-            Ok(self)
-        }
-
-        fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self, Error> {
-            (&mut self.inner).serialize_tuple_struct(name, len)?;
             Ok(self)
         }
 
@@ -418,15 +459,18 @@ mod ser {
 }
 
 mod de {
-    use super::{buffer::IPCBuffer, serde_marker, SysFd};
+    use super::{buffer::IPCSlice, serde_marker, SysFd};
     use core::fmt::{self, Formatter};
     use postcard::Error;
     use serde::de::*;
 
-    pub fn deserialize<'a, T: Deserialize<'a>>(buffer: &'a mut IPCBuffer) -> Result<T, Error> {
-        //  let (bytes, files) = buffer.as_mut_parts();
-        //  let (message, remainder): (T, &[u8]) = postcard::take_from_bytes(bytes)?;
-        unreachable!();
+    pub fn deserialize<'a, T>(buffer: IPCSlice<'a>) -> Result<(T, IPCSlice<'a>), Error>
+    where
+        T: Deserialize<'a>,
+    {
+        let (message, bytes) = postcard::take_from_bytes(buffer.bytes)?;
+        let files = buffer.files;
+        Ok((message, IPCSlice { bytes, files }))
     }
 
     struct SysFdVisitor;
