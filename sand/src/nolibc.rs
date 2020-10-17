@@ -1,6 +1,6 @@
 use crate::{abi, protocol::SysFd};
 use core::{
-    fmt::{self, Write},
+    fmt,
     panic::PanicInfo,
     ptr::null,
     slice, str,
@@ -70,7 +70,7 @@ fn panic(info: &PanicInfo) -> ! {
 
 pub unsafe fn c_strlen(s: *const u8) -> usize {
     let mut count: usize = 0;
-    while *s.offset(count as isize) != 0 {
+    while *s.add(count) != 0 {
         count += 1;
     }
     count
@@ -87,7 +87,7 @@ pub unsafe fn c_str_slice(s: *const u8) -> &'static [u8] {
 
 pub unsafe fn c_strv_len(strv: *const *const u8) -> usize {
     let mut count: usize = 0;
-    while *strv.offset(count as isize) != null() {
+    while !(*strv.add(count)).is_null() {
         count += 1;
     }
     count
