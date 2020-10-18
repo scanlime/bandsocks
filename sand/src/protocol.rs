@@ -594,14 +594,11 @@ mod de {
                 type Value = SysFd;
 
                 fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                    formatter.write_str("struct SysFd")
+                    formatter.write_str("struct SysFD")
                 }
 
-                fn visit_seq<V>(self, _seq: V) -> result::Result<SysFd, V::Error>
-                where
-                    V: de::SeqAccess<'d>,
-                {
-                    Ok(SysFd(1234))
+                fn visit_u32<E>(self, v: u32) -> result::Result<SysFd, E> {
+                    Ok(SysFd(v))
                 }
             }
             deserializer.deserialize_tuple_struct(SYSFD, 1, SysFdVisitor)
@@ -623,6 +620,13 @@ mod de {
                 visitor.$visit_fn(<$num>::from_le_bytes(bytes))
             }
         };
+    }
+
+    impl<'d> IPCDeserializer<'d> {
+        fn deserialize_sysfd<'a, V: de::Visitor<'d>>(&'a mut self, visitor: V) -> Result<V::Value> {
+            let file = self.input.pop_front_file()?;
+            visitor.visit_u32(file.0)
+        }
     }
 
     impl<'d, 'a> de::Deserializer<'d> for &'a mut IPCDeserializer<'d> {
@@ -724,6 +728,34 @@ mod de {
         }
 
         fn deserialize_tuple<V: de::Visitor<'d>>(self, len: usize, visitor: V) -> Result<V::Value> {
+            struct SeqAccess<'d, 'a> {
+                deserializer: &'a mut IPCDeserializer<'d>,
+                len: usize,
+            }
+
+            impl<'d, 'a> de::SeqAccess<'d> for SeqAccess<'d, 'a> {
+                type Error = Error;
+
+                fn size_hint(&self) -> Option<usize> {
+                    Some(self.len)
+                }
+
+                fn next_element_seed<V>(&mut self, seed: V) -> Result<Option<V::Value>>
+                where
+                    V: de::DeserializeSeed<'d>,
+                {
+                    if self.len > 0 {
+                        self.len -= 1;
+                        Ok(Some(de::DeserializeSeed::deserialize(
+                            seed,
+                            &mut *self.deserializer,
+                        )?))
+                    } else {
+                        Ok(None)
+                    }
+                }
+            }
+
             visitor.visit_seq(SeqAccess {
                 deserializer: self,
                 len,
@@ -732,11 +764,16 @@ mod de {
 
         fn deserialize_tuple_struct<V: de::Visitor<'d>>(
             self,
-            _name: &'static str,
+            name: &'static str,
             len: usize,
             visitor: V,
         ) -> Result<V::Value> {
-            self.deserialize_tuple(len, visitor)
+            if name == SYSFD {
+                assert_eq!(len, 1);
+                self.deserialize_sysfd(visitor)
+            } else {
+                self.deserialize_tuple(len, visitor)
+            }
         }
 
         fn deserialize_enum<V: de::Visitor<'d>>(
@@ -763,34 +800,6 @@ mod de {
             _visitor: V,
         ) -> Result<V::Value> {
             Err(Error::Unimplemented)
-        }
-    }
-
-    struct SeqAccess<'d, 'a> {
-        deserializer: &'a mut IPCDeserializer<'d>,
-        len: usize,
-    }
-
-    impl<'d, 'a> de::SeqAccess<'d> for SeqAccess<'d, 'a> {
-        type Error = Error;
-
-        fn size_hint(&self) -> Option<usize> {
-            Some(self.len)
-        }
-
-        fn next_element_seed<V>(&mut self, seed: V) -> Result<Option<V::Value>>
-        where
-            V: de::DeserializeSeed<'d>,
-        {
-            if self.len > 0 {
-                self.len -= 1;
-                Ok(Some(de::DeserializeSeed::deserialize(
-                    seed,
-                    &mut *self.deserializer,
-                )?))
-            } else {
-                Ok(None)
-            }
         }
     }
 }
@@ -859,7 +868,6 @@ mod test {
         [SysFd(5), SysFd(4), SysFd(3), SysFd(2), SysFd(1)],
         [SysFd; 5],
         [],
-
         [SysFd(5), SysFd(4), SysFd(3), SysFd(2), SysFd(1)]
     );
     check!(
