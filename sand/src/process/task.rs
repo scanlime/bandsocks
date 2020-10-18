@@ -26,7 +26,11 @@ pub struct Task<'q> {
 
 impl<'q> Debug for Task<'q> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.task_data.fmt(f)
+        f.debug_tuple("Task")
+         .field(&self.task_data.vpid)
+         .field(&self.task_data.sys_pid)
+         .field(&self.process_handle.mem)
+         .finish()
     }
 }
 

@@ -99,7 +99,7 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
             }
 
             nr::EXECVE => {
-                println!("made it to exec!");
+                println!("made it to exec! with {:?}", self.task);
                 self.return_result(Err(Errno(-1))).await
             }
 
