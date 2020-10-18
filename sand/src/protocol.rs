@@ -157,12 +157,12 @@ pub mod buffer {
         }
 
         pub fn push_back<T: Serialize>(&mut self, message: &T) -> Result<()> {
-            let mut serializer = ser::IPCSerializer { output: self };
+            let mut serializer = ser::IPCSerializer::new(self);
             message.serialize(&mut serializer)
         }
 
         pub fn pop_front<T: Clone + DeserializeOwned>(&'a mut self) -> Result<T> {
-            let mut deserializer = de::IPCDeserializer { input: self };
+            let mut deserializer = de::IPCDeserializer::new(self);
             T::deserialize(&mut deserializer)
         }
 
@@ -239,7 +239,17 @@ mod ser {
     const SYSFD: &str = "fd@ser";
 
     pub struct IPCSerializer<'a> {
-        pub output: &'a mut IPCBuffer,
+        output: &'a mut IPCBuffer,
+        in_sysfd: bool,
+    }
+
+    impl<'a> IPCSerializer<'a> {
+        pub fn new(output: &'a mut IPCBuffer) -> Self {
+            IPCSerializer {
+                output,
+                in_sysfd: false
+            }
+        }
     }
 
     impl ser::Serialize for SysFd {
@@ -261,6 +271,7 @@ mod ser {
     macro_rules! to_le_bytes {
         ($gen_fn:ident, $num:ty ) => {
             fn $gen_fn(self, v: $num) -> Result<()> {
+                assert_eq!(self.in_sysfd, false);
                 self.output.extend_bytes(&v.to_le_bytes())
             }
         };
@@ -286,6 +297,7 @@ mod ser {
         }
 
         fn serialize_bool(self, v: bool) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             self.output.push_back_byte(v as u8)
         }
 
@@ -299,28 +311,41 @@ mod ser {
 
         to_le_bytes!(serialize_u16, u16);
         to_le_bytes!(serialize_i16, i16);
-        to_le_bytes!(serialize_u32, u32);
         to_le_bytes!(serialize_i32, i32);
         to_le_bytes!(serialize_u64, u64);
         to_le_bytes!(serialize_i64, i64);
 
+        fn serialize_u32(self, v: u32) -> Result<()> {
+            if self.in_sysfd {
+                self.output.push_back_file(SysFd(v))
+            } else {
+                self.output.extend_bytes(&v.to_le_bytes())
+            }
+        }
+
         fn serialize_none(self) -> Result<()> {
-            self.serialize_unit()
+            assert_eq!(self.in_sysfd, false);
+            self.output.push_back_byte(0)
         }
 
         fn serialize_some<T: ?Sized + ser::Serialize>(self, v: &T) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
+            self.output.push_back_byte(1)?;
             v.serialize(self)
         }
 
         fn serialize_i8(self, v: i8) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             self.output.push_back_byte(v as u8)
         }
 
         fn serialize_u8(self, v: u8) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             self.output.push_back_byte(v)
         }
 
         fn serialize_unit(self) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             Ok(())
         }
 
@@ -334,6 +359,7 @@ mod ser {
             variant_index: u32,
             _var: &'static str,
         ) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             if variant_index < 0x100 {
                 self.output.push_back_byte(variant_index as u8)
             } else {
@@ -357,6 +383,7 @@ mod ser {
         where
             T: ?Sized + ser::Serialize,
         {
+            assert_eq!(self.in_sysfd, false);
             value.serialize(self)
         }
 
@@ -370,27 +397,34 @@ mod ser {
         where
             T: ?Sized + ser::Serialize,
         {
+            assert_eq!(self.in_sysfd, false);
             self.serialize_unit_variant(name, variant_index, variant)?;
             value.serialize(self)
         }
 
-        fn serialize_tuple_struct(self, _name: &'static str, _len: usize) -> Result<Self> {
+        fn serialize_tuple_struct(self, name: &'static str, _len: usize) -> Result<Self> {
+            assert_eq!(self.in_sysfd, false);
+            self.in_sysfd = name == SYSFD;
             Ok(self)
         }
 
         fn serialize_seq(self, _len: Option<usize>) -> Result<Self> {
+            assert_eq!(self.in_sysfd, false);
             Ok(self)
         }
 
         fn serialize_tuple(self, _len: usize) -> Result<Self> {
+            assert_eq!(self.in_sysfd, false);
             Ok(self)
         }
 
         fn serialize_map(self, _len: Option<usize>) -> Result<Self> {
+            assert_eq!(self.in_sysfd, false);
             Ok(self)
         }
 
         fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self> {
+            assert_eq!(self.in_sysfd, false);
             Ok(self)
         }
 
@@ -422,10 +456,12 @@ mod ser {
         type Error = Error;
 
         fn serialize_element<T: ?Sized + ser::Serialize>(&mut self, value: &T) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             value.serialize(&mut **self)
         }
 
         fn end(self) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             Ok(())
         }
     }
@@ -435,10 +471,12 @@ mod ser {
         type Error = Error;
 
         fn serialize_element<T: ?Sized + ser::Serialize>(&mut self, value: &T) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             value.serialize(&mut **self)
         }
 
         fn end(self) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             Ok(())
         }
     }
@@ -452,6 +490,7 @@ mod ser {
         }
 
         fn end(self) -> Result<()> {
+            self.in_sysfd = false;
             Ok(())
         }
     }
@@ -461,10 +500,12 @@ mod ser {
         type Error = Error;
 
         fn serialize_field<T: ?Sized + ser::Serialize>(&mut self, value: &T) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             value.serialize(&mut **self)
         }
 
         fn end(self) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             Ok(())
         }
     }
@@ -474,17 +515,21 @@ mod ser {
         type Error = Error;
 
         fn serialize_key<T: ?Sized + ser::Serialize>(&mut self, key: &T) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             key.serialize(&mut **self)
         }
 
         fn serialize_value<T: ?Sized + ser::Serialize>(&mut self, value: &T) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             value.serialize(&mut **self)
         }
 
         fn end(self) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             Ok(())
         }
     }
+
     impl<'a, 'b> ser::SerializeStruct for &'b mut IPCSerializer<'a> {
         type Ok = ();
         type Error = Error;
@@ -493,10 +538,12 @@ mod ser {
         where
             T: ?Sized + ser::Serialize,
         {
+            assert_eq!(self.in_sysfd, false);
             value.serialize(&mut **self)
         }
 
         fn end(self) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             Ok(())
         }
     }
@@ -509,10 +556,12 @@ mod ser {
         where
             T: ?Sized + ser::Serialize,
         {
+            assert_eq!(self.in_sysfd, false);
             value.serialize(&mut **self)
         }
 
         fn end(self) -> Result<()> {
+            assert_eq!(self.in_sysfd, false);
             Ok(())
         }
     }
@@ -527,7 +576,15 @@ mod de {
     use serde::de;
 
     pub struct IPCDeserializer<'d> {
-        pub input: &'d mut IPCBuffer,
+        input: &'d mut IPCBuffer,
+    }
+
+    impl<'a> IPCDeserializer<'a> {
+        pub fn new(input: &'a mut IPCBuffer) -> Self {
+            IPCDeserializer {
+                input,
+            }
+        }
     }
 
     impl<'d> de::Deserialize<'d> for SysFd {
@@ -587,6 +644,22 @@ mod de {
             Err(Error::Unimplemented)
         }
 
+        fn deserialize_identifier<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_ignored_any<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_str<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_string<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
         from_le_bytes!(deserialize_u16, visit_u16, u16, 2);
         from_le_bytes!(deserialize_i16, visit_i16, i16, 2);
         from_le_bytes!(deserialize_u32, visit_u32, u32, 4);
@@ -610,10 +683,6 @@ mod de {
             })
         }
 
-        fn deserialize_identifier<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
-            Err(Error::Unimplemented)
-        }
-
         fn deserialize_unit<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
             visitor.visit_unit()
         }
@@ -624,18 +693,6 @@ mod de {
             visitor: V,
         ) -> Result<V::Value> {
             visitor.visit_unit()
-        }
-
-        fn deserialize_ignored_any<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
-            Err(Error::Unimplemented)
-        }
-
-        fn deserialize_str<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
-            Err(Error::Unimplemented)
-        }
-
-        fn deserialize_string<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
-            Err(Error::Unimplemented)
         }
 
         fn deserialize_map<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
@@ -877,21 +934,36 @@ mod test {
     #[test]
     fn bool() {
         let mut buf = IPCBuffer::new();
-        buf.push_back(&true);
+        buf.push_back(&true).unwrap();
         assert_eq!(buf.as_slice().bytes, &[1]);
         assert_eq!(buf.pop_front::<bool>(), Ok(true));
         assert!(buf.is_empty());
-        buf.push_back(&false);
+        buf.push_back(&false).unwrap();
         assert_eq!(buf.as_slice().bytes, &[0]);
         assert_eq!(buf.pop_front::<bool>(), Ok(false));
         assert!(buf.is_empty());
-        buf.push_back_byte(1);
-        buf.push_back_byte(0);
+        buf.push_back_byte(1).unwrap();
+        buf.push_back_byte(0).unwrap();
         assert_eq!(buf.pop_front::<bool>(), Ok(true));
         assert_eq!(buf.pop_front::<bool>(), Ok(false));
         assert!(buf.is_empty());
-        buf.push_back_byte(2);
+        buf.push_back_byte(2).unwrap();
         assert_eq!(buf.pop_front::<bool>(), Err(Error::InvalidValue));
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn option() {
+        let mut buf = IPCBuffer::new();
+        buf.push_back(&Some(false)).unwrap();
+        buf.push_back(&Some(42u8)).unwrap();
+        buf.push_back::<Option<u64>>(&None).unwrap();
+        buf.push_back::<Option<()>>(&None).unwrap();
+        assert_eq!(buf.as_slice().bytes, &[1, 0, 1, 42, 0, 0]);
+        assert_eq!(buf.pop_front::<Option<bool>>(), Ok(Some(false)));
+        assert_eq!(buf.pop_front::<Option<u8>>(), Ok(Some(42u8)));
+        assert_eq!(buf.pop_front::<Option<u64>>(), Ok(None));
+        assert_eq!(buf.pop_front::<Option<()>>(), Ok(None));
         assert!(buf.is_empty());
     }
 
