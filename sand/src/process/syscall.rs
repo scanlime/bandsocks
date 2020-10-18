@@ -1,7 +1,7 @@
 use crate::{
     abi,
-    abi::SyscallInfo,
-    process::task::Task,
+    abi::{SyscallInfo, UserRegs},
+    process::{remote, task::Task},
     protocol::{Errno, FileAccess, FromSand, SysFd, ToSand, VPtr, VString},
 };
 use sc::nr;
@@ -9,12 +9,13 @@ use sc::nr;
 #[derive(Debug)]
 pub struct SyscallEmulator<'t, 'c, 'q> {
     task: &'t mut Task<'q>,
+    regs: &'c mut UserRegs,
     call: &'c SyscallInfo,
 }
 
 impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
-    pub fn new(task: &'t mut Task<'q>, call: &'c SyscallInfo) -> Self {
-        SyscallEmulator { task, call }
+    pub fn new(task: &'t mut Task<'q>, regs: &'c mut UserRegs, call: &'c SyscallInfo) -> Self {
+        SyscallEmulator { task, regs, call }
     }
 
     async fn return_sysfd(&mut self, sys_fd: SysFd) -> isize {
@@ -43,13 +44,13 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
         }
     }
 
-    pub async fn dispatch(&mut self) -> isize {
+    pub async fn dispatch(&mut self) {
         let args = self.call.args;
         let arg_i32 = |idx| args[idx] as i32;
         let arg_ptr = |idx| VPtr(args[idx] as usize);
         let arg_string = |idx| VString(arg_ptr(idx));
 
-        match self.call.nr as usize {
+        let result = match self.call.nr as usize {
             nr::ACCESS => {
                 let result = ipc_call!(
                     self.task,
@@ -100,10 +101,17 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
 
             nr::EXECVE => {
                 println!("made it to exec! with {:?}", self.task);
+
+                println!(
+                    "remote pid, {}",
+                    remote::syscall(self.task, nr::GETPID, &[]).await
+                );
+
                 self.return_result(Err(Errno(-1))).await
             }
 
             _ => panic!("unexpected syscall trace, {:x?}", self),
-        }
+        };
+        SyscallInfo::ret_to_regs(result, &mut self.regs);
     }
 }

@@ -124,6 +124,31 @@ pub struct SyscallInfo {
     pub ret_data: u32,
 }
 
+impl SyscallInfo {
+    pub fn from_regs(regs: &UserRegs) -> Self {
+        SyscallInfo {
+            op: PTRACE_SYSCALL_INFO_SECCOMP,
+            arch: AUDIT_ARCH_X86_64,
+            instruction_pointer: regs.ip,
+            stack_pointer: regs.sp,
+            nr: regs.orig_ax,
+            args: [regs.di, regs.si, regs.dx, regs.r10, regs.r8, regs.r9],
+            ..Default::default()
+        }
+    }
+
+    pub fn ret_to_regs(ret_data: isize, regs: &mut UserRegs) {
+        regs.ax = ret_data as u64;
+    }
+
+    pub fn nr_to_regs(nr: isize, regs: &mut UserRegs) {
+        regs.orig_ax = nr as u64;
+    }
+}
+
+// Special syscall number
+pub const SYSCALL_BLOCKED: isize = -1;
+
 // waitid
 // linux/include/uapi/linux/wait.h
 pub const P_ALL: usize = 0;

@@ -27,10 +27,10 @@ pub struct Task<'q> {
 impl<'q> Debug for Task<'q> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Task")
-         .field(&self.task_data.vpid)
-         .field(&self.task_data.sys_pid)
-         .field(&self.process_handle.mem)
-         .finish()
+            .field(&self.task_data.vpid)
+            .field(&self.task_data.sys_pid)
+            .field(&self.process_handle.mem)
+            .finish()
     }
 }
 
@@ -109,22 +109,11 @@ impl<'q> Task<'q> {
     async fn handle_seccomp_trap(&mut self) {
         let mut regs: abi::UserRegs = Default::default();
         ptrace::get_regs(self.task_data.sys_pid, &mut regs);
-
-        let syscall_info = SyscallInfo {
-            op: abi::PTRACE_SYSCALL_INFO_SECCOMP,
-            arch: abi::AUDIT_ARCH_X86_64,
-            instruction_pointer: regs.ip,
-            stack_pointer: regs.sp,
-            nr: regs.orig_ax,
-            args: [regs.di, regs.si, regs.dx, regs.r10, regs.r8, regs.r9],
-            ..Default::default()
-        };
-
-        let mut emulator = SyscallEmulator::new(self, &syscall_info);
-        regs.ax = emulator.dispatch().await as u64;
-
-        // Block the real system call from executing!
-        regs.orig_ax = -1 as i64 as u64;
+        let info = SyscallInfo::from_regs(&regs);
+        SyscallEmulator::new(self, &mut regs, &info)
+            .dispatch()
+            .await;
+        SyscallInfo::nr_to_regs(abi::SYSCALL_BLOCKED, &mut regs);
         ptrace::set_regs(self.task_data.sys_pid, &regs);
         self.cont();
     }

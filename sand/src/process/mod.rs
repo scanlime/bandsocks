@@ -11,6 +11,7 @@ macro_rules! ipc_call {
     }};
 }
 
+pub mod remote;
 pub mod syscall;
 pub mod table;
 pub mod task;
