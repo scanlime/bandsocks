@@ -95,11 +95,8 @@ fn parse_envp_as_fd(envp: &[*const u8]) -> Option<SysFd> {
 
 fn check_sealed_exe_environment() -> Result<(), ()> {
     // This is probably not super important, but as part of checking out the runtime
-    // environment during startup, it's easy to make sure this seems to be the
-    // sealed binary that we expected the runtime to create for us. This is
-    // invoked unconditionally; in stage 1 it will run normally, *before* the
-    // seccomp filter, so these will all be real syscalls. In stage 2
-    // these syscalls will be emulated by the tracer.
+    // environment during startup it's easy to make sure this seems to be the
+    // sealed binary that we expected the runtime to create for us.
 
     let exe_fd = unsafe { syscall!(OPEN, SELF_EXE.as_ptr(), abi::O_RDONLY, 0) as isize };
     if exe_fd > 0 {
