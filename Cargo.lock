@@ -101,7 +101,6 @@ dependencies = [
  "memmap",
  "osstrtools",
  "pentacle",
- "postcard",
  "regex",
  "serde",
  "serde_json",
@@ -109,7 +108,6 @@ dependencies = [
  "tar",
  "thiserror",
  "tokio",
- "typenum",
 ]
 
 [[package]]
@@ -123,7 +121,6 @@ dependencies = [
  "heapless",
  "memoffset",
  "pin-project 1.0.1",
- "postcard",
  "sc",
  "seccomp-tiny",
  "serde",
@@ -617,7 +614,6 @@ dependencies = [
  "as-slice",
  "generic-array 0.13.2",
  "hash32",
- "serde",
  "stable_deref_trait",
 ]
 
@@ -1084,23 +1080,6 @@ name = "pkg-config"
 version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3831453b3449ceb48b6d9c7ad7c96d5ea673e9b470a1dc578c2ce6521230884c"
-
-[[package]]
-name = "postcard"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3e3f5c2e9a91383c6594ec68aa2dfdfe19a3c86f34b088ba7203f2483d2682f"
-dependencies = [
- "heapless",
- "postcard-cobs",
- "serde",
-]
-
-[[package]]
-name = "postcard-cobs"
-version = "0.1.5-pre"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c68cb38ed13fd7bc9dd5db8f165b7c8d9c1a315104083a2b10f11354c2af97f"
 
 [[package]]
 name = "ppv-lite86"

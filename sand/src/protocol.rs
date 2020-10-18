@@ -68,22 +68,35 @@ pub struct SysAccess {
 }
 
 pub mod buffer {
-    use super::{de::deserialize, ser::serialize, SysFd};
-    use heapless::Vec;
-    use postcard::Error;
+    use super::{de, ser, SysFd};
+    use core::fmt;
+    use heapless::{consts::*, Vec};
     use serde::{de::DeserializeOwned, Serialize};
-    use typenum::*;
 
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub enum Error {
+        Unimplemented,
+        UnexpectedEnd,
+        BufferFull,
+        InvalidValue,
+        Serialize,
+        Deserialize,
+    }
+
+    impl fmt::Display for Error {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{:?}", self)
+        }
+    }
+
+    pub type Result<T> = core::result::Result<T, Error>;
     pub type BytesMax = U128;
     pub type FilesMax = U8;
 
-    pub type Bytes = Vec<u8, BytesMax>;
-    pub type Files = Vec<SysFd, FilesMax>;
-
     #[derive(Default)]
     pub struct IPCBuffer {
-        bytes: Bytes,
-        files: Files,
+        bytes: Vec<u8, BytesMax>,
+        files: Vec<SysFd, FilesMax>,
         byte_offset: usize,
         file_offset: usize,
     }
@@ -143,29 +156,46 @@ pub mod buffer {
             }
         }
 
-        pub fn push_back<T: Serialize>(&mut self, message: &T) -> Result<(), Error> {
-            serialize(self, message)
+        pub fn push_back<T: Serialize>(&mut self, message: &T) -> Result<()> {
+            let mut serializer = ser::IPCSerializer { output: self };
+            message.serialize(&mut serializer)
         }
 
-        pub fn pop_front<T: Clone + DeserializeOwned>(&'a mut self) -> Result<T, Error> {
-            let original = self.as_slice();
-            let original_bytes_len = original.bytes.len();
-            let (message, remainder) = deserialize::<T>(original)?;
-            let bytes_used = original_bytes_len - remainder.bytes.len();
-            self.pop_front_bytes(bytes_used);
-            Ok(message)
+        pub fn pop_front<T: Clone + DeserializeOwned>(&'a mut self) -> Result<T> {
+            let mut deserializer = de::IPCDeserializer { input: self };
+            T::deserialize(&mut deserializer)
         }
 
-        pub fn extend_bytes(&mut self, data: &[u8]) -> Result<(), ()> {
-            self.bytes.extend_from_slice(data)
+        pub fn extend_bytes(&mut self, data: &[u8]) -> Result<()> {
+            self.bytes
+                .extend_from_slice(data)
+                .map_err(|_| Error::BufferFull)
         }
 
-        pub fn push_back_byte(&mut self, data: u8) -> Result<(), ()> {
-            self.bytes.push(data).map_err(|_| ())
+        pub fn push_back_byte(&mut self, data: u8) -> Result<()> {
+            self.bytes.push(data).map_err(|_| Error::BufferFull)
         }
 
-        pub fn push_back_file(&mut self, file: SysFd) -> Result<(), ()> {
-            self.files.push(file).map_err(|_| ())
+        pub fn push_back_file(&mut self, file: SysFd) -> Result<()> {
+            self.files.push(file).map_err(|_| Error::BufferFull)
+        }
+
+        pub fn front_bytes(&self, len: usize) -> Result<&[u8]> {
+            let bytes = self.as_slice().bytes;
+            if len <= bytes.len() {
+                Ok(&bytes[..len])
+            } else {
+                Err(Error::UnexpectedEnd)
+            }
+        }
+
+        pub fn front_files(&self, len: usize) -> Result<&[SysFd]> {
+            let files = self.as_slice().files;
+            if len <= files.len() {
+                Ok(&files[..len])
+            } else {
+                Err(Error::UnexpectedEnd)
+            }
         }
 
         pub fn pop_front_bytes(&mut self, len: usize) {
@@ -173,90 +203,54 @@ pub mod buffer {
             assert!(new_offset <= self.bytes.len());
             self.byte_offset = new_offset;
         }
+
+        pub fn pop_front_files(&mut self, len: usize) {
+            let new_offset = self.file_offset + len;
+            assert!(new_offset <= self.files.len());
+            self.file_offset = new_offset;
+        }
+
+        pub fn pop_front_file(&mut self) -> Result<SysFd> {
+            let result = self.front_files(1).map(|slice| slice[0].clone());
+            if result.is_ok() {
+                self.pop_front_files(1);
+            }
+            result
+        }
     }
 }
 
 mod ser {
-    use super::{buffer::IPCBuffer, SysFd};
-    use core::fmt::Display;
-    use postcard::{flavors::SerFlavor, Error};
-    use serde::ser::*;
+    use super::{
+        buffer::{Error, IPCBuffer, Result},
+        SysFd,
+    };
+    use core::{fmt::Display, result};
+    use serde::{ser, ser::SerializeTupleStruct};
 
-    pub fn serialize<T: Serialize>(output: &mut IPCBuffer, message: &T) -> Result<(), Error> {
-        let mut serializer = IPCSerializer {
-            in_sysfd_tuple_struct: false,
-            inner: postcard::Serializer { output },
-        };
-        message.serialize(&mut serializer)
+    const SYSFD: &str = "fd@ser";
+
+    pub struct IPCSerializer<'a> {
+        pub output: &'a mut IPCBuffer,
     }
 
-    macro_rules! forward {
-        () => {};
-        ( @collect $fn:ident, $generics:tt, $args:tt ) => {
-            forward!{ @expand $fn, $generics, $args, $args }
-        };
-        ( @expand $fn:ident, ($($g:tt)*), ($($p1:ident : $t1:ty),*), ($($p2:ident : $t2:ty),*) ) => {
-            fn $fn $($g)* (self, $($p1 : $t1),*) -> Result<Self::Ok, Self::Error> {
-                (&mut self.inner).$fn($($p1),*)
-            }
-        };
-        ( fn $fn:ident(self); $($tail:tt)* ) => {
-            forward!{ @collect $fn, (), () }
-            forward!{ $($tail)* }
-        };
-        ( fn $fn:ident(self, $($par:ident : $t:ty),* ); $($tail:tt)* ) => {
-            forward!{ @collect $fn, (), ( $( $par : $t ),* )}
-            forward!{ $($tail)* }
-        };
-        ( fn $fn:ident<T: ?$t1:ident + $t2:ident>(self, $($par:ident : $t:ty),* ); $($tail:tt)* ) => {
-            forward!{ @collect $fn, (<T: ?$t1 + $t2>), ( $( $par : $t ),* )}
-            forward!{ $($tail)* }
-        };
-    }
-
-    type Inner<'a> = postcard::Serializer<&'a mut IPCBuffer>;
-
-    const SYSFD_MARKER: &str = "_@SysFd";
-
-    struct IPCSerializer<'a> {
-        in_sysfd_tuple_struct: bool,
-        inner: Inner<'a>,
-    }
-
-    impl<'a> SerFlavor for &'a mut IPCBuffer {
-        type Output = ();
-
-        fn try_extend(&mut self, data: &[u8]) -> Result<(), ()> {
-            self.extend_bytes(data)
-        }
-
-        fn try_push(&mut self, data: u8) -> Result<(), ()> {
-            self.push_back_byte(data)
-        }
-
-        fn release(self) -> Result<(), ()> {
-            unreachable!();
-        }
-    }
-
-    impl Serialize for SysFd {
-        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            let mut tuple = serializer.serialize_tuple_struct(SYSFD_MARKER, 1)?;
+    impl ser::Serialize for SysFd {
+        fn serialize<S: ser::Serializer>(&self, serializer: S) -> result::Result<S::Ok, S::Error> {
+            let mut tuple = serializer.serialize_tuple_struct(SYSFD, 1)?;
             tuple.serialize_field(&self.0)?;
             tuple.end()
         }
     }
 
-    impl<'a> IPCSerializer<'a> {
-        fn serialize_sysfd(&mut self, value: SysFd) -> Result<(), Error> {
-            self.inner
-                .output
-                .push_back_file(value)
-                .map_err(|_| Error::SerializeBufferFull)
+    impl ser::StdError for Error {}
+
+    impl ser::Error for Error {
+        fn custom<T: Display>(_msg: T) -> Self {
+            Error::Serialize
         }
     }
 
-    impl<'a, 'b> Serializer for &'b mut IPCSerializer<'a> {
+    impl<'a, 'b> ser::Serializer for &'b mut IPCSerializer<'a> {
         type Ok = ();
         type Error = Error;
         type SerializeSeq = Self;
@@ -267,61 +261,102 @@ mod ser {
         type SerializeStruct = Self;
         type SerializeStructVariant = Self;
 
-        forward! {
-            fn collect_str<T: ?Sized + Display>(self, v: &T);
-            fn serialize_bool(self, v: bool);
-            fn serialize_f32(self, v: f32);
-            fn serialize_f64(self, v: f64);
-            fn serialize_i16(self, v: i16);
-            fn serialize_i32(self, v: i32);
-            fn serialize_i64(self, v: i64);
-            fn serialize_i8(self, v: i8);
-            fn serialize_none(self);
-            fn serialize_some<T: ?Sized + Serialize>(self, v: &T);
-            fn serialize_u16(self, v: u16);
-            fn serialize_u64(self, v: u64);
-            fn serialize_u8(self, v: u8);
-            fn serialize_unit(self);
-            fn serialize_unit_struct(self, name: &'static str);
-            fn serialize_unit_variant(self, name: &'static str, varidx: u32, var: &'static str);
-        }
-
         fn is_human_readable(&self) -> bool {
             false
         }
 
-        fn serialize_char(self, _v: char) -> Result<(), Error> {
-            Err(Error::WontImplement)
+        fn collect_str<T: ?Sized + Display>(self, v: &T) -> Result<()> {
+            Err(Error::Unimplemented)
         }
 
-        fn serialize_str(self, _v: &str) -> Result<(), Error> {
-            Err(Error::WontImplement)
+        fn serialize_bool(self, v: bool) -> Result<()> {
+            self.output.push_back_byte(v as u8)
         }
 
-        fn serialize_bytes(self, _v: &[u8]) -> Result<(), Error> {
-            Err(Error::WontImplement)
+        fn serialize_f32(self, v: f32) -> Result<()> {
+            Err(Error::Unimplemented)
         }
 
-        fn serialize_u32(mut self, v: u32) -> Result<(), Error> {
-            if self.in_sysfd_tuple_struct {
-                (&mut self).serialize_sysfd(SysFd(v))
-            } else {
-                (&mut self.inner).serialize_u32(v)
-            }
+        fn serialize_f64(self, v: f64) -> Result<()> {
+            Err(Error::Unimplemented)
         }
 
-        fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self, Error> {
-            if name == SYSFD_MARKER {
-                assert_eq!(self.in_sysfd_tuple_struct, false);
-                self.in_sysfd_tuple_struct = true;
-            }
-            (&mut self.inner).serialize_tuple_struct(name, len)?;
-            Ok(self)
+        fn serialize_i16(self, v: i16) -> Result<()> {
+            Err(Error::Unimplemented)
         }
 
-        fn serialize_newtype_struct<T>(self, _: &'static str, value: &T) -> Result<(), Error>
+        fn serialize_i32(self, v: i32) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_i64(self, v: i64) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_i8(self, v: i8) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_none(self) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_some<T: ?Sized + ser::Serialize>(self, v: &T) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_u16(self, v: u16) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_u64(self, v: u64) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_u8(self, v: u8) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_unit(self) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_unit_struct(self, name: &'static str) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_unit_variant(
+            self,
+            name: &'static str,
+            varidx: u32,
+            var: &'static str,
+        ) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_char(self, _v: char) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_str(self, _v: &str) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_bytes(self, _v: &[u8]) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_u32(mut self, v: u32) -> Result<()> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self> {
+            Err(Error::Unimplemented)
+        }
+
+        fn serialize_newtype_struct<T>(self, _: &'static str, value: &T) -> Result<()>
         where
-            T: ?Sized + Serialize,
+            T: ?Sized + ser::Serialize,
         {
             value.serialize(self)
         }
@@ -332,32 +367,32 @@ mod ser {
             variant_index: u32,
             variant: &'static str,
             value: &T,
-        ) -> Result<(), Error>
+        ) -> Result<()>
         where
-            T: ?Sized + Serialize,
+            T: ?Sized + ser::Serialize,
         {
-            (&mut self.inner).serialize_unit_variant(name, variant_index, variant)?;
-            value.serialize(self)
+            if variant_index < 0x100 {
+                self.output.push_back_byte(variant_index as u8);
+                value.serialize(self)
+            } else {
+                Err(Error::InvalidValue)
+            }
         }
 
-        fn serialize_seq(self, len: Option<usize>) -> Result<Self, Error> {
-            (&mut self.inner).serialize_seq(len)?;
-            Ok(self)
+        fn serialize_seq(self, len: Option<usize>) -> Result<Self> {
+            Err(Error::Unimplemented)
         }
 
-        fn serialize_tuple(self, len: usize) -> Result<Self, Error> {
-            (&mut self.inner).serialize_tuple(len)?;
-            Ok(self)
+        fn serialize_tuple(self, len: usize) -> Result<Self> {
+            Err(Error::Unimplemented)
         }
 
-        fn serialize_map(self, len: Option<usize>) -> Result<Self, Error> {
-            (&mut self.inner).serialize_map(len)?;
-            Ok(self)
+        fn serialize_map(self, len: Option<usize>) -> Result<Self> {
+            Err(Error::Unimplemented)
         }
 
-        fn serialize_struct(self, name: &'static str, len: usize) -> Result<Self, Error> {
-            (&mut self.inner).serialize_struct(name, len)?;
-            Ok(self)
+        fn serialize_struct(self, name: &'static str, _len: usize) -> Result<Self> {
+            Err(Error::Unimplemented)
         }
 
         fn serialize_tuple_variant(
@@ -366,9 +401,8 @@ mod ser {
             variant_index: u32,
             variant: &'static str,
             len: usize,
-        ) -> Result<Self, Error> {
-            (&mut self.inner).serialize_tuple_variant(name, variant_index, variant, len)?;
-            Ok(self)
+        ) -> Result<Self> {
+            Err(Error::Unimplemented)
         }
 
         fn serialize_struct_variant(
@@ -377,210 +411,281 @@ mod ser {
             variant_index: u32,
             variant: &'static str,
             len: usize,
-        ) -> Result<Self, Error> {
-            (&mut self.inner).serialize_struct_variant(name, variant_index, variant, len)?;
-            Ok(self)
+        ) -> Result<Self> {
+            Err(Error::Unimplemented)
         }
     }
 
-    impl<'a, 'b> SerializeSeq for &'b mut IPCSerializer<'a> {
+    impl<'a, 'b> ser::SerializeSeq for &'b mut IPCSerializer<'a> {
         type Ok = ();
         type Error = Error;
-        fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
-        where
-            T: ?Sized + Serialize,
-        {
+
+        fn serialize_element<T: ?Sized + ser::Serialize>(&mut self, value: &T) -> Result<()> {
             value.serialize(&mut **self)
         }
-        fn end(self) -> Result<Self::Ok, Self::Error> {
-            assert_eq!(self.in_sysfd_tuple_struct, false);
+
+        fn end(self) -> Result<()> {
             Ok(())
         }
     }
 
-    impl<'a, 'b> SerializeTuple for &'b mut IPCSerializer<'a> {
+    impl<'a, 'b> ser::SerializeTuple for &'b mut IPCSerializer<'a> {
         type Ok = ();
         type Error = Error;
-        fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
-        where
-            T: ?Sized + Serialize,
-        {
+
+        fn serialize_element<T: ?Sized + ser::Serialize>(&mut self, value: &T) -> Result<()> {
             value.serialize(&mut **self)
         }
-        fn end(self) -> Result<Self::Ok, Self::Error> {
-            assert_eq!(self.in_sysfd_tuple_struct, false);
+
+        fn end(self) -> Result<()> {
             Ok(())
         }
     }
 
-    impl<'a, 'b> SerializeTupleStruct for &'b mut IPCSerializer<'a> {
+    impl<'a, 'b> ser::SerializeTupleStruct for &'b mut IPCSerializer<'a> {
         type Ok = ();
         type Error = Error;
-        fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
-        where
-            T: ?Sized + Serialize,
-        {
+
+        fn serialize_field<T: ?Sized + ser::Serialize>(&mut self, value: &T) -> Result<()> {
             value.serialize(&mut **self)
         }
-        fn end(self) -> Result<Self::Ok, Self::Error> {
-            self.in_sysfd_tuple_struct = false;
+
+        fn end(self) -> Result<()> {
             Ok(())
         }
     }
 
-    impl<'a, 'b> SerializeTupleVariant for &'b mut IPCSerializer<'a> {
+    impl<'a, 'b> ser::SerializeTupleVariant for &'b mut IPCSerializer<'a> {
         type Ok = ();
         type Error = Error;
-        fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
-        where
-            T: ?Sized + Serialize,
-        {
+
+        fn serialize_field<T: ?Sized + ser::Serialize>(&mut self, value: &T) -> Result<()> {
             value.serialize(&mut **self)
         }
-        fn end(self) -> Result<Self::Ok, Self::Error> {
-            assert_eq!(self.in_sysfd_tuple_struct, false);
+
+        fn end(self) -> Result<()> {
             Ok(())
         }
     }
 
-    impl<'a, 'b> SerializeMap for &'b mut IPCSerializer<'a> {
+    impl<'a, 'b> ser::SerializeMap for &'b mut IPCSerializer<'a> {
         type Ok = ();
         type Error = Error;
-        fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
-        where
-            T: ?Sized + Serialize,
-        {
+
+        fn serialize_key<T: ?Sized + ser::Serialize>(&mut self, key: &T) -> Result<()> {
             key.serialize(&mut **self)
         }
-        fn serialize_value<T>(&mut self, value: &T) -> Result<(), Self::Error>
+
+        fn serialize_value<T: ?Sized + ser::Serialize>(&mut self, value: &T) -> Result<()> {
+            value.serialize(&mut **self)
+        }
+
+        fn end(self) -> Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a, 'b> ser::SerializeStruct for &'b mut IPCSerializer<'a> {
+        type Ok = ();
+        type Error = Error;
+
+        fn serialize_field<T>(&mut self, _name: &'static str, value: &T) -> Result<()>
         where
-            T: ?Sized + Serialize,
+            T: ?Sized + ser::Serialize,
         {
             value.serialize(&mut **self)
         }
-        fn end(self) -> Result<Self::Ok, Self::Error> {
-            assert_eq!(self.in_sysfd_tuple_struct, false);
+
+        fn end(self) -> Result<()> {
             Ok(())
         }
     }
 
-    impl<'a, 'b> SerializeStruct for &'b mut IPCSerializer<'a> {
+    impl<'a, 'b> ser::SerializeStructVariant for &'b mut IPCSerializer<'a> {
         type Ok = ();
         type Error = Error;
-        fn serialize_field<T>(&mut self, _name: &'static str, value: &T) -> Result<(), Self::Error>
-        where
-            T: ?Sized + Serialize,
-        {
-            value.serialize(&mut **self)
-        }
-        fn end(self) -> Result<Self::Ok, Self::Error> {
-            assert_eq!(self.in_sysfd_tuple_struct, false);
-            Ok(())
-        }
-    }
 
-    impl<'a, 'b> SerializeStructVariant for &'b mut IPCSerializer<'a> {
-        type Ok = ();
-        type Error = Error;
-        fn serialize_field<T>(&mut self, _name: &'static str, value: &T) -> Result<(), Self::Error>
+        fn serialize_field<T>(&mut self, _name: &'static str, value: &T) -> Result<()>
         where
-            T: ?Sized + Serialize,
+            T: ?Sized + ser::Serialize,
         {
             value.serialize(&mut **self)
         }
-        fn end(self) -> Result<Self::Ok, Self::Error> {
-            assert_eq!(self.in_sysfd_tuple_struct, false);
+
+        fn end(self) -> Result<()> {
             Ok(())
         }
     }
 }
 
 mod de {
-    use super::{buffer::IPCSlice, SysFd};
-    use postcard::Error;
-    use serde::de::*;
+    use super::{
+        buffer::{Error, IPCBuffer, Result},
+        SysFd,
+    };
+    use core::{fmt::Display, result};
+    use serde::de;
 
-    pub fn deserialize<'a, T>(input: IPCSlice<'a>) -> Result<(T, IPCSlice<'a>), Error>
-    where
-        T: Deserialize<'a>,
-    {
-        let mut deserializer = IPCDeserializer { input };
-        let value = T::deserialize(&mut deserializer)?;
-        Ok((value, deserializer.input))
+    pub struct IPCDeserializer<'d> {
+        pub input: &'d mut IPCBuffer,
     }
 
-    macro_rules! forward {
-        () => {};
-        ( @collect $fn:ident, $generics:tt, $args:tt ) => {
-            forward!{ @expand $fn, $generics, $args, $args }
-        };
-        ( @expand $fn:ident, ($($g:tt)*), ($($p1:ident : $t1:ty),*), ($($p2:ident : $t2:ty),*) ) => {
-            fn $fn $($g)* (self, $($p1 : $t1),*) -> Result<V::Value, Error> {
-                // Pass-through call to the postcard deserializer
-                let mut de = postcard::Deserializer::from_bytes(self.input.bytes);
-                println!("pre {}", stringify!($fn));
-                let result = (&mut de).$fn( $($p2),* );
-                println!("post {}", stringify!($fn));
-                result
-
-                // I'd really like to get self.input.bytes right back out and look at the size,
-                // but there's no way to do that: https://github.com/jamesmunns/postcard/issues/28
-            }
-        };
-        ( fn $fn:ident <V: Visitor<'d>> (self, $($par:ident : $t:ty),* ); $($tail:tt)* ) => {
-            forward!{ @collect $fn, (<V: Visitor<'d>>), ( $( $par : $t ),* )}
-            forward!{ $($tail)* }
-        };
-    }
-
-    struct IPCDeserializer<'d> {
-        input: IPCSlice<'d>,
-    }
-
-    impl<'d> Deserialize<'d> for SysFd {
-        fn deserialize<D: Deserializer<'d>>(deserializer: D) -> Result<Self, D::Error> {
+    impl<'d> de::Deserialize<'d> for SysFd {
+        fn deserialize<D: de::Deserializer<'d>>(deserializer: D) -> result::Result<Self, D::Error> {
             println!("would deserialize a file here");
             Ok(SysFd(999))
         }
     }
 
-    impl<'d, 'a> Deserializer<'d> for &'a mut IPCDeserializer<'d> {
+    impl de::Error for Error {
+        fn custom<T: Display>(_msg: T) -> Self {
+            Error::Deserialize
+        }
+    }
+
+    impl<'d, 'a> de::Deserializer<'d> for &'a mut IPCDeserializer<'d> {
         type Error = Error;
 
         fn is_human_readable(&self) -> bool {
             false
         }
 
-        forward! {
-            fn deserialize_any<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_bool<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_byte_buf<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_bytes<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_char<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_enum<V: Visitor<'d>>(self, name: &'static str, variants: &'static [ &'static str ], visitor:V);
-            fn deserialize_f32<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_f64<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_i16<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_i32<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_i64<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_i8<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_identifier<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_ignored_any<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_map<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_newtype_struct<V: Visitor<'d>>(self, name: &'static str, visitor:V);
-            fn deserialize_option<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_seq<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_str<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_string<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_struct<V: Visitor<'d>>(self, name: &'static str, fields: &'static [ &'static str ], visitor:V);
-            fn deserialize_tuple<V: Visitor<'d>>(self, len: usize, visitor:V);
-            fn deserialize_tuple_struct<V: Visitor<'d>>(self, name: &'static str, len: usize, visitor:V);
-            fn deserialize_u16<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_u32<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_u64<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_u8<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_unit<V: Visitor<'d>>(self, visitor: V);
-            fn deserialize_unit_struct<V: Visitor<'d>>(self, name: &'static str, visitor:V);
+        fn deserialize_any<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_bool<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_byte_buf<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_bytes<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_char<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_enum<V: de::Visitor<'d>>(
+            self,
+            name: &'static str,
+            variants: &'static [&'static str],
+            visitor: V,
+        ) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_f32<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_f64<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_i16<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_i32<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_i64<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_i8<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_identifier<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_ignored_any<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_map<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_newtype_struct<V: de::Visitor<'d>>(
+            self,
+            name: &'static str,
+            visitor: V,
+        ) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_option<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_seq<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_str<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_string<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_struct<V: de::Visitor<'d>>(
+            self,
+            name: &'static str,
+            fields: &'static [&'static str],
+            visitor: V,
+        ) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_tuple<V: de::Visitor<'d>>(self, len: usize, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_tuple_struct<V: de::Visitor<'d>>(
+            self,
+            name: &'static str,
+            len: usize,
+            visitor: V,
+        ) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_u16<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_u32<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_u64<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_u8<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_unit<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_unit_struct<V: de::Visitor<'d>>(
+            self,
+            name: &'static str,
+            visitor: V,
+        ) -> Result<V::Value> {
+            Err(Error::Unimplemented)
         }
     }
 }
@@ -588,10 +693,9 @@ mod de {
 #[cfg(test)]
 mod test {
     use super::{
-        buffer::{IPCBuffer, IPCSlice},
-        *,
+        buffer::{Error, IPCBuffer, IPCSlice},
+        Errno, VPtr, SysFd,
     };
-    use postcard::Error;
 
     #[test]
     fn u32() {
@@ -656,13 +760,13 @@ mod test {
     #[test]
     fn no_char() {
         let mut buf = IPCBuffer::new();
-        assert_eq!(buf.push_back(&'ก'), Err(Error::WontImplement));
+        assert_eq!(buf.push_back(&'ก'), Err(Error::Unimplemented));
     }
 
     #[test]
     fn no_str() {
         let mut buf = IPCBuffer::new();
-        assert_eq!(buf.push_back(&"yo"), Err(Error::WontImplement));
+        assert_eq!(buf.push_back(&"yo"), Err(Error::Unimplemented));
     }
 
     #[test]
