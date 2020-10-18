@@ -14,17 +14,12 @@ pub struct TaskData {
 }
 
 pub async fn task_fn(events: EventSource<'_>, msg: MessageSender<'_>, task_data: TaskData) {
-    Task {
-        events,
-        msg,
-        task_data,
-    }
-    .run()
-    .await;
+    Task::new(events, msg, task_data).await.run().await;
 }
 
 pub struct Task<'q> {
     pub task_data: TaskData,
+    pub process_handle: ProcessHandle,
     pub msg: MessageSender<'q>,
     pub events: EventSource<'q>,
 }
@@ -36,11 +31,14 @@ impl<'q> Debug for Task<'q> {
 }
 
 impl<'q> Task<'q> {
-    async fn run(&mut self) {
-        ptrace::setoptions(self.task_data.sys_pid);
-
+    async fn new(
+        mut events: EventSource<'q>,
+        mut msg: MessageSender<'q>,
+        task_data: TaskData,
+    ) -> Task<'q> {
+        ptrace::setoptions(task_data.sys_pid);
         assert_eq!(
-            self.events.next().await,
+            events.next().await,
             Event::Signal {
                 sig: abi::SIGCHLD,
                 code: abi::CLD_TRAPPED,
@@ -48,9 +46,9 @@ impl<'q> Task<'q> {
             }
         );
 
-        self.cont();
+        ptrace::cont(task_data.sys_pid);
         assert_eq!(
-            self.events.next().await,
+            events.next().await,
             Event::Signal {
                 sig: abi::SIGCHLD,
                 code: abi::CLD_TRAPPED,
@@ -58,15 +56,22 @@ impl<'q> Task<'q> {
             }
         );
 
-        let process_handle = ipc_call!(
-            self,
-            FromSand::OpenProcess(self.task_data.sys_pid),
-            ToSand::OpenProcessReply(handle),
-            handle
-        );
+        msg.send(FromSand::OpenProcess(task_data.sys_pid));
+        match events.next().await {
+            Event::Message(ToSand::OpenProcessReply(process_handle)) => Task {
+                events,
+                msg,
+                process_handle,
+                task_data,
+            },
+            other => panic!(
+                "unexpected open_process reply, task={:x?}, received={:x?}",
+                task_data, other
+            ),
+        }
+    }
 
-        println!("process handle: {:?}", process_handle);
-
+    async fn run(&mut self) {
         self.cont();
         loop {
             let event = self.events.next().await;
