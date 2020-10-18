@@ -86,7 +86,7 @@ fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> R
 fn parse_envp_as_fd(envp: &[*const u8]) -> Option<SysFd> {
     let envp0 = unsafe { nolibc::c_str_slice(*envp.first().unwrap()) };
     let envp0 = core::str::from_utf8(nolibc::c_unwrap_nul(envp0)).unwrap();
-    let mut parts = envp0.splitn(2, "=");
+    let mut parts = envp0.splitn(2, '=');
     match (parts.next(), parts.next().map(|val| val.parse::<u32>())) {
         (Some("FD"), Some(Ok(fd))) if fd > 2 => Some(SysFd(fd)),
         _ => None,
