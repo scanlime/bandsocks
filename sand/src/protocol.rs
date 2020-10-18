@@ -1,5 +1,6 @@
 // The protocol is defined here canonically and then imported
 // by the runtime crate along with our finished binary.
+// This depends on only: core, serde, heapless
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[repr(C)]
