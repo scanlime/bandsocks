@@ -259,11 +259,11 @@ mod ser {
     }
 
     macro_rules! to_le_bytes {
-        ($gen_fn:ident, $num:ty ) => (
-            fn $gen_fn (self, v: $num) -> Result<()> {
+        ($gen_fn:ident, $num:ty ) => {
+            fn $gen_fn(self, v: $num) -> Result<()> {
                 self.output.extend_bytes(&v.to_le_bytes())
             }
-        );
+        };
     }
 
     impl<'a, 'b> ser::Serializer for &'b mut IPCSerializer<'a> {
@@ -353,10 +353,6 @@ mod ser {
             Err(Error::Unimplemented)
         }
 
-        fn serialize_tuple_struct(self, _name: &'static str, _len: usize) -> Result<Self> {
-            Err(Error::Unimplemented)
-        }
-
         fn serialize_newtype_struct<T>(self, _: &'static str, value: &T) -> Result<()>
         where
             T: ?Sized + ser::Serialize,
@@ -378,40 +374,46 @@ mod ser {
             value.serialize(self)
         }
 
+        fn serialize_tuple_struct(self, _name: &'static str, _len: usize) -> Result<Self> {
+            Ok(self)
+        }
+
         fn serialize_seq(self, _len: Option<usize>) -> Result<Self> {
-            Err(Error::Unimplemented)
+            Ok(self)
         }
 
         fn serialize_tuple(self, _len: usize) -> Result<Self> {
-            Err(Error::Unimplemented)
+            Ok(self)
         }
 
         fn serialize_map(self, _len: Option<usize>) -> Result<Self> {
-            Err(Error::Unimplemented)
+            Ok(self)
         }
 
         fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self> {
-            Err(Error::Unimplemented)
+            Ok(self)
         }
 
         fn serialize_tuple_variant(
             self,
-            _name: &'static str,
-            _variant_index: u32,
-            _variant: &'static str,
+            name: &'static str,
+            variant_index: u32,
+            variant: &'static str,
             _len: usize,
         ) -> Result<Self> {
-            Err(Error::Unimplemented)
+            self.serialize_unit_variant(name, variant_index, variant)?;
+            Ok(self)
         }
 
         fn serialize_struct_variant(
             self,
-            _name: &'static str,
-            _variant_index: u32,
-            _variant: &'static str,
+            name: &'static str,
+            variant_index: u32,
+            variant: &'static str,
             _len: usize,
         ) -> Result<Self> {
-            Err(Error::Unimplemented)
+            self.serialize_unit_variant(name, variant_index, variant)?;
+            Ok(self)
         }
     }
 
@@ -529,7 +531,9 @@ mod de {
     }
 
     impl<'d> de::Deserialize<'d> for SysFd {
-        fn deserialize<D: de::Deserializer<'d>>(_deserializer: D) -> result::Result<Self, D::Error> {
+        fn deserialize<D: de::Deserializer<'d>>(
+            _deserializer: D,
+        ) -> result::Result<Self, D::Error> {
             println!("would deserialize a file here");
             Ok(SysFd(999))
         }
@@ -542,14 +546,14 @@ mod de {
     }
 
     macro_rules! from_le_bytes {
-        ($gen_fn:ident, $visit_fn:ident, $num:ty, $len:expr) => (
-            fn $gen_fn <V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+        ($gen_fn:ident, $visit_fn:ident, $num:ty, $len:expr) => {
+            fn $gen_fn<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
                 let mut bytes = [0u8; $len];
                 bytes[..].copy_from_slice(self.input.front_bytes($len)?);
                 self.input.pop_front_bytes($len);
                 visitor.$visit_fn(<$num>::from_le_bytes(bytes))
             }
-        );
+        };
     }
 
     impl<'d, 'a> de::Deserializer<'d> for &'a mut IPCDeserializer<'d> {
@@ -560,10 +564,6 @@ mod de {
         }
 
         fn deserialize_any<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
-            Err(Error::Unimplemented)
-        }
-
-        fn deserialize_bool<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
             Err(Error::Unimplemented)
         }
 
@@ -602,12 +602,20 @@ mod de {
             visitor.visit_i8(self.input.pop_front_byte()? as i8)
         }
 
+        fn deserialize_bool<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            visitor.visit_bool(match self.input.pop_front_byte()? {
+                0 => false,
+                1 => true,
+                _ => return Err(Error::InvalidValue),
+            })
+        }
+
         fn deserialize_identifier<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
             Err(Error::Unimplemented)
         }
 
-        fn deserialize_unit<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
-            Err(Error::Unimplemented)
+        fn deserialize_unit<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            visitor.visit_unit()
         }
 
         fn deserialize_ignored_any<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
@@ -634,7 +642,11 @@ mod de {
             Err(Error::Unimplemented)
         }
 
-        fn deserialize_tuple<V: de::Visitor<'d>>(self, _len: usize, _visitor: V) -> Result<V::Value> {
+        fn deserialize_tuple<V: de::Visitor<'d>>(
+            self,
+            _len: usize,
+            _visitor: V,
+        ) -> Result<V::Value> {
             Err(Error::Unimplemented)
         }
 
@@ -676,9 +688,9 @@ mod de {
         fn deserialize_unit_struct<V: de::Visitor<'d>>(
             self,
             _name: &'static str,
-            _visitor: V,
+            visitor: V,
         ) -> Result<V::Value> {
-            Err(Error::Unimplemented)
+            visitor.visit_unit()
         }
     }
 }
@@ -754,28 +766,30 @@ mod test {
     fn no_char() {
         let mut buf = IPCBuffer::new();
         assert_eq!(buf.push_back(&'ก'), Err(Error::Unimplemented));
+        assert!(buf.is_empty());
     }
 
     #[test]
     fn no_str() {
         let mut buf = IPCBuffer::new();
         assert_eq!(buf.push_back(&"yo"), Err(Error::Unimplemented));
+        assert!(buf.is_empty());
     }
 
     #[test]
     fn fixed_len_bytes() {
         let mut buf = IPCBuffer::new();
-        let msg = (true, b"blah");
+        type T = (bool, [u8; 5], u32);
+        let msg = (true, *b"blahh", 0x15161718);
         buf.push_back(&msg).unwrap();
         assert_eq!(
             buf.as_slice(),
             IPCSlice {
-                bytes: &[1, 98, 108, 97, 104],
+                bytes: &[1, 98, 108, 97, 104, 104, 0x18, 0x17, 0x16, 0x15],
                 files: &[],
             }
         );
-        let result = buf.pop_front::<(bool, [u8; 4])>().unwrap();
-        assert_eq!(&result.1, msg.1);
+        assert_eq!(buf.pop_front::<T>().unwrap(), msg);
         assert!(buf.is_empty());
     }
 
@@ -857,6 +871,27 @@ mod test {
             }
         );
         assert_eq!(buf.pop_front::<T>().unwrap(), msg);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn bool() {
+        let mut buf = IPCBuffer::new();
+        buf.push_back(&true);
+        assert_eq!(buf.as_slice().bytes, &[1]);
+        assert_eq!(buf.pop_front::<bool>(), Ok(true));
+        assert!(buf.is_empty());
+        buf.push_back(&false);
+        assert_eq!(buf.as_slice().bytes, &[0]);
+        assert_eq!(buf.pop_front::<bool>(), Ok(false));
+        assert!(buf.is_empty());
+        buf.push_back_byte(1);
+        buf.push_back_byte(0);
+        assert_eq!(buf.pop_front::<bool>(), Ok(true));
+        assert_eq!(buf.pop_front::<bool>(), Ok(false));
+        assert!(buf.is_empty());
+        buf.push_back_byte(2);
+        assert_eq!(buf.pop_front::<bool>(), Err(Error::InvalidValue));
         assert!(buf.is_empty());
     }
 
