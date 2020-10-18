@@ -192,12 +192,11 @@ mod ser {
 
     macro_rules! forward {
         () => {};
-        ( @result ) => { core::result::Result<Self::Ok, Self::Error> };
         ( @collect $fn:ident, $generics:tt, $args:tt ) => {
             forward!{ @expand $fn, $generics, $args, $args }
         };
         ( @expand $fn:ident, ($($g:tt)*), ($($p1:ident : $t1:ty),*), ($($p2:ident : $t2:ty),*) ) => {
-            fn $fn $($g)* (self, $($p1 : $t1),*) -> forward!{@result} {
+            fn $fn $($g)* (self, $($p1 : $t1),*) -> Result<Self::Ok, Self::Error> {
                 (&mut self.inner).$fn($($p1),*)
             }
         };
@@ -271,17 +270,17 @@ mod ser {
         forward! {
             fn collect_str<T: ?Sized + Display>(self, v: &T);
             fn serialize_bool(self, v: bool);
-            fn serialize_i8(self, v: i8);
-            fn serialize_u8(self, v: u8);
-            fn serialize_i16(self, v: i16);
-            fn serialize_u16(self, v: u16);
-            fn serialize_i32(self, v: i32);
             fn serialize_f32(self, v: f32);
-            fn serialize_i64(self, v: i64);
             fn serialize_f64(self, v: f64);
-            fn serialize_u64(self, v: u64);
+            fn serialize_i16(self, v: i16);
+            fn serialize_i32(self, v: i32);
+            fn serialize_i64(self, v: i64);
+            fn serialize_i8(self, v: i8);
             fn serialize_none(self);
             fn serialize_some<T: ?Sized + Serialize>(self, v: &T);
+            fn serialize_u16(self, v: u16);
+            fn serialize_u64(self, v: u64);
+            fn serialize_u8(self, v: u8);
             fn serialize_unit(self);
             fn serialize_unit_struct(self, name: &'static str);
             fn serialize_unit_variant(self, name: &'static str, varidx: u32, var: &'static str);
@@ -501,24 +500,84 @@ mod de {
     use postcard::Error;
     use serde::de::*;
 
-    pub fn deserialize<'a, T>(buffer: IPCSlice<'a>) -> Result<(T, IPCSlice<'a>), Error>
+    pub fn deserialize<'a, T>(input: IPCSlice<'a>) -> Result<(T, IPCSlice<'a>), Error>
     where
         T: Deserialize<'a>,
     {
-        println!(
-            "deserialize {} bytes and {} files",
-            buffer.bytes.len(),
-            buffer.files.len()
-        );
-        let (message, bytes) = postcard::take_from_bytes(buffer.bytes)?;
-        let files = buffer.files;
-        Ok((message, IPCSlice { bytes, files }))
+        let mut deserializer = IPCDeserializer { input };
+        let value = T::deserialize(&mut deserializer)?;
+        Ok((value, deserializer.input))
+    }
+
+    macro_rules! forward {
+        () => {};
+        ( @collect $fn:ident, $generics:tt, $args:tt ) => {
+            forward!{ @expand $fn, $generics, $args, $args }
+        };
+        ( @expand $fn:ident, ($($g:tt)*), ($($p1:ident : $t1:ty),*), ($($p2:ident : $t2:ty),*) ) => {
+            fn $fn $($g)* (self, $($p1 : $t1),*) -> Result<V::Value, Error> {
+                // Pass-through call to the postcard deserializer
+                let mut de = postcard::Deserializer::from_bytes(self.input.bytes);
+                (&mut de).$fn( $($p2),* )
+
+                // I'd really like to get self.input.bytes right back out and look at the size,
+                // but there's no way to do that: https://github.com/jamesmunns/postcard/issues/28
+            }
+        };
+        ( fn $fn:ident <V: Visitor<'d>> (self, $($par:ident : $t:ty),* ); $($tail:tt)* ) => {
+            forward!{ @collect $fn, (<V: Visitor<'d>>), ( $( $par : $t ),* )}
+            forward!{ $($tail)* }
+        };
+    }
+
+    struct IPCDeserializer<'d> {
+        input: IPCSlice<'d>,
     }
 
     impl<'d> Deserialize<'d> for SysFd {
         fn deserialize<D: Deserializer<'d>>(deserializer: D) -> Result<Self, D::Error> {
             println!("would deserialize a file here");
             Ok(SysFd(999))
+        }
+    }
+
+    impl<'d, 'a> Deserializer<'d> for &'a mut IPCDeserializer<'d> {
+        type Error = Error;
+
+        fn is_human_readable(&self) -> bool {
+            false
+        }
+
+        forward! {
+            fn deserialize_any<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_bool<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_byte_buf<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_bytes<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_char<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_enum<V: Visitor<'d>>(self, name: &'static str, variants: &'static [ &'static str ], visitor:V);
+            fn deserialize_f32<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_f64<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_i16<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_i32<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_i64<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_i8<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_identifier<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_ignored_any<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_map<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_newtype_struct<V: Visitor<'d>>(self, name: &'static str, visitor:V);
+            fn deserialize_option<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_seq<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_str<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_string<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_struct<V: Visitor<'d>>(self, name: &'static str, fields: &'static [ &'static str ], visitor:V);
+            fn deserialize_tuple<V: Visitor<'d>>(self, len: usize, visitor:V);
+            fn deserialize_tuple_struct<V: Visitor<'d>>(self, name: &'static str, len: usize, visitor:V);
+            fn deserialize_u16<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_u32<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_u64<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_u8<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_unit<V: Visitor<'d>>(self, visitor: V);
+            fn deserialize_unit_struct<V: Visitor<'d>>(self, name: &'static str, visitor:V);
         }
     }
 }
