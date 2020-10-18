@@ -80,6 +80,7 @@ pub mod buffer {
     pub type Bytes = Vec<u8, BytesMax>;
     pub type Files = Vec<SysFd, FilesMax>;
 
+    #[derive(Default)]
     pub struct IPCBuffer {
         bytes: Bytes,
         files: Files,
@@ -87,11 +88,13 @@ pub mod buffer {
         file_offset: usize,
     }
 
+    #[derive(Debug, Eq, PartialEq)]
     pub struct IPCSlice<'a> {
         pub bytes: &'a [u8],
         pub files: &'a [SysFd],
     }
 
+    #[derive(Debug, Eq, PartialEq)]
     pub struct IPCSliceMut<'a> {
         pub bytes: &'a mut [u8],
         pub files: &'a mut [SysFd],
@@ -99,12 +102,7 @@ pub mod buffer {
 
     impl<'a> IPCBuffer {
         pub fn new() -> Self {
-            IPCBuffer {
-                bytes: Vec::new(),
-                files: Vec::new(),
-                byte_offset: 0,
-                file_offset: 0,
-            }
+            Default::default()
         }
 
         pub fn reset(&mut self) {
@@ -178,15 +176,20 @@ pub mod buffer {
     }
 }
 
-mod serde_marker {
-    pub const SYSFD: &str = "_@SysFd";
-    pub fn is_sysfd(s: &str) -> bool {
-        s == SYSFD
-    }
-}
+mod ser {
+    use super::{buffer::IPCBuffer, SysFd};
+    use core::fmt::Display;
+    use postcard::{flavors::SerFlavor, Error};
+    use serde::ser::*;
 
-#[macro_use]
-mod serde_macro {
+    pub fn serialize<T: Serialize>(output: &mut IPCBuffer, message: &T) -> Result<(), Error> {
+        let mut serializer = IPCSerializer {
+            in_sysfd_tuple_struct: false,
+            inner: postcard::Serializer { output },
+        };
+        message.serialize(&mut serializer)
+    }
+
     macro_rules! forward {
         () => {};
         ( @result ) => { core::result::Result<Self::Ok, Self::Error> };
@@ -211,23 +214,10 @@ mod serde_macro {
             forward!{ $($tail)* }
         };
     }
-}
-
-mod ser {
-    use super::{buffer::IPCBuffer, serde_marker, SysFd};
-    use core::fmt::Display;
-    use postcard::{flavors::SerFlavor, Error};
-    use serde::ser::*;
-
-    pub fn serialize<T: Serialize>(output: &mut IPCBuffer, message: &T) -> Result<(), Error> {
-        let mut serializer = IPCSerializer {
-            in_sysfd_tuple_struct: false,
-            inner: postcard::Serializer { output },
-        };
-        message.serialize(&mut serializer)
-    }
 
     type Inner<'a> = postcard::Serializer<&'a mut IPCBuffer>;
+
+    const SYSFD_MARKER: &str = "_@SysFd";
 
     struct IPCSerializer<'a> {
         in_sysfd_tuple_struct: bool,
@@ -252,7 +242,7 @@ mod ser {
 
     impl Serialize for SysFd {
         fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            let mut tuple = serializer.serialize_tuple_struct(serde_marker::SYSFD, 1)?;
+            let mut tuple = serializer.serialize_tuple_struct(SYSFD_MARKER, 1)?;
             tuple.serialize_field(&self.0)?;
             tuple.end()
         }
@@ -260,7 +250,10 @@ mod ser {
 
     impl<'a> IPCSerializer<'a> {
         fn serialize_sysfd(&mut self, value: SysFd) -> Result<(), Error> {
-            self.inner.output.push_back_file(value).map_err(|_| Error::SerializeBufferFull)
+            self.inner
+                .output
+                .push_back_file(value)
+                .map_err(|_| Error::SerializeBufferFull)
         }
     }
 
@@ -287,9 +280,6 @@ mod ser {
             fn serialize_i64(self, v: i64);
             fn serialize_f64(self, v: f64);
             fn serialize_u64(self, v: u64);
-            fn serialize_char(self, v: char);
-            fn serialize_str(self, v: &str);
-            fn serialize_bytes(self, v: &[u8]);
             fn serialize_none(self);
             fn serialize_some<T: ?Sized + Serialize>(self, v: &T);
             fn serialize_unit(self);
@@ -301,6 +291,18 @@ mod ser {
             false
         }
 
+        fn serialize_char(self, _v: char) -> Result<(), Error> {
+            Err(Error::WontImplement)
+        }
+
+        fn serialize_str(self, _v: &str) -> Result<(), Error> {
+            Err(Error::WontImplement)
+        }
+
+        fn serialize_bytes(self, _v: &[u8]) -> Result<(), Error> {
+            Err(Error::WontImplement)
+        }
+
         fn serialize_u32(mut self, v: u32) -> Result<(), Error> {
             if self.in_sysfd_tuple_struct {
                 (&mut self).serialize_sysfd(SysFd(v))
@@ -310,7 +312,7 @@ mod ser {
         }
 
         fn serialize_tuple_struct(self, name: &'static str, len: usize) -> Result<Self, Error> {
-            if serde_marker::is_sysfd(name) {
+            if name == SYSFD_MARKER {
                 assert_eq!(self.in_sysfd_tuple_struct, false);
                 self.in_sysfd_tuple_struct = true;
             }
@@ -495,8 +497,7 @@ mod ser {
 }
 
 mod de {
-    use super::{buffer::IPCSlice, serde_marker, SysFd};
-    use core::fmt::{self, Formatter};
+    use super::{buffer::IPCSlice, SysFd};
     use postcard::Error;
     use serde::de::*;
 
@@ -504,24 +505,218 @@ mod de {
     where
         T: Deserialize<'a>,
     {
-        println!("deserialize {} bytes and {} files", buffer.bytes.len(), buffer.files.len());
+        println!(
+            "deserialize {} bytes and {} files",
+            buffer.bytes.len(),
+            buffer.files.len()
+        );
         let (message, bytes) = postcard::take_from_bytes(buffer.bytes)?;
         let files = buffer.files;
         Ok((message, IPCSlice { bytes, files }))
     }
 
-    struct SysFdVisitor;
-
-    impl<'d> Visitor<'d> for SysFdVisitor {
-        type Value = SysFd;
-        fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
-            write!(formatter, "a `SysFd`")
-        }
-    }
-
     impl<'d> Deserialize<'d> for SysFd {
         fn deserialize<D: Deserializer<'d>>(deserializer: D) -> Result<Self, D::Error> {
-            deserializer.deserialize_tuple_struct(serde_marker::SYSFD, 1, SysFdVisitor)
+            println!("would deserialize a file here");
+            Ok(SysFd(999))
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{
+        buffer::{IPCBuffer, IPCSlice},
+        *,
+    };
+    use postcard::Error;
+
+    #[test]
+    fn u32() {
+        let mut buf = IPCBuffer::new();
+        buf.push_back(&0x12345678u32).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[0x78, 0x56, 0x34, 0x12],
+                files: &[],
+            }
+        );
+        assert_eq!(buf.pop_front::<u32>().unwrap(), 0x12345678);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn u8() {
+        let mut buf = IPCBuffer::new();
+        buf.push_back(&0x42u8).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[0x42],
+                files: &[],
+            }
+        );
+        assert_eq!(buf.pop_front::<u8>().unwrap(), 0x42);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn u64() {
+        let mut buf = IPCBuffer::new();
+        buf.push_back(&0x12345678abcdabbau64).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[0xba, 0xab, 0xcd, 0xab, 0x78, 0x56, 0x34, 0x12],
+                files: &[],
+            }
+        );
+        assert_eq!(buf.pop_front::<u64>().unwrap(), 0x12345678abcdabbau64);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn i32() {
+        let mut buf = IPCBuffer::new();
+        buf.push_back(&-1i32).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[0xff, 0xff, 0xff, 0xff],
+                files: &[],
+            }
+        );
+        assert_eq!(buf.pop_front::<i32>().unwrap(), -1);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn no_char() {
+        let mut buf = IPCBuffer::new();
+        assert_eq!(buf.push_back(&'ก'), Err(Error::WontImplement));
+    }
+
+    #[test]
+    fn no_str() {
+        let mut buf = IPCBuffer::new();
+        assert_eq!(buf.push_back(&"yo"), Err(Error::WontImplement));
+    }
+
+    #[test]
+    fn fixed_len_bytes() {
+        let mut buf = IPCBuffer::new();
+        let msg = (true, b"blah");
+        buf.push_back(&msg).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[1, 98, 108, 97, 104],
+                files: &[],
+            }
+        );
+        let result = buf.pop_front::<(bool, [u8; 4])>().unwrap();
+        assert_eq!(&result.1, msg.1);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn vptr() {
+        let mut buf = IPCBuffer::new();
+        buf.push_back(&VPtr(0x1122334455667788)).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
+                files: &[],
+            }
+        );
+        assert_eq!(buf.pop_front::<VPtr>().unwrap(), VPtr(0x1122334455667788));
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn sysfd() {
+        let mut buf = IPCBuffer::new();
+        buf.push_back(&SysFd(0x87654321)).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[],
+                files: &[SysFd(0x87654321)],
+            }
+        );
+        assert_eq!(buf.pop_front::<SysFd>().unwrap(), SysFd(0x87654321));
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn sysfd_multi() {
+        let mut buf = IPCBuffer::new();
+        type T = [SysFd; 4];
+        let msg: T = [SysFd(5), SysFd(6), SysFd(7), SysFd(8)];
+        buf.push_back(&msg).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[],
+                files: &msg,
+            }
+        );
+        assert_eq!(buf.pop_front::<T>().unwrap(), msg);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn sysfd_result_ok() {
+        let mut buf = IPCBuffer::new();
+        type T = Result<SysFd, Errno>;
+        let msg: T = Ok(SysFd(0x12341122));
+        buf.push_back(&msg).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[0],
+                files: &[SysFd(0x12341122)],
+            }
+        );
+        assert_eq!(buf.pop_front::<T>().unwrap(), msg);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn sysfd_result_err() {
+        let mut buf = IPCBuffer::new();
+        type T = Result<SysFd, Errno>;
+        let msg: T = Err(Errno(-1));
+        buf.push_back(&msg).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[1, 0xff, 0xff, 0xff, 0xff],
+                files: &[],
+            }
+        );
+        assert_eq!(buf.pop_front::<T>().unwrap(), msg);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn tuple() {
+        let mut buf = IPCBuffer::new();
+        let msg = (true, false, false, 0xabcdu16, 999.0f64);
+        buf.push_back(&msg).unwrap();
+        assert_eq!(
+            buf.as_slice(),
+            IPCSlice {
+                bytes: &[1, 0, 0, 205, 171, 0, 0, 0, 0, 0, 56, 143, 64],
+                files: &[],
+            }
+        );
+        assert_eq!(
+            buf.pop_front::<(bool, bool, bool, u16, f64)>().unwrap(),
+            msg
+        );
+        assert!(buf.is_empty());
     }
 }
