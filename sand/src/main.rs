@@ -54,11 +54,11 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
         }
 
         RunMode::Loader => {
+            // Running inside the tracer; load a more restrictive seccomp policy, then
+            // issue a special form of 'exec' that the tracer accepts only once. This
+            // becomes the first in-container process via the emulated ELF loader.
             seccomp::policy_for_loader();
-            println!("loader says hey, argc={}", argv.len());
-            let argv = [b"sh\0".as_ptr(), null()];
-            let envp: [*const u8; 1] = [null()];
-            unsafe { syscall!(EXECVE, b"/bin/sh\0".as_ptr(), argv.as_ptr(), envp.as_ptr()) };
+            unsafe { syscall!(EXECVE, 0, 0, 0) };
         }
     }
 }

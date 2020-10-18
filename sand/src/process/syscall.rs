@@ -98,6 +98,11 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
                 self.return_sysfd_result(result).await
             }
 
+            nr::EXECVE => {
+                println!("made it to exec!");
+                self.return_result(Err(Errno(-1))).await
+            }
+
             _ => panic!("unexpected syscall trace, {:x?}", self),
         }
     }
