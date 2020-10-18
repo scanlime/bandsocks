@@ -64,17 +64,18 @@ fn main(argv: &[*const u8], envp: &[*const u8]) {
 }
 
 fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> RunMode {
-    // All modes require the sealed exe and an argv[0]
-    let required_tests = check_sealed_exe_environment().is_ok();
     let argv0 = unsafe { nolibc::c_str_slice(*argv.first().unwrap()) };
-
-    if required_tests && argv0 == STAGE_1_TRACER && argv.len() == 1 && envp.len() == 1 {
-        // Stage 1: no other args, a single 'FD' environment variable
+    if argv0 == STAGE_1_TRACER
+        && argv.len() == 1
+        && envp.len() == 1
+        && check_sealed_exe_environment().is_ok()
+    {
+        // Stage 1: no other args, a single 'FD' env var, sealed exe
         match parse_envp_as_fd(envp) {
             Some(fd) => RunMode::Tracer(fd),
             None => RunMode::Unknown,
         }
-    } else if required_tests && argv0 == STAGE_2_LOADER && argv.len() == 1 && envp.len() == 0 {
+    } else if argv0 == STAGE_2_LOADER && argv.len() == 1 && envp.is_empty() {
         // Stage 2: no other args, empty environment
         RunMode::Loader
     } else {
