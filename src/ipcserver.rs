@@ -98,39 +98,44 @@ impl IPCServer {
                     Err(IPCError::WrongProcessState)?;
                 } else {
                     let process = Process::open(*sys_pid, &self.tracer)?;
+                    let handle = process.to_handle();
                     assert!(self.process_table.insert(message.task, process).is_none());
-                    self.reply(&message, ToSand::OpenProcessReply).await?;
+                    self.reply(&message, ToSand::OpenProcessReply(handle))
+                        .await?;
                 }
             }
 
-            FromSand::SysAccess(access) => match self.process_table.get_mut(&message.task) {
+            FromSand::FileAccess(access) => match self.process_table.get_mut(&message.task) {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(mut process) => {
                     let path = process.read_string(access.path)?;
                     log::info!("{:x?} sys_access({:?})", message.task, path);
-                    self.reply(&message, ToSand::SysAccessReply(Err(Errno(-libc::ENOENT))))
+                    self.reply(&message, ToSand::FileAccessReply(Err(Errno(-libc::ENOENT))))
                         .await?;
                 }
             },
 
-            FromSand::SysOpen(access, flags) => match self.process_table.get_mut(&message.task) {
+            FromSand::FileOpen { file, flags } => match self.process_table.get_mut(&message.task) {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(mut process) => {
-                    let path = process.read_string(access.path)?;
+                    let path = process.read_string(file.path)?;
                     log::info!("{:x?} sys_open({:?})", message.task, path);
-                    let file = std::fs::File::open("/dev/null")?;
-                    let fd = SysFd(file.as_raw_fd() as u32);
-                    self.reply(&message, ToSand::SysOpenReply(Ok(fd))).await?;
-                    drop(file);
+                    let backing_file = std::fs::File::open("/dev/null")?;
+                    let fd = SysFd(backing_file.as_raw_fd() as u32);
+                    self.reply(&message, ToSand::FileOpenReply(Ok(fd))).await?;
+                    drop(backing_file);
                 }
             },
 
-            FromSand::SysKill(_vpid, _signal) => match self.process_table.get_mut(&message.task) {
-                None => Err(IPCError::WrongProcessState)?,
-                Some(mut process) => {
-                    self.reply(&message, ToSand::SysKillReply(Ok(()))).await?;
+            FromSand::ProcessKill(_vpid, _signal) => {
+                match self.process_table.get_mut(&message.task) {
+                    None => Err(IPCError::WrongProcessState)?,
+                    Some(mut process) => {
+                        self.reply(&message, ToSand::ProcessKillReply(Ok(())))
+                            .await?;
+                    }
                 }
-            },
+            }
         }
 
         Ok(())

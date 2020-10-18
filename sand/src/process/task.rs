@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
-    protocol::{FromSand, SysPid, ToSand, VPid},
+    protocol::{FromSand, ProcessHandle, SysPid, ToSand, VPid},
     ptrace,
 };
 use core::fmt::{self, Debug, Formatter};
@@ -58,12 +58,14 @@ impl<'q> Task<'q> {
             }
         );
 
-        ipc_call!(
+        let process_handle = ipc_call!(
             self,
             FromSand::OpenProcess(self.task_data.sys_pid),
-            ToSand::OpenProcessReply,
-            ()
+            ToSand::OpenProcessReply(handle),
+            handle
         );
+
+        println!("process handle: {:?}", process_handle);
 
         self.cont();
         loop {

@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::task::Task,
-    protocol::{Errno, FromSand, SysAccess, SysFd, ToSand, VPtr, VString},
+    protocol::{Errno, FileAccess, FromSand, SysFd, ToSand, VPtr, VString},
 };
 use sc::nr;
 
@@ -53,12 +53,12 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
             nr::ACCESS => {
                 let result = ipc_call!(
                     self.task,
-                    FromSand::SysAccess(SysAccess {
+                    FromSand::FileAccess(FileAccess {
                         dir: None,
                         path: arg_string(0),
                         mode: arg_i32(1),
                     }),
-                    ToSand::SysAccessReply(result),
+                    ToSand::FileAccessReply(result),
                     result
                 );
                 self.return_result(result).await
@@ -67,15 +67,15 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
             nr::OPEN => {
                 let result = ipc_call!(
                     self.task,
-                    FromSand::SysOpen(
-                        SysAccess {
+                    FromSand::FileOpen {
+                        file: FileAccess {
                             dir: None,
                             path: arg_string(0),
                             mode: arg_i32(2),
                         },
-                        arg_i32(1),
-                    ),
-                    ToSand::SysOpenReply(result),
+                        flags: arg_i32(1),
+                    },
+                    ToSand::FileOpenReply(result),
                     result
                 );
                 self.return_sysfd_result(result).await
@@ -84,15 +84,15 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
                 let result = ipc_call!(
                     self.task,
-                    FromSand::SysOpen(
-                        SysAccess {
+                    FromSand::FileOpen {
+                        file: FileAccess {
                             dir: None,
                             path: arg_string(1),
                             mode: arg_i32(3),
                         },
-                        arg_i32(2)
-                    ),
-                    ToSand::SysOpenReply(result),
+                        flags: arg_i32(2)
+                    },
+                    ToSand::FileOpenReply(result),
                     result
                 );
                 self.return_sysfd_result(result).await

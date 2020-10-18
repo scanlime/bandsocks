@@ -1,13 +1,13 @@
 use crate::{
     errors::IPCError,
-    sand::protocol::{SysPid, VPtr, VString},
+    sand::protocol::{ProcessHandle, SysFd, SysPid, VPtr, VString},
 };
 use regex::Regex;
 use std::{
     ffi::{OsStr, OsString},
     fs::{File, OpenOptions},
     io::Read,
-    os::unix::{ffi::OsStrExt, fs::FileExt},
+    os::unix::{ffi::OsStrExt, fs::FileExt, io::AsRawFd},
     process::Child,
 };
 
@@ -42,6 +42,12 @@ impl Process {
         let mem_file = open_mem_file(sys_pid)?;
         check_can_open(sys_pid, tracer)?;
         Ok(Process { sys_pid, mem_file })
+    }
+
+    pub fn to_handle(&self) -> ProcessHandle {
+        ProcessHandle {
+            mem: SysFd(self.mem_file.as_raw_fd() as u32),
+        }
     }
 
     pub fn read_bytes(&self, vptr: VPtr, buf: &mut [u8]) -> Result<(), IPCError> {

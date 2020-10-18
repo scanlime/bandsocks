@@ -3,44 +3,52 @@
 // This depends on only: core, serde, heapless
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-#[repr(C)]
 pub struct MessageToSand {
     pub task: VPid,
     pub op: ToSand,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-#[repr(C)]
 pub struct MessageFromSand {
     pub task: VPid,
     pub op: FromSand,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-#[repr(C)]
 pub enum ToSand {
-    OpenProcessReply,
-    SysOpenReply(Result<SysFd, Errno>),
-    SysAccessReply(Result<(), Errno>),
-    SysKillReply(Result<(), Errno>),
+    OpenProcessReply(ProcessHandle),
+    FileOpenReply(Result<SysFd, Errno>),
+    FileAccessReply(Result<(), Errno>),
+    ProcessKillReply(Result<(), Errno>),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-#[repr(C)]
 pub enum FromSand {
     OpenProcess(SysPid),
-    SysAccess(SysAccess),
-    SysOpen(SysAccess, i32),
-    SysKill(VPid, Signal),
+    FileAccess(FileAccess),
+    FileOpen { file: FileAccess, flags: i32 },
+    ProcessKill(VPid, Signal),
 }
+
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+pub struct FileAccess {
+    pub dir: Option<SysFd>,
+    pub path: VString,
+    pub mode: i32,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+pub struct ProcessHandle {
+    pub mem: SysFd,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[repr(C)]
+pub struct SysFd(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Hash32, Serialize, Deserialize)]
 #[repr(C)]
 pub struct SysPid(pub u32);
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Hash32, Serialize, Deserialize)]
-#[repr(C)]
-pub struct VPid(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
@@ -48,25 +56,16 @@ pub struct Signal(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
+pub struct Errno(pub i32);
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Hash32, Serialize, Deserialize)]
+pub struct VPid(pub u32);
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub struct VPtr(pub usize);
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-#[repr(C)]
 pub struct VString(pub VPtr);
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-#[repr(C)]
-pub struct Errno(pub i32);
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct SysFd(pub u32);
-
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-#[repr(C)]
-pub struct SysAccess {
-    pub dir: Option<SysFd>,
-    pub path: VString,
-    pub mode: i32,
-}
 
 pub mod buffer {
     use super::{de, ser, SysFd};
@@ -885,19 +884,19 @@ mod test {
     fn messages() {
         let msg1 = MessageToSand {
             task: VPid(12345),
-            op: ToSand::SysOpenReply(Ok(SysFd(5))),
+            op: ToSand::FileOpenReply(Ok(SysFd(5))),
         };
         let msg2 = MessageToSand {
             task: VPid(39503),
-            op: ToSand::SysOpenReply(Err(Errno(2333))),
+            op: ToSand::FileOpenReply(Err(Errno(2333))),
         };
         let msg3 = MessageToSand {
             task: VPid(29862),
-            op: ToSand::SysOpenReply(Ok(SysFd(99999))),
+            op: ToSand::FileOpenReply(Ok(SysFd(99999))),
         };
         let msg4 = MessageToSand {
             task: VPid(125),
-            op: ToSand::SysOpenReply(Ok(SysFd(200))),
+            op: ToSand::FileOpenReply(Ok(SysFd(200))),
         };
         let mut buf = buffer::IPCBuffer::new();
         buf.push_back(&msg1).unwrap();
@@ -1009,14 +1008,14 @@ mod test {
         sys_open_1,
         MessageFromSand {
             task: VPid(0x12349955),
-            op: FromSand::SysOpen(
-                SysAccess {
+            op: FromSand::FileOpen {
+                file: FileAccess {
                     dir: None,
                     path: VString(VPtr(0x5544332211009933)),
                     mode: 0x55667788,
                 },
-                0x34562222
-            )
+                flags: 0x34562222
+            }
         },
         MessageFromSand,
         [
@@ -1029,14 +1028,14 @@ mod test {
         sys_open_2,
         MessageFromSand {
             task: VPid(0x22222222),
-            op: FromSand::SysOpen(
-                SysAccess {
+            op: FromSand::FileOpen {
+                file: FileAccess {
                     dir: Some(SysFd(0x11111111)),
                     path: VString(VPtr(0x3333333333333333)),
                     mode: 0x44444444,
                 },
-                0x55555555
-            )
+                flags: 0x55555555
+            }
         },
         MessageFromSand,
         [
@@ -1049,7 +1048,7 @@ mod test {
         sys_open_reply_1,
         MessageToSand {
             task: VPid(0x54555657),
-            op: ToSand::SysOpenReply(Ok(SysFd(42))),
+            op: ToSand::FileOpenReply(Ok(SysFd(42))),
         },
         MessageToSand,
         [0x57, 0x56, 0x55, 0x54, 0x01, 0x00],
@@ -1059,7 +1058,7 @@ mod test {
         sys_open_reply_2,
         MessageToSand {
             task: VPid(0x11223344),
-            op: ToSand::SysOpenReply(Err(Errno(-10)))
+            op: ToSand::FileOpenReply(Err(Errno(-10)))
         },
         MessageToSand,
         [0x44, 0x33, 0x22, 0x11, 0x01, 0x01, 0xf6, 0xff, 0xff, 0xff],
