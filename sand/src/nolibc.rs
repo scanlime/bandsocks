@@ -1,10 +1,5 @@
 use crate::{abi, protocol::SysFd};
-use core::{
-    fmt,
-    panic::PanicInfo,
-    ptr::null,
-    slice, str,
-};
+use core::{fmt, panic::PanicInfo, ptr::null, slice, str};
 use sc::syscall;
 
 #[macro_export]

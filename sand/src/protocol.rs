@@ -694,7 +694,7 @@ mod de {
 mod test {
     use super::{
         buffer::{Error, IPCBuffer, IPCSlice},
-        Errno, VPtr, SysFd,
+        Errno, SysFd, VPtr,
     };
 
     #[test]
