@@ -518,7 +518,10 @@ mod de {
             fn $fn $($g)* (self, $($p1 : $t1),*) -> Result<V::Value, Error> {
                 // Pass-through call to the postcard deserializer
                 let mut de = postcard::Deserializer::from_bytes(self.input.bytes);
-                (&mut de).$fn( $($p2),* )
+                println!("pre {}", stringify!($fn));
+                let result = (&mut de).$fn( $($p2),* );
+                println!("post {}", stringify!($fn));
+                result
 
                 // I'd really like to get self.input.bytes right back out and look at the size,
                 // but there's no way to do that: https://github.com/jamesmunns/postcard/issues/28
