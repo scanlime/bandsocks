@@ -573,7 +573,7 @@ mod de {
         SysFd,
     };
     use core::{fmt, fmt::Display, result};
-    use serde::de;
+    use serde::{de, de::IntoDeserializer};
 
     const SYSFD: &str = "SysFd@de";
 
@@ -780,9 +780,9 @@ mod de {
             self,
             _name: &'static str,
             _variants: &'static [&'static str],
-            _visitor: V,
+            visitor: V,
         ) -> Result<V::Value> {
-            Err(Error::Unimplemented)
+            visitor.visit_enum(self)
         }
 
         fn deserialize_newtype_struct<V: de::Visitor<'d>>(
@@ -796,10 +796,46 @@ mod de {
         fn deserialize_struct<V: de::Visitor<'d>>(
             self,
             _name: &'static str,
-            _fields: &'static [&'static str],
-            _visitor: V,
+            fields: &'static [&'static str],
+            visitor: V,
         ) -> Result<V::Value> {
-            Err(Error::Unimplemented)
+            self.deserialize_tuple(fields.len(), visitor)
+        }
+    }
+
+    impl<'d, 'a> de::VariantAccess<'d> for &'a mut IPCDeserializer<'d> {
+        type Error = Error;
+
+        fn unit_variant(self) -> Result<()> {
+            Ok(())
+        }
+
+        fn newtype_variant_seed<V: de::DeserializeSeed<'d>>(self, seed: V) -> Result<V::Value> {
+            de::DeserializeSeed::deserialize(seed, self)
+        }
+
+        fn tuple_variant<V: de::Visitor<'d>>(self, len: usize, visitor: V) -> Result<V::Value> {
+            de::Deserializer::deserialize_tuple(self, len, visitor)
+        }
+
+        fn struct_variant<V: de::Visitor<'d>>(
+            self,
+            fields: &'static [&'static str],
+            visitor: V,
+        ) -> Result<V::Value> {
+            de::Deserializer::deserialize_tuple(self, fields.len(), visitor)
+        }
+    }
+
+    impl<'d, 'a> de::EnumAccess<'d> for &'a mut IPCDeserializer<'d> {
+        type Error = Error;
+        type Variant = Self;
+
+        fn variant_seed<V: de::DeserializeSeed<'d>>(self, seed: V) -> Result<(V::Value, Self)> {
+            let variant_index = self.input.pop_front_byte()?;
+            let variant = (variant_index as u32).into_deserializer();
+            let v = de::DeserializeSeed::deserialize(seed, variant)?;
+            Ok((v, self))
         }
     }
 }
