@@ -236,7 +236,7 @@ mod ser {
     use core::{fmt::Display, result};
     use serde::{ser, ser::SerializeTupleStruct};
 
-    const SYSFD: &str = "fd@ser";
+    const SYSFD: &str = "SysFd@ser";
 
     pub struct IPCSerializer<'a> {
         output: &'a mut IPCBuffer,
@@ -572,8 +572,10 @@ mod de {
         buffer::{Error, IPCBuffer, Result},
         SysFd,
     };
-    use core::{fmt::Display, result};
+    use core::{fmt, fmt::Display, result};
     use serde::de;
+
+    const SYSFD: &str = "SysFd@de";
 
     pub struct IPCDeserializer<'d> {
         input: &'d mut IPCBuffer,
@@ -586,11 +588,23 @@ mod de {
     }
 
     impl<'d> de::Deserialize<'d> for SysFd {
-        fn deserialize<D: de::Deserializer<'d>>(
-            _deserializer: D,
-        ) -> result::Result<Self, D::Error> {
-            println!("would deserialize a file here");
-            Ok(SysFd(999))
+        fn deserialize<D: de::Deserializer<'d>>(deserializer: D) -> result::Result<Self, D::Error> {
+            struct SysFdVisitor;
+            impl<'d> de::Visitor<'d> for SysFdVisitor {
+                type Value = SysFd;
+
+                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                    formatter.write_str("struct SysFd")
+                }
+
+                fn visit_seq<V>(self, _seq: V) -> result::Result<SysFd, V::Error>
+                where
+                    V: de::SeqAccess<'d>,
+                {
+                    Ok(SysFd(1234))
+                }
+            }
+            deserializer.deserialize_tuple_struct(SYSFD, 1, SysFdVisitor)
         }
     }
 
@@ -716,6 +730,15 @@ mod de {
             })
         }
 
+        fn deserialize_tuple_struct<V: de::Visitor<'d>>(
+            self,
+            _name: &'static str,
+            len: usize,
+            visitor: V,
+        ) -> Result<V::Value> {
+            self.deserialize_tuple(len, visitor)
+        }
+
         fn deserialize_enum<V: de::Visitor<'d>>(
             self,
             _name: &'static str,
@@ -728,24 +751,15 @@ mod de {
         fn deserialize_newtype_struct<V: de::Visitor<'d>>(
             self,
             _name: &'static str,
-            _visitor: V,
+            visitor: V,
         ) -> Result<V::Value> {
-            Err(Error::Unimplemented)
+            visitor.visit_newtype_struct(self)
         }
 
         fn deserialize_struct<V: de::Visitor<'d>>(
             self,
             _name: &'static str,
             _fields: &'static [&'static str],
-            _visitor: V,
-        ) -> Result<V::Value> {
-            Err(Error::Unimplemented)
-        }
-
-        fn deserialize_tuple_struct<V: de::Visitor<'d>>(
-            self,
-            _name: &'static str,
-            _len: usize,
             _visitor: V,
         ) -> Result<V::Value> {
             Err(Error::Unimplemented)
@@ -788,177 +802,87 @@ mod test {
         Errno, SysFd, VPtr,
     };
 
-    #[test]
-    fn u32() {
-        let mut buf = IPCBuffer::new();
-        buf.push_back(&0x12345678u32).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[0x78, 0x56, 0x34, 0x12],
-                files: &[],
+    macro_rules! check {
+        ($name:ident, $msg:expr, $t:ty, $bytes:expr, $files:expr) => {
+            #[test]
+            fn $name() {
+                let mut buf = IPCBuffer::new();
+                let msg: $t = $msg;
+                let bytes: &[u8] = &$bytes;
+                let files: &[SysFd] = &$files;
+                buf.push_back(&msg).expect("push_back");
+                assert_eq!(buf.as_slice().bytes, bytes);
+                assert_eq!(buf.as_slice().files, files);
+                assert_eq!(buf.pop_front::<$t>().expect("pop_front"), msg);
+                assert!(buf.is_empty());
             }
-        );
-        assert_eq!(buf.pop_front::<u32>().unwrap(), 0x12345678);
-        assert!(buf.is_empty());
+        };
     }
 
-    #[test]
-    fn u8() {
-        let mut buf = IPCBuffer::new();
-        buf.push_back(&0x42u8).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[0x42],
-                files: &[],
+    macro_rules! nope {
+        ($name: ident, $msg:expr, $t:ty) => {
+            #[test]
+            fn $name() {
+                let mut buf = IPCBuffer::new();
+                let msg: $t = $msg;
+                assert_eq!(buf.push_back(&msg), Err(Error::Unimplemented));
+                assert!(buf.is_empty());
             }
-        );
-        assert_eq!(buf.pop_front::<u8>().unwrap(), 0x42);
-        assert!(buf.is_empty());
+        };
     }
 
-    #[test]
-    fn u64() {
-        let mut buf = IPCBuffer::new();
-        buf.push_back(&0x12345678abcdabbau64).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[0xba, 0xab, 0xcd, 0xab, 0x78, 0x56, 0x34, 0x12],
-                files: &[],
-            }
-        );
-        assert_eq!(buf.pop_front::<u64>().unwrap(), 0x12345678abcdabbau64);
-        assert!(buf.is_empty());
-    }
+    nope!(no_char, 'n', char);
+    nope!(no_str, "blah", &str);
+    nope!(no_f32, 1.0, f32);
+    nope!(no_f64, 1.0, f64);
 
-    #[test]
-    fn i32() {
-        let mut buf = IPCBuffer::new();
-        buf.push_back(&-1i32).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[0xff, 0xff, 0xff, 0xff],
-                files: &[],
-            }
-        );
-        assert_eq!(buf.pop_front::<i32>().unwrap(), -1);
-        assert!(buf.is_empty());
-    }
+    check!(u32_1, 0x12345678, u32, [0x78, 0x56, 0x34, 0x12], []);
+    check!(u32_2, 0x00000000, u32, [0x00, 0x00, 0x00, 0x00], []);
+    check!(u32_3, 0xffffffff, u32, [0xff, 0xff, 0xff, 0xff], []);
+    check!(u8_1, 0x42, u8, [0x42], []);
+    check!(u8_2, 0x00, u8, [0x00], []);
+    check!(u8_3, 0xff, u8, [0xff], []);
+    check!(i32_1, 0x7fffffff, i32, [0xff, 0xff, 0xff, 0x7f], []);
+    check!(i32_2, 0, i32, [0x00, 0x00, 0x00, 0x00], []);
+    check!(i32_3, -1, i32, [0xff, 0xff, 0xff, 0xff], []);
+    check!(i8_1, 50, i8, [50], []);
+    check!(i8_2, 0, i8, [0x00], []);
+    check!(i8_3, -1, i8, [0xff], []);
+    check!(u64_1, 0, u64, [0, 0, 0, 0, 0, 0, 0, 0], []);
+    check!(fd_1, SysFd(0x87654321), SysFd, [], [SysFd(0x87654321)]);
+    check!(fd_2, SysFd(0), SysFd, [], [SysFd(0)]);
+    check!(fd_ok, Ok(SysFd(123)), Result<SysFd, Errno>, [0], [SysFd(123)]);
+    check!(fd_err, Err(Errno(-2)), Result<SysFd, Errno>, [1, 0xfe, 0xff, 0xff, 0xff], []);
 
-    #[test]
-    fn no_char() {
-        let mut buf = IPCBuffer::new();
-        assert_eq!(buf.push_back(&'ก'), Err(Error::Unimplemented));
-        assert!(buf.is_empty());
-    }
+    check!(
+        fd_array,
+        [SysFd(5), SysFd(4), SysFd(3), SysFd(2), SysFd(1)],
+        [SysFd; 5],
+        [],
 
-    #[test]
-    fn no_str() {
-        let mut buf = IPCBuffer::new();
-        assert_eq!(buf.push_back(&"yo"), Err(Error::Unimplemented));
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn fixed_len_bytes() {
-        let mut buf = IPCBuffer::new();
-        type T = (bool, [u8; 5], u32);
-        let msg = (true, *b"blahh", 0x15161718);
-        buf.push_back(&msg).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[1, 98, 108, 97, 104, 104, 0x18, 0x17, 0x16, 0x15],
-                files: &[],
-            }
-        );
-        assert_eq!(buf.pop_front::<T>().unwrap(), msg);
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn vptr() {
-        let mut buf = IPCBuffer::new();
-        buf.push_back(&VPtr(0x1122334455667788)).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
-                files: &[],
-            }
-        );
-        assert_eq!(buf.pop_front::<VPtr>().unwrap(), VPtr(0x1122334455667788));
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn sysfd() {
-        let mut buf = IPCBuffer::new();
-        buf.push_back(&SysFd(0x87654321)).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[],
-                files: &[SysFd(0x87654321)],
-            }
-        );
-        assert_eq!(buf.pop_front::<SysFd>().unwrap(), SysFd(0x87654321));
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn sysfd_multi() {
-        let mut buf = IPCBuffer::new();
-        type T = [SysFd; 4];
-        let msg: T = [SysFd(5), SysFd(6), SysFd(7), SysFd(8)];
-        buf.push_back(&msg).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[],
-                files: &msg,
-            }
-        );
-        assert_eq!(buf.pop_front::<T>().unwrap(), msg);
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn sysfd_result_ok() {
-        let mut buf = IPCBuffer::new();
-        type T = Result<SysFd, Errno>;
-        let msg: T = Ok(SysFd(0x12341122));
-        buf.push_back(&msg).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[0],
-                files: &[SysFd(0x12341122)],
-            }
-        );
-        assert_eq!(buf.pop_front::<T>().unwrap(), msg);
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn sysfd_result_err() {
-        let mut buf = IPCBuffer::new();
-        type T = Result<SysFd, Errno>;
-        let msg: T = Err(Errno(-1));
-        buf.push_back(&msg).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[1, 0xff, 0xff, 0xff, 0xff],
-                files: &[],
-            }
-        );
-        assert_eq!(buf.pop_front::<T>().unwrap(), msg);
-        assert!(buf.is_empty());
-    }
+        [SysFd(5), SysFd(4), SysFd(3), SysFd(2), SysFd(1)]
+    );
+    check!(
+        vptr_1,
+        VPtr(0x1122334455667788),
+        VPtr,
+        [0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11],
+        []
+    );
+    check!(
+        fixed_len_bytes,
+        (true, *b"blahh", 1),
+        (bool, [u8; 5], u32),
+        [1, 98, 108, 97, 104, 104, 1, 0, 0, 0],
+        []
+    );
+    check!(
+        tuple_1,
+        (true, false, false, 0xabcd, 0xaabbccdd00112233),
+        (bool, bool, bool, u16, u64),
+        [1, 0, 0, 0xcd, 0xab, 0x33, 0x22, 0x11, 0x00, 0xdd, 0xcc, 0xbb, 0xaa],
+        []
+    );
 
     #[test]
     fn bool() {
@@ -993,25 +917,6 @@ mod test {
         assert_eq!(buf.pop_front::<Option<u8>>(), Ok(Some(42u8)));
         assert_eq!(buf.pop_front::<Option<u64>>(), Ok(None));
         assert_eq!(buf.pop_front::<Option<()>>(), Ok(None));
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn tuple() {
-        let mut buf = IPCBuffer::new();
-        let msg = (true, false, false, 0xabcdu16, 0xaabbccdd00112233u64);
-        buf.push_back(&msg).unwrap();
-        assert_eq!(
-            buf.as_slice(),
-            IPCSlice {
-                bytes: &[1, 0, 0, 0xcd, 0xab, 0x33, 0x22, 0x11, 0x00, 0xdd, 0xcc, 0xbb, 0xaa],
-                files: &[],
-            }
-        );
-        assert_eq!(
-            buf.pop_front::<(bool, bool, bool, u16, u64)>().unwrap(),
-            msg
-        );
         assert!(buf.is_empty());
     }
 }
