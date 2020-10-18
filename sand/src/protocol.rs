@@ -618,7 +618,23 @@ mod de {
             visitor.visit_unit()
         }
 
+        fn deserialize_unit_struct<V: de::Visitor<'d>>(
+            self,
+            _name: &'static str,
+            visitor: V,
+        ) -> Result<V::Value> {
+            visitor.visit_unit()
+        }
+
         fn deserialize_ignored_any<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_str<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
+            Err(Error::Unimplemented)
+        }
+
+        fn deserialize_string<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
             Err(Error::Unimplemented)
         }
 
@@ -631,14 +647,6 @@ mod de {
         }
 
         fn deserialize_seq<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
-            Err(Error::Unimplemented)
-        }
-
-        fn deserialize_str<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
-            Err(Error::Unimplemented)
-        }
-
-        fn deserialize_string<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
             Err(Error::Unimplemented)
         }
 
@@ -683,14 +691,6 @@ mod de {
             _visitor: V,
         ) -> Result<V::Value> {
             Err(Error::Unimplemented)
-        }
-
-        fn deserialize_unit_struct<V: de::Visitor<'d>>(
-            self,
-            _name: &'static str,
-            visitor: V,
-        ) -> Result<V::Value> {
-            visitor.visit_unit()
         }
     }
 }
