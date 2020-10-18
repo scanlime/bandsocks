@@ -846,7 +846,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn bool() {
+    fn bools() {
         let mut buf = buffer::IPCBuffer::new();
         buf.push_back(&true).unwrap();
         assert_eq!(buf.as_slice().bytes, &[1]);
@@ -867,7 +867,7 @@ mod test {
     }
 
     #[test]
-    fn option() {
+    fn options() {
         let mut buf = buffer::IPCBuffer::new();
         buf.push_back(&Some(false)).unwrap();
         buf.push_back(&Some(42u8)).unwrap();
@@ -878,6 +878,38 @@ mod test {
         assert_eq!(buf.pop_front::<Option<u8>>(), Ok(Some(42u8)));
         assert_eq!(buf.pop_front::<Option<u64>>(), Ok(None));
         assert_eq!(buf.pop_front::<Option<()>>(), Ok(None));
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn messages() {
+        let msg1 = MessageToSand {
+            task: VPid(12345),
+            op: ToSand::SysOpenReply(Ok(SysFd(5))),
+        };
+        let msg2 = MessageToSand {
+            task: VPid(39503),
+            op: ToSand::SysOpenReply(Err(Errno(2333))),
+        };
+        let msg3 = MessageToSand {
+            task: VPid(29862),
+            op: ToSand::SysOpenReply(Ok(SysFd(99999))),
+        };
+        let msg4 = MessageToSand {
+            task: VPid(125),
+            op: ToSand::SysOpenReply(Ok(SysFd(200))),
+        };
+        let mut buf = buffer::IPCBuffer::new();
+        buf.push_back(&msg1).unwrap();
+        buf.push_back(&msg2).unwrap();
+        buf.push_back(&msg3).unwrap();
+        buf.push_back(&msg4).unwrap();
+        assert_eq!(buf.as_slice().bytes.len(), 28);
+        assert_eq!(buf.as_slice().files.len(), 3);
+        assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg1));
+        assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg2));
+        assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg3));
+        assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg4));
         assert!(buf.is_empty());
     }
 
