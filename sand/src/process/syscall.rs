@@ -45,14 +45,18 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
 
     pub async fn dispatch(&mut self) -> isize {
         let args = self.call.args;
+        let arg_i32 = |idx| args[idx] as i32;
+        let arg_ptr = |idx| VPtr(args[idx] as usize);
+        let arg_string = |idx| VString(arg_ptr(idx));
+
         match self.call.nr as usize {
             nr::ACCESS => {
                 let result = ipc_call!(
                     self.task,
                     FromSand::SysAccess(SysAccess {
                         dir: None,
-                        path: VString(VPtr(args[0] as usize)),
-                        mode: args[1] as i32,
+                        path: arg_string(0),
+                        mode: arg_i32(1),
                     }),
                     ToSand::SysAccessReply(result),
                     result
@@ -66,10 +70,10 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
                     FromSand::SysOpen(
                         SysAccess {
                             dir: None,
-                            path: VString(VPtr(args[0] as usize)),
-                            mode: args[2] as i32,
+                            path: arg_string(0),
+                            mode: arg_i32(2),
                         },
-                        args[1] as i32
+                        arg_i32(1),
                     ),
                     ToSand::SysOpenReply(result),
                     result
@@ -77,16 +81,16 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
                 self.return_sysfd_result(result).await
             }
 
-            nr::OPENAT if args[0] as i32 == abi::AT_FDCWD => {
+            nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
                 let result = ipc_call!(
                     self.task,
                     FromSand::SysOpen(
                         SysAccess {
                             dir: None,
-                            path: VString(VPtr(args[1] as usize)),
-                            mode: args[3] as i32,
+                            path: arg_string(1),
+                            mode: arg_i32(3),
                         },
-                        args[2] as i32
+                        arg_i32(2)
                     ),
                     ToSand::SysOpenReply(result),
                     result
