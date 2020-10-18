@@ -247,7 +247,7 @@ mod ser {
         pub fn new(output: &'a mut IPCBuffer) -> Self {
             IPCSerializer {
                 output,
-                in_sysfd: false
+                in_sysfd: false,
             }
         }
     }
@@ -581,9 +581,7 @@ mod de {
 
     impl<'a> IPCDeserializer<'a> {
         pub fn new(input: &'a mut IPCBuffer) -> Self {
-            IPCDeserializer {
-                input,
-            }
+            IPCDeserializer { input }
         }
     }
 
@@ -676,11 +674,19 @@ mod de {
         }
 
         fn deserialize_bool<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
-            visitor.visit_bool(match self.input.pop_front_byte()? {
-                0 => false,
-                1 => true,
-                _ => return Err(Error::InvalidValue),
-            })
+            match self.input.pop_front_byte()? {
+                0 => visitor.visit_bool(false),
+                1 => visitor.visit_bool(true),
+                _ => Err(Error::InvalidValue),
+            }
+        }
+
+        fn deserialize_option<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
+            match self.input.pop_front_byte()? {
+                0 => visitor.visit_none(),
+                1 => visitor.visit_some(self),
+                _ => Err(Error::InvalidValue),
+            }
         }
 
         fn deserialize_unit<V: de::Visitor<'d>>(self, visitor: V) -> Result<V::Value> {
@@ -699,20 +705,15 @@ mod de {
             Err(Error::Unimplemented)
         }
 
-        fn deserialize_option<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
-            Err(Error::Unimplemented)
-        }
-
         fn deserialize_seq<V: de::Visitor<'d>>(self, _visitor: V) -> Result<V::Value> {
             Err(Error::Unimplemented)
         }
 
-        fn deserialize_tuple<V: de::Visitor<'d>>(
-            self,
-            _len: usize,
-            _visitor: V,
-        ) -> Result<V::Value> {
-            Err(Error::Unimplemented)
+        fn deserialize_tuple<V: de::Visitor<'d>>(self, len: usize, visitor: V) -> Result<V::Value> {
+            visitor.visit_seq(SeqAccess {
+                deserializer: self,
+                len,
+            })
         }
 
         fn deserialize_enum<V: de::Visitor<'d>>(
@@ -748,6 +749,34 @@ mod de {
             _visitor: V,
         ) -> Result<V::Value> {
             Err(Error::Unimplemented)
+        }
+    }
+
+    struct SeqAccess<'d, 'a> {
+        deserializer: &'a mut IPCDeserializer<'d>,
+        len: usize,
+    }
+
+    impl<'d, 'a> de::SeqAccess<'d> for SeqAccess<'d, 'a> {
+        type Error = Error;
+
+        fn size_hint(&self) -> Option<usize> {
+            Some(self.len)
+        }
+
+        fn next_element_seed<V>(&mut self, seed: V) -> Result<Option<V::Value>>
+        where
+            V: de::DeserializeSeed<'d>,
+        {
+            if self.len > 0 {
+                self.len -= 1;
+                Ok(Some(de::DeserializeSeed::deserialize(
+                    seed,
+                    &mut *self.deserializer,
+                )?))
+            } else {
+                Ok(None)
+            }
         }
     }
 }
