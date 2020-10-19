@@ -33,6 +33,7 @@ fn page_remaining(vptr: VPtr) -> usize {
 pub struct Process {
     sys_pid: SysPid,
     mem_file: File,
+    maps_file: File,
 }
 
 impl Process {
@@ -40,13 +41,19 @@ impl Process {
         // Check before and after opening the file, to prevent PID races
         check_can_open(sys_pid, tracer)?;
         let mem_file = open_mem_file(sys_pid)?;
+        let maps_file = open_maps_file(sys_pid)?;
         check_can_open(sys_pid, tracer)?;
-        Ok(Process { sys_pid, mem_file })
+        Ok(Process {
+            sys_pid,
+            mem_file,
+            maps_file,
+        })
     }
 
     pub fn to_handle(&self) -> ProcessHandle {
         ProcessHandle {
             mem: SysFd(self.mem_file.as_raw_fd() as u32),
+            maps: SysFd(self.maps_file.as_raw_fd() as u32),
         }
     }
 
@@ -87,6 +94,11 @@ impl Process {
 fn open_mem_file(sys_pid: SysPid) -> Result<File, IPCError> {
     let path = format!("/proc/{}/mem", sys_pid.0);
     Ok(OpenOptions::new().read(true).write(true).open(path)?)
+}
+
+fn open_maps_file(sys_pid: SysPid) -> Result<File, IPCError> {
+    let path = format!("/proc/{}/maps", sys_pid.0);
+    Ok(File::open(path)?)
 }
 
 fn read_proc_status(sys_pid: SysPid) -> Result<String, IPCError> {

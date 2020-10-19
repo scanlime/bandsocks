@@ -85,8 +85,11 @@ impl Socket {
                 }
                 for file in 0..num_files {
                     let rights = &cmsg_buffer[file];
-                    assert!(abi::CMSG_RIGHTS_SIZE <= size_of::<CMsgRights>());
-                    assert_eq!(rights.hdr.cmsg_len, abi::CMSG_RIGHTS_SIZE);
+                    let unpadded_size = abi::CMSG_RIGHTS_SIZE;
+                    let padded_size = size_of::<CMsgRights>();
+                    let hdr_size = rights.hdr.cmsg_len;
+                    assert!(padded_size >= unpadded_size);
+                    assert!(hdr_size == padded_size || hdr_size == unpadded_size);
                     assert_eq!(rights.hdr.cmsg_level, abi::SOL_SOCKET);
                     assert_eq!(rights.hdr.cmsg_type, abi::SCM_RIGHTS);
                     assert!(rights.fd > 0);

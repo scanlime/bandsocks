@@ -40,6 +40,7 @@ pub struct FileAccess {
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ProcessHandle {
     pub mem: SysFd,
+    pub maps: SysFd,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -91,7 +92,7 @@ pub mod buffer {
 
     pub type Result<T> = core::result::Result<T, Error>;
     pub type BytesMax = U128;
-    pub type FilesMax = U8;
+    pub type FilesMax = U16;
 
     #[derive(Default)]
     pub struct IPCBuffer {
@@ -1063,5 +1064,18 @@ mod test {
         MessageToSand,
         [0x44, 0x33, 0x22, 0x11, 0x01, 0x01, 0xf6, 0xff, 0xff, 0xff],
         []
+    );
+    check!(
+        process_open_reply_1,
+        MessageToSand {
+            task: VPid(0x66669999),
+            op: ToSand::OpenProcessReply(ProcessHandle {
+                mem: SysFd(10),
+                maps: SysFd(20)
+            })
+        },
+        MessageToSand,
+        [0x99, 0x99, 0x66, 0x66, 0],
+        [SysFd(10), SysFd(20)]
     );
 }
