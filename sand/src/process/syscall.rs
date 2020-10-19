@@ -1,19 +1,19 @@
 use crate::{
     abi,
     abi::SyscallInfo,
-    process::{remote, task::StoppedTask},
+    process::{loader::Loader, task::StoppedTask},
     protocol::{Errno, FileAccess, FromSand, SysFd, ToSand, VPtr, VString},
 };
 use sc::nr;
 
 #[derive(Debug)]
-pub struct SyscallEmulator<'q, 's> {
-    stopped_task: StoppedTask<'q, 's>,
+pub struct SyscallEmulator<'q, 's, 't> {
+    stopped_task: &'t mut StoppedTask<'q, 's>,
     call: SyscallInfo,
 }
 
-impl<'q, 's> SyscallEmulator<'q, 's> {
-    pub fn new(stopped_task: StoppedTask<'q, 's>) -> Self {
+impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
+    pub fn new(stopped_task: &'t mut StoppedTask<'q, 's>) -> Self {
         let call = SyscallInfo::from_regs(stopped_task.regs);
         SyscallEmulator { stopped_task, call }
     }
@@ -51,6 +51,12 @@ impl<'q, 's> SyscallEmulator<'q, 's> {
         let arg_string = |idx| VString(arg_ptr(idx));
 
         let result = match self.call.nr as usize {
+            nr::EXECVE => {
+                let loader = Loader::from_execve(self.stopped_task, arg_string(0), arg_ptr(1), arg_ptr(2));
+                let result = loader.do_exec().await;
+                self.return_result(result).await
+            }
+
             nr::ACCESS => {
                 let result = ipc_call!(
                     self.stopped_task.task,
@@ -97,17 +103,6 @@ impl<'q, 's> SyscallEmulator<'q, 's> {
                     result
                 );
                 self.return_sysfd_result(result).await
-            }
-
-            nr::EXECVE => {
-                println!("made it to exec! with {:?}", self.stopped_task);
-
-                println!(
-                    "remote pid, {}",
-                    remote::syscall(&mut self.stopped_task, nr::GETPID, &[]).await
-                );
-
-                self.return_result(Err(Errno(-1))).await
             }
 
             _ => panic!("unexpected syscall trace, {:x?}", self),

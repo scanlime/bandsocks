@@ -1,6 +1,6 @@
 use crate::{
     abi,
-    abi::{CMsgHdr, CMsgRights, IOVec, MsgHdr},
+    abi::{CMsgHdr, IOVec, MsgHdr},
     nolibc::{fcntl, getpid, signal},
     protocol::{
         buffer::{FilesMax, IPCBuffer},
@@ -15,12 +15,20 @@ use core::{
 };
 use heapless::Vec;
 use sc::syscall;
+use typenum::Unsigned;
 
 static SIGIO_FLAG: AtomicBool = AtomicBool::new(false);
 
 pub struct Socket {
     fd: SysFd,
     recv_buffer: IPCBuffer,
+}
+
+#[derive(Default)]
+#[repr(C)]
+struct CMsgBuffer {
+    hdr: CMsgHdr,
+    files: [u32; FilesMax::USIZE],
 }
 
 impl Socket {
@@ -60,40 +68,37 @@ impl Socket {
     fn recv_to_buffer(&mut self) {
         assert!(self.recv_buffer.is_empty());
         self.recv_buffer.reset();
-        let mut cmsg_buffer: Vec<CMsgRights, FilesMax> = Vec::new();
         let mut iov = IOVec {
             base: self.recv_buffer.as_slice_mut().bytes.as_mut_ptr(),
             len: self.recv_buffer.byte_capacity(),
         };
+        let mut cmsg: CMsgBuffer = Default::default();
         let mut msghdr = MsgHdr {
             msg_name: ptr::null_mut(),
             msg_namelen: 0,
             msg_iov: &mut iov as *mut IOVec,
             msg_iovlen: 1,
-            msg_control: cmsg_buffer.as_mut_slice().as_mut_ptr() as *mut usize,
-            msg_controllen: cmsg_buffer.capacity() * size_of::<CMsgRights>(),
+            msg_control: &mut cmsg as *mut CMsgBuffer as *mut usize,
+            msg_controllen: size_of::<CMsgBuffer>(),
             msg_flags: 0,
         };
         let flags = abi::MSG_DONTWAIT;
         let result = unsafe { syscall!(RECVMSG, self.fd.0, &mut msghdr as *mut MsgHdr, flags) };
         match result as isize {
             len if len > 0 => {
-                let num_files = msghdr.msg_controllen as usize / size_of::<CMsgRights>();
+                let num_files = if cmsg.hdr.cmsg_len == 0 { 0 } else {
+                    assert!(cmsg.hdr.cmsg_len >= size_of::<CMsgHdr>());
+                    let data_len = cmsg.hdr.cmsg_len - size_of::<CMsgHdr>();
+                    assert_eq!(cmsg.hdr.cmsg_level, abi::SOL_SOCKET);
+                    assert_eq!(cmsg.hdr.cmsg_type, abi::SCM_RIGHTS);
+                    assert!(data_len % size_of::<u32>() == 0);
+                    data_len / size_of::<u32>()
+                };
                 unsafe {
-                    cmsg_buffer.set_len(num_files);
-                    self.recv_buffer.set_len(len as usize, num_files);
-                }
-                for file in 0..num_files {
-                    let rights = &cmsg_buffer[file];
-                    let unpadded_size = abi::CMSG_RIGHTS_SIZE;
-                    let padded_size = size_of::<CMsgRights>();
-                    let hdr_size = rights.hdr.cmsg_len;
-                    assert!(padded_size >= unpadded_size);
-                    assert!(hdr_size == padded_size || hdr_size == unpadded_size);
-                    assert_eq!(rights.hdr.cmsg_level, abi::SOL_SOCKET);
-                    assert_eq!(rights.hdr.cmsg_type, abi::SCM_RIGHTS);
-                    assert!(rights.fd > 0);
-                    self.recv_buffer.as_slice_mut().files[file] = SysFd(rights.fd as u32);
+                    self.recv_buffer.set_len(len as usize, num_files)
+                };
+                for idx in 0..num_files {
+                    self.recv_buffer.as_slice_mut().files[idx] = SysFd(cmsg.files[idx]);
                 }
             }
             e if e == -abi::EAGAIN => (),
@@ -105,18 +110,16 @@ impl Socket {
     pub fn send(&self, message: &MessageFromSand) {
         let mut buffer = IPCBuffer::new();
         buffer.push_back(message).expect("serialize failed");
-        let mut cmsg_buffer: Vec<CMsgRights, FilesMax> = Vec::new();
-        for file in buffer.as_slice().files {
-            cmsg_buffer
-                .push(CMsgRights {
-                    fd: file.0 as i32,
-                    hdr: CMsgHdr {
-                        cmsg_len: abi::CMSG_RIGHTS_SIZE,
-                        cmsg_level: abi::SOL_SOCKET,
-                        cmsg_type: abi::SCM_RIGHTS,
-                    },
-                })
-                .unwrap();
+        let mut cmsg = CMsgBuffer {
+            hdr: CMsgHdr {
+                cmsg_len: size_of::<CMsgHdr>() + size_of::<u32>() * buffer.as_slice().files.len(),
+                cmsg_level: abi::SOL_SOCKET,
+                cmsg_type: abi::SCM_RIGHTS,
+            },
+            files: Default::default(),
+        };
+        for (idx, file) in buffer.as_slice().files.iter().enumerate() {
+            cmsg.files[idx] = file.0;
         }
         let mut iov = IOVec {
             base: buffer.as_slice_mut().bytes.as_mut_ptr(),
@@ -127,8 +130,8 @@ impl Socket {
             msg_namelen: 0,
             msg_iov: &mut iov as *mut IOVec,
             msg_iovlen: 1,
-            msg_control: cmsg_buffer.as_mut_slice().as_mut_ptr() as *mut usize,
-            msg_controllen: cmsg_buffer.len() * size_of::<CMsgRights>(),
+            msg_control: &mut cmsg as *mut CMsgBuffer as *mut usize,
+            msg_controllen: cmsg.hdr.cmsg_len,
             msg_flags: 0,
         };
         let flags = abi::MSG_DONTWAIT;

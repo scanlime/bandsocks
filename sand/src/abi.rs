@@ -217,23 +217,13 @@ pub struct MsgHdr {
 pub const MSG_DONTWAIT: usize = 0x40;
 
 // linux/include/linux/socket.h
-#[derive(Debug)]
+#[derive(Default, Debug)]
 #[repr(C)]
 pub struct CMsgHdr {
     pub cmsg_len: usize,
     pub cmsg_level: i32,
     pub cmsg_type: i32,
 }
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct CMsgRights {
-    pub hdr: CMsgHdr,
-    pub fd: i32,
-}
-
-// size of CMsgRights without padding
-pub const CMSG_RIGHTS_SIZE: usize = 20;
 
 // cmsg_type
 // linux/include/linux/socket.h

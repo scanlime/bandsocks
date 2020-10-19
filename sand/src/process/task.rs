@@ -33,9 +33,8 @@ pub struct StoppedTask<'q, 's> {
 impl<'q> Debug for Task<'q> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Task")
-            .field(&self.task_data.vpid)
-            .field(&self.task_data.sys_pid)
-            .field(&self.process_handle.mem)
+            .field(&self.task_data)
+            .field(&self.process_handle)
             .finish()
     }
 }
@@ -115,12 +114,11 @@ impl<'q> Task<'q> {
     async fn handle_seccomp_trap(&mut self) {
         let mut regs: abi::UserRegs = Default::default();
         ptrace::get_regs(self.task_data.sys_pid, &mut regs);
-        let info = SyscallInfo::from_regs(&regs);
-        let stopped_task = StoppedTask {
+        let mut stopped_task = StoppedTask {
             task: self,
             regs: &mut regs,
         };
-        SyscallEmulator::new(stopped_task).dispatch().await;
+        SyscallEmulator::new(&mut stopped_task).dispatch().await;
         SyscallInfo::orig_nr_to_regs(abi::SYSCALL_BLOCKED, &mut regs);
         ptrace::set_regs(self.task_data.sys_pid, &regs);
         self.cont();

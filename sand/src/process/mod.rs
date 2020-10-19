@@ -11,10 +11,11 @@ macro_rules! ipc_call {
     }};
 }
 
-pub mod remote;
 pub mod syscall;
 pub mod table;
 pub mod task;
+pub mod loader;
+pub mod remote;
 
 use crate::{
     process::task::TaskData,

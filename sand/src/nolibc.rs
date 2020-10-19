@@ -1,5 +1,5 @@
 use crate::{abi, protocol::SysFd};
-use core::{fmt, panic::PanicInfo, ptr::null, slice, str};
+use core::{fmt, panic::PanicInfo, slice, str};
 use sc::syscall;
 
 #[macro_export]
@@ -141,10 +141,17 @@ fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
     exit(EXIT_SUCCESS);
 }
 
-// These are never called, but the startup code takes their address
 #[no_mangle]
-fn __libc_csu_init() {}
+fn __libc_csu_init() {
+    unreachable!()
+}
+
 #[no_mangle]
-fn __libc_csu_fini() {}
+fn __libc_csu_fini() {
+    unreachable!()
+}
+
 #[no_mangle]
-fn main() {}
+fn main() {
+    unreachable!()
+}
