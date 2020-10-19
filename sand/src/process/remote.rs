@@ -16,6 +16,7 @@ pub async fn syscall<'q, 's>(
 
     SyscallInfo::orig_nr_to_regs(nr as isize, regs);
     SyscallInfo::args_to_regs(args, regs);
+    println!(">>> pre-rsyscall {:?}", regs);
     ptrace::set_regs(pid, regs);
 
     ptrace::trace_syscall(pid);
@@ -29,5 +30,6 @@ pub async fn syscall<'q, 's>(
     );
 
     ptrace::get_regs(pid, regs);
+    println!("<<< post-rsyscall {:?}", regs);
     SyscallInfo::ret_from_regs(regs)
 }

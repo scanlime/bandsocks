@@ -38,6 +38,8 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::SENDFILE,
             nr::MMAP,
             nr::MPROTECT,
+            nr::MUNMAP,
+            nr::NANOSLEEP,
         ],
         &[ret(SECCOMP_RET_ALLOW)],
     );

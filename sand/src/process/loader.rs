@@ -28,23 +28,22 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         // here.
         println!("made it to exec! with {:x?}", self.stopped_task);
 
-        println!(
-            "remote pid, {}",
-            remote::syscall(&mut self.stopped_task, nr::GETPID, &[]).await
-        );
-
+        let saved_regs = self.stopped_task.regs.clone();
         for n in 0u8..100u8 {
+            *self.stopped_task.regs = saved_regs.clone();
+
             let timespec_ptr = (self.stopped_task.regs.sp & !0xFFF) - 0x1000;
             println!(
                 "sleep {}, ptr {:x} sp {:x}",
                 n, timespec_ptr, self.stopped_task.regs.sp
             );
-            remote::syscall(
+            let reply = remote::syscall(
                 &mut self.stopped_task,
                 nr::NANOSLEEP,
                 &[timespec_ptr as isize, 0],
             )
-            .await;
+                .await;
+            println!("reply: {}", reply);
         }
 
         Err(Errno(-1))
