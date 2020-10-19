@@ -1,21 +1,21 @@
 use crate::{
     abi,
-    abi::{SyscallInfo, UserRegs},
-    process::{remote, task::Task},
+    abi::SyscallInfo,
+    process::{remote, task::StoppedTask},
     protocol::{Errno, FileAccess, FromSand, SysFd, ToSand, VPtr, VString},
 };
 use sc::nr;
 
 #[derive(Debug)]
-pub struct SyscallEmulator<'t, 'c, 'q> {
-    task: &'t mut Task<'q>,
-    regs: &'c mut UserRegs,
-    call: &'c SyscallInfo,
+pub struct SyscallEmulator<'q, 's> {
+    stopped_task: StoppedTask<'q, 's>,
+    call: SyscallInfo,
 }
 
-impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
-    pub fn new(task: &'t mut Task<'q>, regs: &'c mut UserRegs, call: &'c SyscallInfo) -> Self {
-        SyscallEmulator { task, regs, call }
+impl<'q, 's> SyscallEmulator<'q, 's> {
+    pub fn new(stopped_task: StoppedTask<'q, 's>) -> Self {
+        let call = SyscallInfo::from_regs(stopped_task.regs);
+        SyscallEmulator { stopped_task, call }
     }
 
     async fn return_sysfd(&mut self, sys_fd: SysFd) -> isize {
@@ -53,7 +53,7 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
         let result = match self.call.nr as usize {
             nr::ACCESS => {
                 let result = ipc_call!(
-                    self.task,
+                    self.stopped_task.task,
                     FromSand::FileAccess(FileAccess {
                         dir: None,
                         path: arg_string(0),
@@ -67,7 +67,7 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
 
             nr::OPEN => {
                 let result = ipc_call!(
-                    self.task,
+                    self.stopped_task.task,
                     FromSand::FileOpen {
                         file: FileAccess {
                             dir: None,
@@ -84,7 +84,7 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
 
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
                 let result = ipc_call!(
-                    self.task,
+                    self.stopped_task.task,
                     FromSand::FileOpen {
                         file: FileAccess {
                             dir: None,
@@ -100,11 +100,11 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
             }
 
             nr::EXECVE => {
-                println!("made it to exec! with {:?}", self.task);
+                println!("made it to exec! with {:?}", self.stopped_task);
 
                 println!(
                     "remote pid, {}",
-                    remote::syscall(self.task, nr::GETPID, &[]).await
+                    remote::syscall(&mut self.stopped_task, nr::GETPID, &[]).await
                 );
 
                 self.return_result(Err(Errno(-1))).await
@@ -112,6 +112,6 @@ impl<'t, 'c, 'q> SyscallEmulator<'t, 'c, 'q> {
 
             _ => panic!("unexpected syscall trace, {:x?}", self),
         };
-        SyscallInfo::ret_to_regs(result, &mut self.regs);
+        SyscallInfo::ret_to_regs(result, self.stopped_task.regs);
     }
 }

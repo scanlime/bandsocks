@@ -39,6 +39,12 @@ pub fn cont(pid: SysPid) {
     }
 }
 
+pub fn trace_syscall(pid: SysPid) {
+    unsafe {
+        syscall!(PTRACE, abi::PTRACE_SYSCALL, pid.0, 0, 0);
+    }
+}
+
 pub fn setoptions(pid: SysPid) {
     let options = abi::PTRACE_O_EXITKILL
         | abi::PTRACE_O_TRACECLONE

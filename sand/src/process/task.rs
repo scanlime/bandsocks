@@ -1,6 +1,6 @@
 use crate::{
     abi,
-    abi::SyscallInfo,
+    abi::{SyscallInfo, UserRegs},
     process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
     protocol::{FromSand, ProcessHandle, SysPid, ToSand, VPid},
     ptrace,
@@ -22,6 +22,12 @@ pub struct Task<'q> {
     pub process_handle: ProcessHandle,
     pub msg: MessageSender<'q>,
     pub events: EventSource<'q>,
+}
+
+#[derive(Debug)]
+pub struct StoppedTask<'q, 's> {
+    pub task: &'s mut Task<'q>,
+    pub regs: &'s mut UserRegs,
 }
 
 impl<'q> Debug for Task<'q> {
@@ -110,10 +116,12 @@ impl<'q> Task<'q> {
         let mut regs: abi::UserRegs = Default::default();
         ptrace::get_regs(self.task_data.sys_pid, &mut regs);
         let info = SyscallInfo::from_regs(&regs);
-        SyscallEmulator::new(self, &mut regs, &info)
-            .dispatch()
-            .await;
-        SyscallInfo::nr_to_regs(abi::SYSCALL_BLOCKED, &mut regs);
+        let stopped_task = StoppedTask {
+            task: self,
+            regs: &mut regs,
+        };
+        SyscallEmulator::new(stopped_task).dispatch().await;
+        SyscallInfo::orig_nr_to_regs(abi::SYSCALL_BLOCKED, &mut regs);
         ptrace::set_regs(self.task_data.sys_pid, &regs);
         self.cont();
     }

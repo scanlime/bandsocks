@@ -19,6 +19,7 @@ pub const F_SEAL_WRITE: usize = 8;
 // linux/include/uapi/linux/ptrace.h
 pub const PTRACE_TRACEME: usize = 0;
 pub const PTRACE_CONT: usize = 7;
+pub const PTRACE_SYSCALL: usize = 24;
 pub const PTRACE_SETOPTIONS: usize = 0x4200;
 pub const PTRACE_GETEVENTMSG: usize = 0x4201;
 pub const PTRACE_GETREGSET: usize = 0x4204;
@@ -137,11 +138,26 @@ impl SyscallInfo {
         }
     }
 
+    pub fn args_to_regs(args: &[isize], regs: &mut UserRegs) {
+        assert!(args.len() <= 6);
+        regs.di = *args.get(0).unwrap_or(&0) as u64;
+        regs.si = *args.get(1).unwrap_or(&0) as u64;
+        regs.dx = *args.get(2).unwrap_or(&0) as u64;
+        regs.r10 = *args.get(3).unwrap_or(&0) as u64;
+        regs.r8 = *args.get(4).unwrap_or(&0) as u64;
+        regs.r9 = *args.get(5).unwrap_or(&0) as u64;
+    }
+
     pub fn ret_to_regs(ret_data: isize, regs: &mut UserRegs) {
         regs.ax = ret_data as u64;
     }
 
-    pub fn nr_to_regs(nr: isize, regs: &mut UserRegs) {
+    pub fn ret_from_regs(regs: &UserRegs) -> isize {
+        regs.ax as isize
+    }
+
+    // syscall number to resume, or SYSCALL_BLOCKED to skip
+    pub fn orig_nr_to_regs(nr: isize, regs: &mut UserRegs) {
         regs.orig_ax = nr as u64;
     }
 }
