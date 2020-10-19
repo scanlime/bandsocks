@@ -19,6 +19,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
     // to do: none of this has been audited yet. this will generally be all syscalls
     // that deal with existing fds or with memory, but nothing that deals with pids
     // and nothing that has a pathname in it.
+    // to do: explicitly whitelist constants on functions like seek and mmap
     p.if_any_eq(
         &[
             nr::READ,
@@ -27,6 +28,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::PWRITE64,
             nr::READV,
             nr::WRITEV,
+            nr::LSEEK,
             nr::SENDMSG,
             nr::RECVMSG,
             nr::CLOSE,

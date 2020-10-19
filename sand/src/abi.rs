@@ -198,6 +198,14 @@ pub const SIGURG: u32 = 23;
 pub const SIGIO: u32 = 29;
 pub const SIGSYS: u32 = 31;
 
+// linux/include/uapi/linux/fs.h
+pub const SEEK_SET: isize = 0;
+pub const SEEK_CUR: isize = 1;
+pub const SEEK_END: isize = 2;
+pub const SEEK_DATA: isize = 3;
+pub const SEEK_HOLE: isize = 4;
+pub const SEEK_MAX: isize = SEEK_HOLE;
+
 // sendmsg() user_msghdr
 // linux/include/linux/socket.h
 #[derive(Debug)]
