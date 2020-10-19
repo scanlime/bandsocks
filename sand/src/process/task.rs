@@ -11,6 +11,7 @@ use core::fmt::{self, Debug, Formatter};
 pub struct TaskData {
     pub vpid: VPid,
     pub sys_pid: SysPid,
+    pub parent: Option<VPid>,
 }
 
 pub async fn task_fn(events: EventSource<'_>, msg: MessageSender<'_>, task_data: TaskData) {

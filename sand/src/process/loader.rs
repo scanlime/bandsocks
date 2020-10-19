@@ -9,6 +9,10 @@ pub struct Loader<'q, 's, 't> {
 }
 
 impl<'q, 's, 't> Loader<'q, 's, 't> {
+    pub fn from_entrypoint(stopped_task: &'t mut StoppedTask<'q, 's>) -> Loader<'q, 's, 't> {
+        Loader { stopped_task }
+    }
+
     pub fn from_execve(
         stopped_task: &'t mut StoppedTask<'q, 's>,
         filename: VString,

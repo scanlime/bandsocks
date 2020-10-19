@@ -14,7 +14,6 @@ pub struct ProcessTable<'t, F: Future<Output = ()>> {
     #[pin]
     table: [Option<Process<'t, F>>; PidLimit::USIZE],
     task_fn: TaskFn<'t, F>,
-    map_v_to_sys: FnvIndexMap<VPid, SysPid, PidLimit>,
     map_sys_to_v: FnvIndexMap<SysPid, VPid, PidLimit>,
     next_vpid: VPid,
 }
@@ -37,16 +36,11 @@ fn next_vpid_in_sequence(vpid: VPid) -> VPid {
 impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
     pub fn new(task_fn: TaskFn<'t, F>) -> Self {
         ProcessTable {
-            map_v_to_sys: FnvIndexMap::new(),
             map_sys_to_v: FnvIndexMap::new(),
             table: [None; PidLimit::USIZE],
             next_vpid: VPid(1),
             task_fn,
         }
-    }
-
-    pub fn vpid_to_sys(&self, vpid: VPid) -> Option<SysPid> {
-        self.map_v_to_sys.get(&vpid).copied()
     }
 
     pub fn syspid_to_v(&self, sys_pid: SysPid) -> Option<VPid> {
@@ -69,10 +63,14 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
         result
     }
 
-    pub fn insert(mut self: Pin<&mut Self>, sys_pid: SysPid) -> Option<VPid> {
+    pub fn insert(mut self: Pin<&mut Self>, sys_pid: SysPid, parent: Option<VPid>) -> Option<VPid> {
         let vpid = self.as_mut().allocate_vpid();
         vpid.map(move |vpid| {
-            let task_data = TaskData { sys_pid, vpid };
+            let task_data = TaskData {
+                sys_pid,
+                vpid,
+                parent,
+            };
             let project = self.project();
             let index = table_index_for_vpid(vpid).unwrap();
             let process = Process::new(*project.task_fn, task_data);
@@ -82,7 +80,6 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
                 assert!(prev.is_none());
             }
             assert_eq!(project.map_sys_to_v.insert(sys_pid, vpid), Ok(None));
-            assert_eq!(project.map_v_to_sys.insert(vpid, sys_pid), Ok(None));
             Some(vpid)
         })
         .flatten()

@@ -35,14 +35,18 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         match unsafe { syscall!(FORK) } as isize {
             result if result == 0 => unsafe { ptrace::be_the_child_process(args) },
             result if result < 0 => panic!("fork error"),
-            result => self.expect_new_child(SysPid(result as u32)),
+            result => {
+                let sys_pid = SysPid(result as u32);
+                let parent = None;
+                self.expect_new_child(sys_pid, parent);
+            }
         }
     }
 
-    fn expect_new_child(self: Pin<&mut Self>, sys_pid: SysPid) {
+    fn expect_new_child(self: Pin<&mut Self>, sys_pid: SysPid, parent: Option<VPid>) {
         self.project()
             .process_table
-            .insert(sys_pid)
+            .insert(sys_pid, parent)
             .expect("virtual process limit exceeded");
     }
 
