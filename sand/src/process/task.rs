@@ -98,7 +98,7 @@ impl<'q> Task<'q> {
                     status: signal,
                 } if signal < 0x100 => self.handle_signal(signal).await,
 
-                e => panic!("{:x?}, unexpected event, {:x?}", self.task_data, e),
+                e => panic!("{:?}, unexpected event, {:?}", self.task_data, e),
             }
         }
     }
