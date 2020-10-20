@@ -96,14 +96,4 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
             })
             .flatten()
     }
-
-    pub fn free(self: Pin<&mut Self>, vpid: VPid) {
-        table_index_for_vpid(vpid).map(move |index| {
-            let table_pin = self.project().table;
-            unsafe {
-                let table = table_pin.get_unchecked_mut();
-                table[index] = None;
-            }
-        });
-    }
 }

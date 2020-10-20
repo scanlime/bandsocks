@@ -1,10 +1,8 @@
 use crate::{
-    abi,
     process::{remote, task::StoppedTask},
     protocol::{Errno, VPtr, VString},
 };
-use heapless::{consts::*, Vec};
-use sc::{nr, syscall};
+use sc::nr;
 
 pub struct Loader<'q, 's, 't> {
     stopped_task: &'t mut StoppedTask<'q, 's>,

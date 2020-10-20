@@ -7,13 +7,11 @@ use crate::{
         MessageFromSand, MessageToSand, SysFd,
     },
 };
-use as_slice::AsMutSlice;
 use core::{
     mem::size_of,
     ptr,
     sync::atomic::{AtomicBool, Ordering},
 };
-use heapless::Vec;
 use sc::syscall;
 use typenum::Unsigned;
 

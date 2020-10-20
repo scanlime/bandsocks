@@ -741,9 +741,9 @@ mod de {
                     Some(self.len)
                 }
 
-                fn next_element_seed<V>(&mut self, seed: V) -> Result<Option<V::Value>>
+                fn next_element_seed<S>(&mut self, seed: S) -> Result<Option<S::Value>>
                 where
-                    V: de::DeserializeSeed<'d>,
+                    S: de::DeserializeSeed<'d>,
                 {
                     if self.len > 0 {
                         self.len -= 1;
