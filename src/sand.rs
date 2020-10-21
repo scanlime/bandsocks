@@ -10,3 +10,17 @@ pub const PROGRAM_DATA: &'static [u8] = include_bytes!(concat!(
 pub mod protocol {
     include!("../sand/src/protocol.rs");
 }
+
+pub mod protocol_std {
+    use super::protocol::SysFd;
+    use std::os::{
+        raw::c_int,
+        unix::{io::AsRawFd, prelude::RawFd},
+    };
+
+    impl AsRawFd for SysFd {
+        fn as_raw_fd(&self) -> RawFd {
+            self.0 as c_int
+        }
+    }
+}
