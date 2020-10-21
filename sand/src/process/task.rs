@@ -89,6 +89,15 @@ impl<'q> Task<'q> {
                 Event::Signal {
                     sig: abi::SIGCHLD,
                     code: abi::CLD_TRAPPED,
+                    status: abi::PTRACE_SIG_FORK,
+                } => {
+                    let child_pid = ptrace::geteventmsg(self.task_data.sys_pid) as u32;
+                    self.handle_fork(child_pid).await
+                }
+
+                Event::Signal {
+                    sig: abi::SIGCHLD,
+                    code: abi::CLD_TRAPPED,
                     status: abi::PTRACE_SIG_SECCOMP,
                 } => self.handle_seccomp_trap().await,
 
@@ -110,6 +119,10 @@ impl<'q> Task<'q> {
     async fn handle_signal(&mut self, signal: u32) {
         println!("sig {}", signal);
         self.cont();
+    }
+
+    async fn handle_fork(&mut self, child_pid: u32) {
+        panic!("fork not handled yet, pid {}", child_pid);
     }
 
     async fn handle_seccomp_trap(&mut self) {

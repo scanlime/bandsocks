@@ -1,12 +1,11 @@
 use crate::{
     client::Client,
-    errors::{IPCError, ImageError, RuntimeError, VFSError},
-    filesystem::{mmap::MapRef, vfs::Filesystem},
+    errors::{IPCError, ImageError, RuntimeError},
+    filesystem::{vfs::Filesystem},
     image::Image,
     ipcserver::IPCServer,
     Reference,
 };
-use osstrtools::OsStrTools;
 use std::{
     collections::BTreeMap,
     default::Default,
@@ -210,40 +209,5 @@ impl Container {
             dir,
             ipc_join,
         })
-    }
-
-    fn program_image_for_execp(&self, argv0: &OsStr) -> Result<MapRef, RuntimeError> {
-        // Following the convention of execvp() and friends, the PATH is searched
-        // if and only if argv0 has no slash characters in it.
-
-        let absolute_paths = if argv0.contains("/") {
-            vec![Path::new(argv0).to_path_buf()]
-        } else {
-            let env_path = self.env.get(&OsString::from("PATH"));
-            env_path
-                .as_ref()
-                .map(|env_path| env_path.split(":"))
-                .unwrap_or_else(Vec::new)
-                .iter()
-                .map(|env_path_item| Path::new(env_path_item).join(argv0))
-                .collect()
-        };
-        log::info!("searching paths, {:?}", absolute_paths);
-        match absolute_paths
-            .iter()
-            .map(|path_buf| self.filesystem.get_file_data(path_buf))
-            .skip_while(|result| {
-                if let Err(VFSError::NotFound) = result {
-                    true
-                } else {
-                    false
-                }
-            })
-            .next()
-        {
-            None => Err(VFSError::NotFound)?,
-            Some(Err(other)) => Err(other)?,
-            Some(Ok(mmap)) => Ok(mmap),
-        }
     }
 }

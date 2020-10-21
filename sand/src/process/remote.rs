@@ -6,7 +6,7 @@ use crate::{
     ptrace,
 };
 use heapless::Vec;
-use sc::{nr, syscall};
+use sc::{syscall};
 use typenum::*;
 
 pub async fn syscall<'q, 's>(

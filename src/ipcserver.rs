@@ -10,7 +10,6 @@ use fd_queue::{tokio::UnixStream, EnqueueFd};
 use pentacle::SealedCommand;
 use std::{
     collections::HashMap,
-    fmt::Debug,
     io::Cursor,
     os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
     process::Child,
@@ -20,7 +19,6 @@ use tokio::{
     task,
     task::JoinHandle,
 };
-use std::os::raw::c_int;
 
 pub struct IPCServer {
     tracer: Child,
@@ -108,7 +106,7 @@ impl IPCServer {
 
             FromSand::FileAccess(access) => match self.process_table.get_mut(&message.task) {
                 None => Err(IPCError::WrongProcessState)?,
-                Some(mut process) => {
+                Some(process) => {
                     let path = process.read_string(access.path)?;
                     log::info!("{:x?} sys_access({:?})", message.task, path);
                     self.reply(&message, ToSand::FileAccessReply(Err(Errno(-libc::ENOENT))))
@@ -116,22 +114,24 @@ impl IPCServer {
                 }
             },
 
-            FromSand::FileOpen { file, flags } => match self.process_table.get_mut(&message.task) {
-                None => Err(IPCError::WrongProcessState)?,
-                Some(mut process) => {
-                    let path = process.read_string(file.path)?;
-                    log::info!("{:x?} sys_open({:?})", message.task, path);
-                    let backing_file = std::fs::File::open("/dev/null")?;
-                    let fd = SysFd(backing_file.as_raw_fd() as u32);
-                    self.reply(&message, ToSand::FileOpenReply(Ok(fd))).await?;
-                    drop(backing_file);
+            FromSand::FileOpen { file, flags: _ } => {
+                match self.process_table.get_mut(&message.task) {
+                    None => Err(IPCError::WrongProcessState)?,
+                    Some(process) => {
+                        let path = process.read_string(file.path)?;
+                        log::info!("{:x?} sys_open({:?})", message.task, path);
+                        let backing_file = std::fs::File::open("/dev/null")?;
+                        let fd = SysFd(backing_file.as_raw_fd() as u32);
+                        self.reply(&message, ToSand::FileOpenReply(Ok(fd))).await?;
+                        drop(backing_file);
+                    }
                 }
-            },
+            }
 
             FromSand::ProcessKill(_vpid, _signal) => {
                 match self.process_table.get_mut(&message.task) {
                     None => Err(IPCError::WrongProcessState)?,
-                    Some(mut process) => {
+                    Some(_process) => {
                         self.reply(&message, ToSand::ProcessKillReply(Ok(())))
                             .await?;
                     }
