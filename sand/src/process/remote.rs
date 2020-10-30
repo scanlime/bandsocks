@@ -59,7 +59,7 @@ pub fn print_maps(stopped_task: &mut StoppedTask) {
     unsafe {
         assert_eq!(0, syscall!(LSEEK, maps_fd, 0, abi::SEEK_SET));
         let len = syscall!(READ, maps_fd, buf.as_mut_ptr(), buf.capacity()) as isize;
-        assert!(len > 0 && len as usize <= buf.capacity());
+        assert!(len >= 0 && len as usize <= buf.capacity());
         buf.set_len(len as usize);
     };
     let maps_str = core::str::from_utf8(&buf);

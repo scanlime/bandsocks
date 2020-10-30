@@ -24,9 +24,15 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
     }
 
     pub async fn do_exec(mut self) -> Result<(), Errno> {
-        // temp: testing out remote syscalls and memory access so we can build a loader
+        // experiment.. can we do remote syscalls without running code from shared userspace mem
         println!("made it to exec! with {:x?}", self.stopped_task);
 
+        remote::print_maps(self.stopped_task);
+        println!("trying munmap");
+        let reply = remote::syscall(&mut self.stopped_task, nr::MUNMAP, &[
+            0, 0x800000000000 - 0x1000
+        ]).await;
+        assert_eq!(reply, 0);
         remote::print_maps(self.stopped_task);
 
         let saved_regs = self.stopped_task.regs.clone();
@@ -44,12 +50,6 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             1, scratch_ptr.0 as isize, m.len() as isize
         ]).await);
 
-        remote::print_maps(self.stopped_task);
-        println!("trying munmap");
-        let reply = remote::syscall(&mut self.stopped_task, nr::MUNMAP, &[
-            0xffffffffff600000 as usize as isize, 0x1000
-        ]).await;
-        assert_eq!(reply, 0);
 
         for n in 0u8..100u8 {
             *self.stopped_task.regs = saved_regs.clone();
