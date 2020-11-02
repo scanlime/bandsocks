@@ -1,4 +1,5 @@
 use crate::{
+    abi,
     process::{remote, task::StoppedTask},
     protocol::{Errno, VPtr, VString},
 };
@@ -27,16 +28,19 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         // experiment.. can we do remote syscalls without running code from shared userspace mem
         println!("made it to exec! with {:x?}", self.stopped_task);
 
-        remote::print_maps(self.stopped_task);
-        println!("trying munmap");
-        let reply = remote::syscall(&mut self.stopped_task, nr::MUNMAP, &[
-            0, 0x800000000000 - 0x1000
-        ]).await;
-        assert_eq!(reply, 0);
-        remote::print_maps(self.stopped_task);
-
         let saved_regs = self.stopped_task.regs.clone();
-        let scratch_ptr = VPtr(((self.stopped_task.regs.sp & !0xFFF) - 0x2000) as usize);
+        let scratch_ptr = VPtr(0x10000);
+
+        remote::print_maps(self.stopped_task);
+        println!("trying remap");
+        let reply = remote::syscall(&mut self.stopped_task, nr::MMAP, &[
+            scratch_ptr.0 as isize, 0x1000000,
+            abi::PROT_READ | abi::PROT_WRITE | abi::PROT_EXEC,
+            abi::MAP_ANONYMOUS | abi::MAP_PRIVATE | abi::MAP_FIXED,
+            0, 0
+        ]).await;
+        assert_eq!(reply, scratch_ptr.0 as isize);
+        remote::print_maps(self.stopped_task);
 
         let m = b"doing a big stdout. multiple strings even. whose stack is this anyway!\n";
         remote::mem_write(&mut self.stopped_task, scratch_ptr, m).unwrap();

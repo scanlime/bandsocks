@@ -51,6 +51,16 @@ pub const PTRACE_SYSCALL_INFO_ENTRY: u8 = 1;
 pub const PTRACE_SYSCALL_INFO_EXIT: u8 = 2;
 pub const PTRACE_SYSCALL_INFO_SECCOMP: u8 = 3;
 
+// linux/include/uapi/linux/mman.h
+pub const MAP_PRIVATE: isize = 0x02;
+pub const MAP_ANONYMOUS: isize = 0x20;
+pub const MAP_FIXED: isize = 0x10;
+
+// linux/include/uapi/asm-generic/mman-common.h
+pub const PROT_READ: isize = 1;
+pub const PROT_WRITE: isize = 2;
+pub const PROT_EXEC: isize = 4;
+
 // ELF constant, used as ptrace user reg set identifier
 pub const NT_PRSTATUS: usize = 1;
 
