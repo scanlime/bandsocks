@@ -1,7 +1,7 @@
 use crate::{
     client::Client,
     errors::{IPCError, ImageError, RuntimeError},
-    filesystem::{vfs::Filesystem},
+    filesystem::vfs::Filesystem,
     image::Image,
     ipcserver::IPCServer,
     Reference,

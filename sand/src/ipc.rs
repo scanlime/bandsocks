@@ -84,7 +84,9 @@ impl Socket {
         let result = unsafe { syscall!(RECVMSG, self.fd.0, &mut msghdr as *mut MsgHdr, flags) };
         match result as isize {
             len if len > 0 => {
-                let num_files = if cmsg.hdr.cmsg_len == 0 { 0 } else {
+                let num_files = if cmsg.hdr.cmsg_len == 0 {
+                    0
+                } else {
                     assert!(cmsg.hdr.cmsg_len >= size_of::<CMsgHdr>());
                     let data_len = cmsg.hdr.cmsg_len - size_of::<CMsgHdr>();
                     assert_eq!(cmsg.hdr.cmsg_level, abi::SOL_SOCKET);
@@ -92,9 +94,7 @@ impl Socket {
                     assert!(data_len % size_of::<u32>() == 0);
                     data_len / size_of::<u32>()
                 };
-                unsafe {
-                    self.recv_buffer.set_len(len as usize, num_files)
-                };
+                unsafe { self.recv_buffer.set_len(len as usize, num_files) };
                 for idx in 0..num_files {
                     self.recv_buffer.as_slice_mut().files[idx] = SysFd(cmsg.files[idx]);
                 }

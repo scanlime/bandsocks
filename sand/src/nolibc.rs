@@ -1,5 +1,5 @@
 use crate::{abi, protocol::SysFd};
-use core::{fmt, panic::PanicInfo, slice, str};
+use core::{fmt, slice, str};
 use sc::syscall;
 
 #[macro_export]
@@ -48,19 +48,6 @@ pub fn write_stderr(msg: fmt::Arguments) {
     if fmt::write(&mut stderr, msg).is_err() {
         exit(EXIT_IO_ERROR);
     }
-}
-
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    if let Some(message) = info.message() {
-        write_stderr(*message);
-    }
-    print!("\ncontainer panic!");
-    if let Some(location) = info.location() {
-        print!(" at {}:{}", location.file(), location.line());
-    }
-    println!();
-    exit(EXIT_PANIC);
 }
 
 pub unsafe fn c_strlen(s: *const u8) -> usize {
@@ -124,34 +111,4 @@ pub fn fcntl(fd: &SysFd, op: usize, arg: usize) -> Result<(), isize> {
         0 => Ok(()),
         other => Err(other as isize),
     }
-}
-
-#[no_mangle]
-fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
-    // At this point, the argument and environment are in back-to-back
-    // null terminated arrays of null terminated strings.
-
-    let argv_slice = unsafe { c_strv_slice(argv) };
-    assert_eq!(argc as usize, argv_slice.len());
-    let envp_slice = unsafe { c_strv_slice(argv.offset(argv_slice.len() as isize + 1)) };
-
-    crate::main(argv_slice, envp_slice);
-
-    // Must explicitly invoke exit or we are just smashing the stack
-    exit(EXIT_SUCCESS);
-}
-
-#[no_mangle]
-fn __libc_csu_init() {
-    unreachable!()
-}
-
-#[no_mangle]
-fn __libc_csu_fini() {
-    unreachable!()
-}
-
-#[no_mangle]
-fn main() {
-    unreachable!()
 }
