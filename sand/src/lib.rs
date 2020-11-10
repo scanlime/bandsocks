@@ -22,6 +22,7 @@ pub mod nolibc;
 
 mod abi;
 mod ipc;
+mod parser;
 mod process;
 mod protocol;
 mod ptrace;
