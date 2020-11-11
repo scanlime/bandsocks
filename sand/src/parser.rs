@@ -1,6 +1,6 @@
 use crate::protocol::SysFd;
-use heapless::{ArrayLength, Vec};
 use core::iter::Iterator;
+use heapless::{ArrayLength, Vec};
 use sc::syscall;
 
 struct ByteReader<T: ArrayLength<u8>> {
@@ -27,7 +27,7 @@ impl<T: ArrayLength<u8>> ByteReader<T> {
         })
     }
 
-    fn from_bytes(bytes: &[u8]) -> Result<Self,()> {
+    fn from_bytes(bytes: &[u8]) -> Result<Self, ()> {
         Ok(ByteReader {
             file: None,
             buf_position: 0,
@@ -38,12 +38,13 @@ impl<T: ArrayLength<u8>> ByteReader<T> {
 
 impl<T: ArrayLength<u8>> Iterator for ByteReader<T> {
     type Item = Result<u8, ()>;
-    fn next(&mut self) -> Option<Result<u8,()>> {
+    fn next(&mut self) -> Option<Result<u8, ()>> {
         if let Some(file) = &self.file {
             if self.buf_position == self.buf.len() {
                 self.buf_position = 0;
                 unsafe {
-                    let len = syscall!(READ, file.0, self.buf.as_mut_ptr(), self.buf.capacity(), 0) as isize;
+                    let len = syscall!(READ, file.0, self.buf.as_mut_ptr(), self.buf.capacity(), 0)
+                        as isize;
                     if len < 0 {
                         return Some(Err(()));
                     }
@@ -65,8 +66,9 @@ impl<T: ArrayLength<u8>> Iterator for ByteReader<T> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::protocol::SysFd;
     use heapless::consts::*;
-
+    use std::{fs::File, os::unix::io::AsRawFd};
 
     #[test]
     fn blah() {
@@ -79,4 +81,23 @@ mod test {
         assert_eq!(buf.next(), None);
     }
 
+    #[test]
+    fn devzero() {
+        let f = File::open("/dev/zero").unwrap();
+        let mut buf = ByteReader::<U2>::from_sysfd(SysFd(f.as_raw_fd() as u32)).unwrap();
+        assert_eq!(buf.next(), Some(Ok(0)));
+        assert_eq!(buf.next(), Some(Ok(0)));
+        assert_eq!(buf.next(), Some(Ok(0)));
+        assert_eq!(buf.next(), Some(Ok(0)));
+        assert_eq!(buf.next(), Some(Ok(0)));
+        assert_eq!(buf.next(), Some(Ok(0)));
+    }
+
+    #[test]
+    fn devnull() {
+        let f = File::open("/dev/null").unwrap();
+        let mut buf = ByteReader::<U16>::from_sysfd(SysFd(f.as_raw_fd() as u32)).unwrap();
+        assert_eq!(buf.next(), None);
+        assert_eq!(buf.next(), None);
+    }
 }
