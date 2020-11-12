@@ -2,27 +2,24 @@
 #![no_main]
 #![feature(panic_info_message)]
 
-use bandsocks_sand::{c_main, nolibc, print, println};
-use core::panic::PanicInfo;
-
 #[cfg(not(test))]
 #[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(message) = info.message() {
-        nolibc::write_stderr(*message);
+        bandsocks_sand::nolibc::write_stderr(*message);
     }
-    print!("\ncontainer panic!");
+    bandsocks_sand::print!("\ncontainer panic!");
     if let Some(location) = info.location() {
-        print!(" at {}:{}", location.file(), location.line());
+        bandsocks_sand::print!(" at {}:{}", location.file(), location.line());
     }
-    println!();
-    nolibc::exit(nolibc::EXIT_PANIC)
+   bandsocks_sand::println!();
+bandsocks_sand::nolibc::exit(bandsocks_sand::nolibc::EXIT_SUCCESS);
 }
 
 #[cfg(not(test))]
 #[no_mangle]
 fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
-    c_main(argc, argv)
+    bandsocks_sand::c_main(argc, argv)
 }
 
 #[cfg(not(test))]
@@ -42,5 +39,5 @@ fn main() -> usize {
     #[cfg(not(test))]
     unreachable!();
     #[cfg(test)]
-    nolibc::EXIT_SUCCESS
+    bandsocks_sand::nolibc::EXIT_SUCCESS
 }
