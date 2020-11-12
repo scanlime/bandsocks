@@ -17,7 +17,7 @@ pub struct MessageFromSand {
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum ToSand {
     OpenProcessReply(ProcessHandle),
-    FileOpenReply(Result<SysFd, Errno>),
+    FileOpenReply(Result<FileBacking, Errno>),
     FileAccessReply(Result<(), Errno>),
     ProcessKillReply(Result<(), Errno>),
 }
@@ -35,6 +35,16 @@ pub struct FileAccess {
     pub dir: Option<SysFd>,
     pub path: VString,
     pub mode: i32,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+pub enum FileBacking {
+    Normal(SysFd),
+    VFSMapRef {
+        source: SysFd,
+        offset: usize,
+        filesize: usize,
+    },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
@@ -891,7 +901,7 @@ mod test {
     fn messages() {
         let msg1 = MessageToSand {
             task: VPid(12345),
-            op: ToSand::FileOpenReply(Ok(SysFd(5))),
+            op: ToSand::FileOpenReply(Ok(FileBacking::Normal(SysFd(5)))),
         };
         let msg2 = MessageToSand {
             task: VPid(39503),
@@ -899,18 +909,22 @@ mod test {
         };
         let msg3 = MessageToSand {
             task: VPid(29862),
-            op: ToSand::FileOpenReply(Ok(SysFd(99999))),
+            op: ToSand::FileOpenReply(Ok(FileBacking::Normal(SysFd(99999)))),
         };
         let msg4 = MessageToSand {
             task: VPid(125),
-            op: ToSand::FileOpenReply(Ok(SysFd(200))),
+            op: ToSand::FileOpenReply(Ok(FileBacking::VFSMapRef {
+                source: SysFd(200),
+                offset: 1,
+                filesize: 2,
+            })),
         };
         let mut buf = buffer::IPCBuffer::new();
         buf.push_back(&msg1).unwrap();
         buf.push_back(&msg2).unwrap();
         buf.push_back(&msg3).unwrap();
         buf.push_back(&msg4).unwrap();
-        assert_eq!(buf.as_slice().bytes.len(), 28);
+        assert_eq!(buf.as_slice().bytes.len(), 47);
         assert_eq!(buf.as_slice().files.len(), 3);
         assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg1));
         assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg2));
@@ -1055,10 +1069,10 @@ mod test {
         sys_open_reply_1,
         MessageToSand {
             task: VPid(0x54555657),
-            op: ToSand::FileOpenReply(Ok(SysFd(42))),
+            op: ToSand::FileOpenReply(Ok(FileBacking::Normal(SysFd(42)))),
         },
         MessageToSand,
-        [0x57, 0x56, 0x55, 0x54, 0x01, 0x00],
+        [0x57, 0x56, 0x55, 0x54, 0x01, 0x00, 0x00],
         [SysFd(42)]
     );
     check!(

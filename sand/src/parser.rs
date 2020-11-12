@@ -28,6 +28,7 @@ impl<T: ArrayLength<u8>> ByteReader<T> {
         }
     }
 
+    #[cfg(test)]
     pub fn from_bytes(bytes: &[u8]) -> Self {
         ByteReader {
             file: None,
@@ -113,6 +114,7 @@ pub fn byte<T: Stream>(s: &mut T, template: u8) -> Result<(), ()> {
     }
 }
 
+#[cfg(test)]
 pub fn bytes<T: Stream>(s: &mut T, template: &[u8]) -> Result<(), ()> {
     for b in template {
         byte(s, *b)?;
@@ -156,6 +158,7 @@ pub fn u64_dec<T: Stream>(s: &mut T) -> Result<u64, ()> {
     }
 }
 
+#[cfg(test)]
 pub fn u64_0x<T: Stream>(s: &mut T) -> Result<u64, ()> {
     bytes(s, b"0x").and_then(|_| u64_hex(s))
 }

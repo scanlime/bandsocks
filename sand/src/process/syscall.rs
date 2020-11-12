@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
-    protocol::{Errno, FileAccess, FromSand, SysFd, ToSand, VPtr, VString},
+    protocol::{Errno, FileAccess, FileBacking, FromSand, SysFd, ToSand, VPtr, VString},
 };
 use sc::nr;
 
@@ -19,10 +19,20 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
     }
 
     async fn return_sysfd(&mut self, sys_fd: SysFd) -> isize {
-        // This will need some kind of trampoline to pass the fd through a socket into
-        // the tracee
+        // to do, use remote syscall trampoline to pass fd into process
         println!("unimplemented fd passing, {:?}", sys_fd);
         -abi::EINVAL
+    }
+
+    async fn return_file(&mut self, file: FileBacking) -> isize {
+        // to do, keep track of backing in a fd table and then pass the sysfd if any
+        match file {
+            FileBacking::Normal(sys_fd) => self.return_sysfd(sys_fd).await,
+            file => {
+                println!("unimplemented fd passing, {:?}", file);
+                -abi::EINVAL
+            }
+        }
     }
 
     async fn return_errno(&mut self, err: Errno) -> isize {
@@ -37,9 +47,9 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         }
     }
 
-    async fn return_sysfd_result(&mut self, result: Result<SysFd, Errno>) -> isize {
+    async fn return_file_result(&mut self, result: Result<FileBacking, Errno>) -> isize {
         match result {
-            Ok(sys_fd) => self.return_sysfd(sys_fd).await,
+            Ok(backing) => self.return_file(backing).await,
             Err(err) => self.return_errno(err).await,
         }
     }
@@ -96,7 +106,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                     ToSand::FileOpenReply(result),
                     result
                 );
-                self.return_sysfd_result(result).await
+                self.return_file_result(result).await
             }
 
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
@@ -113,7 +123,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                     ToSand::FileOpenReply(result),
                     result
                 );
-                self.return_sysfd_result(result).await
+                self.return_file_result(result).await
             }
 
             _ => panic!("unexpected syscall trace, {:x?}", self),
