@@ -20,7 +20,7 @@ pub mod task;
 
 use crate::{
     process::task::TaskData,
-    protocol::{FromSand, ToSand},
+    protocol::{FromTask, ToTask},
 };
 use core::{
     future::Future,
@@ -53,7 +53,7 @@ enum TaskState<'t, F: Future<Output = ()>> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Event {
-    Message(ToSand),
+    Message(ToTask),
     Signal { sig: u32, code: u32, status: u32 },
 }
 
@@ -62,8 +62,8 @@ type EventQueue = Queue<Event, EventQueueSize>;
 type EventConsumer<'q> = Consumer<'q, Event, EventQueueSize>;
 
 type OutboxQueueSize = U4;
-type OutboxQueue = Queue<FromSand, OutboxQueueSize>;
-type OutboxProducer<'q> = Producer<'q, FromSand, OutboxQueueSize>;
+type OutboxQueue = Queue<FromTask, OutboxQueueSize>;
+type OutboxProducer<'q> = Producer<'q, FromTask, OutboxQueueSize>;
 
 pub struct MessageSender<'q> {
     producer: OutboxProducer<'q>,
@@ -94,7 +94,7 @@ impl<'q, 's> EventSource<'q> {
 }
 
 impl<'q> MessageSender<'q> {
-    pub fn send(&mut self, message: FromSand) {
+    pub fn send(&mut self, message: FromTask) {
         self.producer.enqueue(message).expect("message outbox full");
     }
 }
@@ -113,7 +113,7 @@ impl<'p, 't: 'p, F: Future<Output = ()>> Process<'t, F> {
         producer.enqueue(event)
     }
 
-    pub fn check_outbox(self: Pin<&mut Self>) -> Option<FromSand> {
+    pub fn check_outbox(self: Pin<&mut Self>) -> Option<FromTask> {
         let mut consumer = unsafe { self.project().outbox_queue.get_unchecked_mut().split().1 };
         consumer.dequeue()
     }

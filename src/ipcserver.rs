@@ -1,10 +1,11 @@
 use crate::{
     errors::IPCError,
+    filesystem::vfs::Filesystem,
     process::Process,
     sand,
     sand::protocol::{
-        buffer::IPCBuffer, Errno, FileBacking, FromSand, MessageFromSand, MessageToSand, SysFd,
-        ToSand, VPid,
+        buffer::IPCBuffer, Errno, FileBacking, FromTask, MessageFromSand, MessageToSand, SysFd,
+        ToTask, VPid,
     },
 };
 use fd_queue::{tokio::UnixStream, EnqueueFd};
@@ -22,13 +23,14 @@ use tokio::{
 };
 
 pub struct IPCServer {
+    filesystem: Filesystem,
     tracer: Child,
     stream: UnixStream,
     process_table: HashMap<VPid, Process>,
 }
 
 impl IPCServer {
-    pub fn new() -> Result<IPCServer, IPCError> {
+    pub fn new(filesystem: Filesystem) -> Result<IPCServer, IPCError> {
         let (server_socket, child_socket) = UnixStream::pair()?;
         clear_close_on_exec_flag(child_socket.as_raw_fd());
 
@@ -41,6 +43,7 @@ impl IPCServer {
         cmd.env("FD", child_socket.as_raw_fd().to_string());
 
         Ok(IPCServer {
+            filesystem,
             tracer: cmd.spawn()?,
             stream: server_socket,
             process_table: HashMap::new(),
@@ -68,7 +71,7 @@ impl IPCServer {
         })
     }
 
-    async fn send_message(&mut self, message: &MessageToSand) -> Result<(), IPCError> {
+    pub async fn send_message(&mut self, message: &MessageToSand) -> Result<(), IPCError> {
         log::info!("<{:x?}", message);
 
         let mut buffer = IPCBuffer::new();
@@ -81,64 +84,66 @@ impl IPCServer {
         Ok(())
     }
 
-    async fn reply(&mut self, message: &MessageFromSand, op: ToSand) -> Result<(), IPCError> {
-        self.send_message(&MessageToSand {
-            task: message.task,
-            op,
-        })
-        .await
-    }
-
     async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), IPCError> {
         log::info!(">{:x?}", message);
 
-        match &message.op {
-            FromSand::OpenProcess(sys_pid) => {
-                if self.process_table.contains_key(&message.task) {
-                    Err(IPCError::WrongProcessState)?;
-                } else {
-                    let process = Process::open(*sys_pid, &self.tracer)?;
-                    let handle = process.to_handle();
-                    assert!(self.process_table.insert(message.task, process).is_none());
-                    self.reply(&message, ToSand::OpenProcessReply(handle))
+        match &message {
+            MessageFromSand::Task { task, op } => match op {
+                FromTask::OpenProcess(sys_pid) => {
+                    if self.process_table.contains_key(task) {
+                        Err(IPCError::WrongProcessState)?;
+                    } else {
+                        let process = Process::open(*sys_pid, &self.tracer)?;
+                        let handle = process.to_handle();
+                        assert!(self.process_table.insert(*task, process).is_none());
+                        self.send_message(&MessageToSand::Task {
+                            task: *task,
+                            op: ToTask::OpenProcessReply(handle),
+                        })
                         .await?;
+                    }
                 }
-            }
 
-            FromSand::FileAccess(access) => match self.process_table.get_mut(&message.task) {
-                None => Err(IPCError::WrongProcessState)?,
-                Some(process) => {
-                    let path = process.read_string(access.path)?;
-                    log::info!("{:x?} sys_access({:?})", message.task, path);
-                    self.reply(&message, ToSand::FileAccessReply(Err(Errno(-libc::ENOENT))))
+                FromTask::FileAccess(access) => match self.process_table.get_mut(task) {
+                    None => Err(IPCError::WrongProcessState)?,
+                    Some(process) => {
+                        let path = process.read_string(access.path)?;
+                        log::info!("{:x?} sys_access({:?})", task, path);
+                        self.send_message(&MessageToSand::Task {
+                            task: *task,
+                            op: ToTask::FileAccessReply(Err(Errno(-libc::ENOENT))),
+                        })
                         .await?;
-                }
-            },
+                    }
+                },
 
-            FromSand::FileOpen { file, flags: _ } => {
-                match self.process_table.get_mut(&message.task) {
+                FromTask::FileOpen { file, flags: _ } => match self.process_table.get_mut(task) {
                     None => Err(IPCError::WrongProcessState)?,
                     Some(process) => {
                         let path = process.read_string(file.path)?;
-                        log::info!("{:x?} sys_open({:?})", message.task, path);
+                        log::info!("{:x?} sys_open({:?})", task, path);
                         let backing_file = std::fs::File::open("/dev/null")?;
                         let fd = SysFd(backing_file.as_raw_fd() as u32);
-                        self.reply(&message, ToSand::FileOpenReply(Ok(FileBacking::Normal(fd))))
-                            .await?;
+                        self.send_message(&MessageToSand::Task {
+                            task: *task,
+                            op: ToTask::FileOpenReply(Ok(FileBacking::Normal(fd))),
+                        })
+                        .await?;
                         drop(backing_file);
                     }
-                }
-            }
+                },
 
-            FromSand::ProcessKill(_vpid, _signal) => {
-                match self.process_table.get_mut(&message.task) {
+                FromTask::ProcessKill(_vpid, _signal) => match self.process_table.get_mut(task) {
                     None => Err(IPCError::WrongProcessState)?,
                     Some(_process) => {
-                        self.reply(&message, ToSand::ProcessKillReply(Ok(())))
-                            .await?;
+                        self.send_message(&MessageToSand::Task {
+                            task: *task,
+                            op: ToTask::ProcessKillReply(Ok(())),
+                        })
+                        .await?;
                     }
-                }
-            }
+                },
+            },
         }
 
         Ok(())

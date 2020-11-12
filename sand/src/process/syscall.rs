@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
-    protocol::{Errno, FileAccess, FileBacking, FromSand, SysFd, ToSand, VPtr, VString},
+    protocol::{Errno, FileAccess, FileBacking, FromTask, SysFd, ToTask, VPtr, VString},
 };
 use sc::nr;
 
@@ -81,12 +81,12 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::ACCESS => {
                 let result = ipc_call!(
                     self.stopped_task.task,
-                    FromSand::FileAccess(FileAccess {
+                    FromTask::FileAccess(FileAccess {
                         dir: None,
                         path: arg_string(0),
                         mode: arg_i32(1),
                     }),
-                    ToSand::FileAccessReply(result),
+                    ToTask::FileAccessReply(result),
                     result
                 );
                 self.return_result(result).await
@@ -95,7 +95,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::OPEN => {
                 let result = ipc_call!(
                     self.stopped_task.task,
-                    FromSand::FileOpen {
+                    FromTask::FileOpen {
                         file: FileAccess {
                             dir: None,
                             path: arg_string(0),
@@ -103,7 +103,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                         },
                         flags: arg_i32(1),
                     },
-                    ToSand::FileOpenReply(result),
+                    ToTask::FileOpenReply(result),
                     result
                 );
                 self.return_file_result(result).await
@@ -112,7 +112,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
                 let result = ipc_call!(
                     self.stopped_task.task,
-                    FromSand::FileOpen {
+                    FromTask::FileOpen {
                         file: FileAccess {
                             dir: None,
                             path: arg_string(1),
@@ -120,7 +120,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                         },
                         flags: arg_i32(2)
                     },
-                    ToSand::FileOpenReply(result),
+                    ToTask::FileOpenReply(result),
                     result
                 );
                 self.return_file_result(result).await

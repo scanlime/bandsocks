@@ -2,28 +2,48 @@
 // by the runtime crate along with our finished binary.
 // This depends on only: core, serde, heapless
 
+/// Any message sent from the IPC server to the sand process
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub struct MessageToSand {
-    pub task: VPid,
-    pub op: ToSand,
+pub enum MessageToSand {
+    Task {
+        task: VPid,
+        op: ToTask
+    },
+    Init {
+        args: SysFd
+    }
 }
 
+/// Any message sent from the sand process to the IPC server
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub struct MessageFromSand {
-    pub task: VPid,
-    pub op: FromSand,
+pub enum MessageFromSand {
+    Task {
+        task: VPid,
+        op: FromTask,
+    }
 }
 
+/// Fixed size header for the variable sized startup data in the Init 'args' pipe
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct InitArgsHeader {
+    argc: usize,
+    argv_len: usize,
+    envp_len: usize
+}
+
+/// A message delivered to one of the lightweight tasks in the tracer
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub enum ToSand {
+pub enum ToTask {
     OpenProcessReply(ProcessHandle),
     FileOpenReply(Result<FileBacking, Errno>),
     FileAccessReply(Result<(), Errno>),
     ProcessKillReply(Result<(), Errno>),
 }
 
+/// A message originating from one lightweight task in the tracer
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub enum FromSand {
+pub enum FromTask {
     OpenProcess(SysPid),
     FileAccess(FileAccess),
     FileOpen { file: FileAccess, flags: i32 },

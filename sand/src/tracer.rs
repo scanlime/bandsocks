@@ -66,7 +66,12 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     }
 
     fn message_event(self: Pin<&mut Self>, message: MessageToSand) {
-        self.task_event(message.task, Event::Message(message.op));
+        match message {
+            MessageToSand::Task{ task, op } => self.task_event(task, Event::Message(op)),
+            MessageToSand::Init{ args } => {
+                println!("new process goes here, args={:?}", args);
+            }
+        }
     }
 
     fn siginfo_event(mut self: Pin<&mut Self>, siginfo: &abi::SigInfo) {
@@ -104,7 +109,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
                 None => break,
                 Some(op) => {
                     let ipc = self.as_mut().project().ipc;
-                    ipc.send(&MessageFromSand { task, op });
+                    ipc.send(&MessageFromSand::Task { task, op });
                 }
             }
         }

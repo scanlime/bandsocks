@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::{SyscallInfo, UserRegs},
     process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
-    protocol::{FromSand, ProcessHandle, SysPid, ToSand, VPid},
+    protocol::{FromTask, ProcessHandle, SysPid, ToTask, VPid},
     ptrace,
 };
 use core::fmt::{self, Debug, Formatter};
@@ -66,9 +66,9 @@ impl<'q> Task<'q> {
             }
         );
 
-        msg.send(FromSand::OpenProcess(task_data.sys_pid));
+        msg.send(FromTask::OpenProcess(task_data.sys_pid));
         match events.next().await {
-            Event::Message(ToSand::OpenProcessReply(process_handle)) => Task {
+            Event::Message(ToTask::OpenProcessReply(process_handle)) => Task {
                 events,
                 msg,
                 process_handle,

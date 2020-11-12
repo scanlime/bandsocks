@@ -4,16 +4,19 @@ use crate::{
     filesystem::vfs::Filesystem,
     image::Image,
     ipcserver::IPCServer,
+    sand::protocol::{MessageToSand, SysFd},
     Reference,
 };
+use fd_queue::tokio::UnixStream;
 use std::{
     collections::BTreeMap,
     default::Default,
     ffi::{OsStr, OsString},
+    os::unix::io::AsRawFd,
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::task::JoinHandle;
+use tokio::{io::AsyncWriteExt, task::JoinHandle};
 
 #[derive(Default)]
 pub struct ContainerBuilder {
@@ -31,7 +34,7 @@ enum EnvBuilder {
 }
 
 impl ContainerBuilder {
-    pub fn spawn(&self) -> Result<Container, RuntimeError> {
+    pub async fn spawn(&self) -> Result<Container, RuntimeError> {
         // it might be nice to enforce this at compile-time instead... right now it
         // seemed worth allowing for multiple ways to load images without the
         // types getting too complex.
@@ -99,7 +102,7 @@ impl ContainerBuilder {
             Err(RuntimeError::NoEntryPoint)?
         }
 
-        Ok(Container::startup(filesystem, argv, env, dir)?)
+        Ok(Container::startup(filesystem, argv, env, dir).await?)
     }
 
     pub fn image(&mut self, image: &Arc<Image>) -> &mut Self {
@@ -171,10 +174,7 @@ impl ContainerBuilder {
 
 #[derive(Debug)]
 pub struct Container {
-    filesystem: Filesystem,
-    dir: PathBuf,
-    argv: Vec<OsString>,
-    env: BTreeMap<OsString, OsString>,
+    args_sockets: (UnixStream, UnixStream),
     ipc_join: JoinHandle<Result<(), IPCError>>,
 }
 
@@ -194,20 +194,25 @@ impl Container {
         Ok(builder)
     }
 
-    fn startup(
+    async fn startup(
         filesystem: Filesystem,
         argv: Vec<OsString>,
         env: BTreeMap<OsString, OsString>,
         dir: PathBuf,
     ) -> Result<Container, RuntimeError> {
-        let ipc_join = IPCServer::new()?.task();
+        let args_sockets = UnixStream::pair()?;
+        let ipc = IPCServer::new(filesystem)?;
+
+        ipc.send_message(&MessageToSand::Init {
+            args: SysFd(args_sockets.1.as_raw_fd() as u32),
+        })
+        .await?;
+
+        args_sockets.0.write_all(b"blah").await?;
 
         Ok(Container {
-            filesystem,
-            argv,
-            env,
-            dir,
-            ipc_join,
+            args_sockets,
+            ipc_join: ipc.task(),
         })
     }
 }
