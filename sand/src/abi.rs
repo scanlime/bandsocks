@@ -18,6 +18,7 @@ pub const F_SEAL_WRITE: usize = 8;
 // ptrace
 // linux/include/uapi/linux/ptrace.h
 pub const PTRACE_TRACEME: usize = 0;
+pub const PTRACE_POKEDATA: usize = 5;
 pub const PTRACE_CONT: usize = 7;
 pub const PTRACE_SINGLESTEP: usize = 9;
 pub const PTRACE_SYSCALL: usize = 24;

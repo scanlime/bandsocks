@@ -42,19 +42,14 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
 
         loop {
             let m = b"Hello World!\n";
-            remote::mem_write(tr.stopped_task, scratch_ptr, m).unwrap();
+            remote::mem_write_padded_bytes(tr.stopped_task, scratch_ptr, m).unwrap();
             assert_eq!(
                 m.len() as isize,
                 tr.syscall(nr::WRITE, &[1, scratch_ptr.0 as isize, m.len() as isize])
                     .await
             );
 
-            remote::mem_write(
-                tr.stopped_task,
-                scratch_ptr,
-                &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            )
-            .unwrap();
+            remote::mem_write_words(tr.stopped_task, scratch_ptr, &[0, 500000000]).unwrap();
             tr.syscall(nr::NANOSLEEP, &[scratch_ptr.0 as isize, 0])
                 .await;
         }

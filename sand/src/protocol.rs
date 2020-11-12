@@ -76,6 +76,7 @@ pub struct VPid(pub u32);
 pub struct VPtr(pub usize);
 
 impl VPtr {
+    #[allow(dead_code)]
     pub fn add(&self, count: usize) -> VPtr {
         VPtr(self.0 + count)
     }

@@ -9,6 +9,7 @@ use crate::{
     protocol::VPtr,
     ptrace,
 };
+use core::mem::size_of;
 use sc::syscall;
 
 #[derive(Debug)]
@@ -213,25 +214,41 @@ pub fn mem_read<'q, 's>(
     }
 }
 
-pub fn mem_write<'q, 's>(
+pub fn mem_write_word<'q, 's>(
     stopped_task: &mut StoppedTask<'q, 's>,
     ptr: VPtr,
+    word: usize,
+) -> Result<(), ()> {
+    assert!(0 == (ptr.0 % size_of::<usize>()));
+    ptrace::poke(stopped_task.task.task_data.sys_pid, ptr.0, word)
+}
+
+pub fn mem_write_words<'q, 's>(
+    stopped_task: &mut StoppedTask<'q, 's>,
+    mut ptr: VPtr,
+    words: &[usize],
+) -> Result<(), ()> {
+    assert!(0 == (ptr.0 % size_of::<usize>()));
+    for word in words {
+        mem_write_word(stopped_task, ptr, *word)?;
+        ptr = ptr.add(size_of::<usize>());
+    }
+    Ok(())
+}
+
+pub fn mem_write_padded_bytes<'q, 's>(
+    stopped_task: &mut StoppedTask<'q, 's>,
+    mut ptr: VPtr,
     bytes: &[u8],
 ) -> Result<(), ()> {
-    let mem_fd = stopped_task.task.process_handle.mem.0;
-    match unsafe {
-        bytes.len()
-            == syscall!(
-                PWRITE64,
-                mem_fd,
-                bytes.as_ptr() as usize,
-                bytes.len(),
-                ptr.0
-            )
-    } {
-        false => Err(()),
-        true => Ok(()),
+    assert!(0 == (ptr.0 % size_of::<usize>()));
+    for chunk in bytes.chunks(size_of::<usize>()) {
+        let mut padded_chunk = 0usize.to_ne_bytes();
+        padded_chunk[0..chunk.len()].copy_from_slice(chunk);
+        mem_write_word(stopped_task, ptr, usize::from_ne_bytes(padded_chunk))?;
+        ptr = ptr.add(padded_chunk.len());
     }
+    Ok(())
 }
 
 pub fn mem_find<'q, 's>(

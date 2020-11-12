@@ -121,6 +121,13 @@ pub fn geteventmsg(pid: SysPid) -> usize {
     }
 }
 
+pub fn poke(pid: SysPid, addr: usize, data: usize) -> Result<(), ()> {
+    match unsafe { syscall!(PTRACE, abi::PTRACE_POKEDATA, pid.0, addr, data) as isize } {
+        0 => Ok(()),
+        _ => Err(()),
+    }
+}
+
 pub fn wait(info: &mut abi::SigInfo) -> isize {
     let info_ptr = info as *mut abi::SigInfo as usize;
     assert_eq!(mem::size_of_val(info), abi::SI_MAX_SIZE);

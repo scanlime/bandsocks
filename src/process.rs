@@ -5,7 +5,7 @@ use crate::{
 use regex::Regex;
 use std::{
     ffi::{OsStr, OsString},
-    fs::{File, OpenOptions},
+    fs::File,
     io::Read,
     os::unix::{ffi::OsStrExt, fs::FileExt, io::AsRawFd},
     process::Child,
@@ -92,8 +92,9 @@ impl Process {
 }
 
 fn open_mem_file(sys_pid: SysPid) -> Result<File, IPCError> {
+    // open for read only, write is not portable enough
     let path = format!("/proc/{}/mem", sys_pid.0);
-    Ok(OpenOptions::new().read(true).write(true).open(path)?)
+    Ok(File::open(path)?)
 }
 
 fn open_maps_file(sys_pid: SysPid) -> Result<File, IPCError> {
