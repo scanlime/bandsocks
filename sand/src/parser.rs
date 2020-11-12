@@ -10,6 +10,11 @@ pub struct ByteReader<T: ArrayLength<u8>> {
     buf: Vec<u8, T>,
 }
 
+pub trait Stream {
+    fn peek(&mut self) -> Option<Result<u8, ()>>;
+    fn next(&mut self) -> Option<Result<u8, ()>>;
+}
+
 // Safe for use with seq_file instances in linux (like procfiles).
 // They track the file pointer seprately, and re-generate their contents
 // only when we re-read offset zero. The kernel assumes the file offsets
@@ -32,8 +37,10 @@ impl<T: ArrayLength<u8>> ByteReader<T> {
             buf: Vec::from_slice(bytes)?,
         })
     }
+}
 
-    pub fn peek(&mut self) -> Option<Result<u8, ()>> {
+impl<T: ArrayLength<u8>> Stream for ByteReader<T> {
+    fn peek(&mut self) -> Option<Result<u8, ()>> {
         if let Some(file) = &self.file {
             if self.buf_position == self.buf.len() {
                 self.buf_position = 0;
@@ -64,10 +71,7 @@ impl<T: ArrayLength<u8>> ByteReader<T> {
             Some(Ok(byte))
         }
     }
-}
 
-impl<T: ArrayLength<u8>> Iterator for ByteReader<T> {
-    type Item = Result<u8, ()>;
     fn next(&mut self) -> Option<Result<u8, ()>> {
         match self.peek() {
             Some(Ok(byte)) => {
@@ -80,43 +84,48 @@ impl<T: ArrayLength<u8>> Iterator for ByteReader<T> {
     }
 }
 
-pub fn byte<T: ArrayLength<u8>>(reader: &mut ByteReader<T>, template: u8) -> Result<(), ()> {
-    match reader.peek() {
+pub fn byte<T: Stream>(s: &mut T, template: u8) -> Result<(), ()> {
+    match s.peek() {
         Some(Ok(byte)) if byte == template => {
-            reader.next();
+            s.next();
             Ok(())
         }
         _ => Err(()),
     }
 }
 
-
-
-pub fn space<T: ArrayLength<u8>>(reader: &mut ByteReader<T>) -> Result<(), ()> {
-    byte(reader, b' ').or_else(|_| byte(reader, b'\t'))
-}
-
-pub fn spaces<T: ArrayLength<u8>>(reader: &mut ByteReader<T>) -> Result<(), ()> {
-    space(reader)?;
-    while space(reader).is_ok() {}
+pub fn bytes<T: Stream>(s: &mut T, template: &[u8]) -> Result<(), ()> {
+    for b in template {
+        byte(s, *b)?;
+    }
     Ok(())
 }
 
-pub fn eof<T: ArrayLength<u8>>(reader: &mut ByteReader<T>) -> Result<(), ()> {
-    match reader.peek() {
+pub fn space<T: Stream>(s: &mut T) -> Result<(), ()> {
+    byte(s, b' ').or_else(|_| byte(s, b'\t'))
+}
+
+pub fn spaces<T: Stream>(s: &mut T) -> Result<(), ()> {
+    space(s)?;
+    while space(s).is_ok() {}
+    Ok(())
+}
+
+pub fn eof<T: Stream>(s: &mut T) -> Result<(), ()> {
+    match s.peek() {
         None => Ok(()),
         _ => Err(()),
     }
 }
 
-pub fn u64_dec<T: ArrayLength<u8>>(reader: &mut ByteReader<T>) -> Result<u64, ()> {
-    match reader.peek() {
+pub fn u64_dec<T: Stream>(s: &mut T) -> Result<u64, ()> {
+    match s.peek() {
         Some(Ok(byte)) if (b'0'..=b'9').contains(&byte) => Ok({
             let mut value = 0;
-            while let Some(Ok(byte)) = reader.peek() {
+            while let Some(Ok(byte)) = s.peek() {
                 let digit = (byte as u64).wrapping_sub(b'0' as u64);
                 if digit < 10 {
-                    reader.next();
+                    s.next();
                     value = value * 10 + digit;
                 } else {
                     break;
@@ -128,14 +137,12 @@ pub fn u64_dec<T: ArrayLength<u8>>(reader: &mut ByteReader<T>) -> Result<u64, ()
     }
 }
 
-pub fn u64_0x<T: ArrayLength<u8>>(reader: &mut ByteReader<T>) -> Result<u64, ()> {
-    byte(reader, b'0')?;
-    byte(reader, b'x')?;
-    u64_hex(reader)
+pub fn u64_0x<T: Stream>(s: &mut T) -> Result<u64, ()> {
+    bytes(s, b"0x").and_then(|_| u64_hex(s))
 }
 
-pub fn u64_hex<T: ArrayLength<u8>>(r: &mut ByteReader<T>) -> Result<u64, ()> {
-    match r.peek() {
+pub fn u64_hex<T: Stream>(s: &mut T) -> Result<u64, ()> {
+    match s.peek() {
         Some(Ok(byte))
             if (b'0'..=b'9').contains(&byte)
                 || (b'a'..=b'f').contains(&byte)
@@ -143,22 +150,15 @@ pub fn u64_hex<T: ArrayLength<u8>>(r: &mut ByteReader<T>) -> Result<u64, ()> {
         {
             Ok({
                 let mut value = 0;
-                while let Some(Ok(byte)) = r.peek() {
-                    match byte {
-                        b'0'..=b'9' => {
-                            r.next();
-                            value = (value << 4) | (byte - b'0') as u64;
-                        }
-                        b'a'..=b'f' => {
-                            r.next();
-                            value = (value << 4) | (10 + byte - b'a') as u64;
-                        }
-                        b'A'..=b'F' => {
-                            r.next();
-                            value = (value << 4) | (10 + byte - b'A') as u64;
-                        }
+                while let Some(Ok(byte)) = s.peek() {
+                    let digit = match byte {
+                        b'0'..=b'9' => byte - b'0',
+                        b'a'..=b'f' => 10 + byte - b'a',
+                        b'A'..=b'F' => 10 + byte - b'A',
                         _ => break,
-                    }
+                    };
+                    s.next();
+                    value = (value << 4) | digit as u64;
                 }
                 value
             })
