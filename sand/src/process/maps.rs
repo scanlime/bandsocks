@@ -1,68 +1,94 @@
-use crate::{abi, process::task::StoppedTask};
+use crate::{abi, parser, parser::Token, parser::ByteReader, process::task::StoppedTask};
 use core::iter::Iterator;
 use heapless::{consts::*, Vec};
-use sc::syscall;
 
 #[derive(Debug)]
-pub struct MemArea<'i> {
+pub struct MemArea {
     pub start: usize,
     pub end: usize,
     pub offset: usize,
-    pub dev: usize,
+    pub dev_major: usize,
+    pub dev_minor: usize,
     pub inode: usize,
     pub read: bool,
     pub write: bool,
-    pub exec: bool,
+    pub execute: bool,
     pub mayshare: bool,
-    pub name: Option<&'i str>,
+    pub name: MemAreaName,
 }
 
-// must be able to hold the longest map line (including name) that we will read
-type BufferSize = U16384;
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum MemAreaName {
+    None,
+    VDSO,
+    Path,
+    Other,
+}
 
 pub struct MapsIterator<'q, 's, 't> {
     stopped_task: &'t mut StoppedTask<'q, 's>,
-    buffer: Vec<u8, BufferSize>,
-    offset: usize,
+    stream: ByteReader<U4096>,
 }
 
 impl<'q, 's, 't> MapsIterator<'q, 's, 't> {
     pub fn new(stopped_task: &'t mut StoppedTask<'q, 's>) -> Self {
-        assert_eq!(0, unsafe {
-            syscall!(
-                LSEEK,
-                stopped_task.task.process_handle.maps.0,
-                0,
-                abi::SEEK_SET
-            )
-        });
+        let stream = ByteReader::from_sysfd(stopped_task.task.process_handle.maps.clone());
         MapsIterator {
             stopped_task,
-            buffer: Vec::new(),
-            offset: 0,
+            stream,
         }
-    }
-
-    fn fill_buffer(&mut self) {
-        assert_eq!(self.offset, self.buffer.len());
-        unsafe {
-            let len = syscall!(
-                READ,
-                self.stopped_task.task.process_handle.maps.0,
-                self.buffer.as_mut_ptr().add(self.buffer.len()),
-                self.buffer.capacity() - self.buffer.len()
-            ) as isize;
-            assert!(len >= 0 && (len as usize + self.buffer.len() <= self.buffer.capacity()));
-            self.buffer.set_len(len as usize);
-        }
-        self.offset = 0;
     }
 }
 
-impl<'i, 'q, 's, 't> Iterator for &'i mut MapsIterator<'q, 's, 't> {
-    type Item = MemArea<'i>;
+impl<'q, 's, 't> Iterator for MapsIterator<'q, 's, 't> {
+    type Item = MemArea;
 
-    fn next(&mut self) -> Option<MemArea<'i>> {
-        None
+    fn next(&mut self) -> Option<MemArea> {
+        if parser::eof(&mut self.stream).is_ok() {
+            None
+        } else {
+
+            let start = parser::u64_hex(&mut self.stream).unwrap() as usize;
+            parser::byte(&mut self.stream, b'-').unwrap();
+            let end = parser::u64_hex(&mut self.stream).unwrap() as usize;
+            parser::spaces(&mut self.stream).unwrap();
+
+            let read = parser::flag(&mut self.stream, b'r', b'-').unwrap();
+            let write = parser::flag(&mut self.stream, b'w', b'-').unwrap();
+            let execute = parser::flag(&mut self.stream, b'x', b'-').unwrap();
+            let mayshare = parser::flag(&mut self.stream, b's', b'p').unwrap();
+            parser::spaces(&mut self.stream).unwrap();
+
+            let offset = parser::u64_hex(&mut self.stream).unwrap() as usize;
+            parser::spaces(&mut self.stream).unwrap();
+
+            let dev_major = parser::u64_hex(&mut self.stream).unwrap() as usize;
+            parser::byte(&mut self.stream, b':').unwrap();
+            let dev_minor = parser::u64_hex(&mut self.stream).unwrap() as usize;
+            parser::spaces(&mut self.stream).unwrap();
+
+            let inode = parser::u64_dec(&mut self.stream).unwrap() as usize;
+            parser::spaces(&mut self.stream).unwrap();
+
+            let name = match parser::switch(&mut self.stream, &mut [
+                Token::new(b"/", &MemAreaName::Path),
+                Token::new(b"[vdso]\n", &MemAreaName::VDSO),
+                Token::new(b"\n", &MemAreaName::None),
+            ]) {
+                Ok(name) if name == &MemAreaName::Path => {
+                    parser::until_byte_inclusive(&mut self.stream, b'\n').unwrap();
+                    MemAreaName::Path
+                },
+                Err(()) => {
+                    parser::until_byte_inclusive(&mut self.stream, b'\n').unwrap();
+                    MemAreaName::Other
+                },
+                Ok(name) => name.clone(),
+            };
+
+            Some(MemArea {
+                start, end, read, write, execute, mayshare, offset, dev_major, dev_minor, inode, name
+            })
+        }
     }
 }

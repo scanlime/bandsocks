@@ -53,6 +53,6 @@ pub fn mem_write<'q, 's>(
 
 pub fn print_maps(stopped_task: &mut StoppedTask) {
     for map in &mut MapsIterator::new(stopped_task) {
-        println!("{:?}", map);
+        println!("{:x?}", map);
     }
 }

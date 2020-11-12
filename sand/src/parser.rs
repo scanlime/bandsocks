@@ -1,5 +1,4 @@
 use crate::protocol::SysFd;
-use core::iter::Iterator;
 use heapless::{ArrayLength, Vec};
 use sc::syscall;
 
@@ -20,22 +19,22 @@ pub trait Stream {
 // only when we re-read offset zero. The kernel assumes the file offsets
 // increase as expected, it does not support arbitrary seeks.
 impl<T: ArrayLength<u8>> ByteReader<T> {
-    pub fn from_sysfd(file: SysFd) -> Result<Self, ()> {
-        Ok(ByteReader {
+    pub fn from_sysfd(file: SysFd) -> Self {
+        ByteReader {
             file: Some(file),
             file_position: 0,
             buf_position: 0,
             buf: Vec::new(),
-        })
+        }
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ()> {
-        Ok(ByteReader {
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        ByteReader {
             file: None,
             file_position: 0,
             buf_position: 0,
-            buf: Vec::from_slice(bytes)?,
-        })
+            buf: Vec::from_slice(bytes).unwrap(),
+        }
     }
 }
 
@@ -82,6 +81,26 @@ impl<T: ArrayLength<u8>> Stream for ByteReader<T> {
             None => None,
         }
     }
+}
+
+pub fn until_byte<T: Stream>(s: &mut T, delimeter: u8) -> Result<(), ()> {
+    loop {
+        match s.peek() {
+            Some(Ok(byte)) if byte == delimeter => {
+                return Ok(());
+            }
+            Some(Ok(_)) => {
+                s.next();
+            }
+            _ => {
+                return Err(());
+            }
+        }
+    }
+}
+
+pub fn until_byte_inclusive<T: Stream>(s: &mut T, delimeter: u8) -> Result<(), ()> {
+    until_byte(s, delimeter).and_then(|_| byte(s, delimeter))
 }
 
 pub fn byte<T: Stream>(s: &mut T, template: u8) -> Result<(), ()> {
@@ -167,6 +186,83 @@ pub fn u64_hex<T: Stream>(s: &mut T) -> Result<u64, ()> {
     }
 }
 
+pub fn flag<T: Stream>(s: &mut T, true_byte: u8, false_byte: u8) -> Result<bool, ()> {
+    match s.peek() {
+        Some(Ok(byte)) if byte == true_byte => {
+            s.next();
+            Ok(true)
+        }
+        Some(Ok(byte)) if byte == false_byte => {
+            s.next();
+            Ok(false)
+        }
+        _ => Err(()),
+    }
+}
+
+pub struct Token<'v, V> {
+    bytes: &'static [u8],
+    value: &'v V,
+    state: usize,
+}
+
+impl<'v, V> Token<'v, V> {
+    pub fn new(bytes: &'static [u8], value: &'v V) -> Self {
+        Token {
+            bytes,
+            value,
+            state: 0,
+        }
+    }
+
+    fn update(&mut self, byte: u8) -> Option<Result<&'v V, ()>> {
+        if self.state < self.bytes.len() && byte == self.bytes[self.state] {
+            self.state += 1;
+            if self.state == self.bytes.len() {
+                Some(Ok(&self.value))
+            } else {
+                None
+            }
+        } else {
+            self.state = self.bytes.len();
+            Some(Err(()))
+        }
+    }
+}
+
+pub fn switch<'a, T: Stream, V>(s: &mut T, tokens: &'a mut [Token<V>]) -> Result<&'a V, ()> {
+    for token in tokens.iter_mut() {
+        token.state = 0;
+    }
+    loop {
+        match s.peek() {
+            Some(Ok(byte)) => {
+                let mut any_matching = false;
+                for token in tokens.iter_mut() {
+                    match token.update(byte) {
+                        Some(Ok(v)) => {
+                            s.next();
+                            return Ok(v);
+                        }
+                        None => {
+                            any_matching = true;
+                        }
+                        Some(Err(_)) => {}
+                    }
+                }
+                if any_matching {
+                    s.next();
+                } else {
+                    return Err(());
+                }
+            }
+            _ => {
+                return Err(());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -176,7 +272,7 @@ mod test {
 
     #[test]
     fn blah() {
-        let mut r = ByteReader::<U128>::from_bytes(b"blah").unwrap();
+        let mut r = ByteReader::<U128>::from_bytes(b"blah");
         assert_eq!(r.next(), Some(Ok(b'b')));
         assert_eq!(r.next(), Some(Ok(b'l')));
         assert_eq!(r.next(), Some(Ok(b'a')));
@@ -187,7 +283,7 @@ mod test {
 
     #[test]
     fn blah2() {
-        let mut r = ByteReader::<U128>::from_bytes(b"blah").unwrap();
+        let mut r = ByteReader::<U128>::from_bytes(b"blah");
         assert_eq!(byte(&mut r, b'b'), Ok(()));
         assert_eq!(byte(&mut r, b'b'), Err(()));
         assert_eq!(eof(&mut r), Err(()));
@@ -202,9 +298,53 @@ mod test {
     }
 
     #[test]
+    fn switch1() {
+        let mut r = ByteReader::<U128>::from_bytes(b"blahblahb");
+        let mut tokens = [
+            Token::new(b"blarblar", &100),
+            Token::new(b"bla", &42),
+            Token::new(b"brrrrr", &50),
+            Token::new(b"h", &1),
+        ];
+        assert_eq!(Ok(&42), switch(&mut r, &mut tokens));
+        assert_eq!(Ok(&1), switch(&mut r, &mut tokens));
+        assert_eq!(Ok(&42), switch(&mut r, &mut tokens));
+        assert_eq!(Ok(&1), switch(&mut r, &mut tokens));
+        assert_eq!(Err(()), switch(&mut r, &mut tokens));
+    }
+
+    #[test]
+    fn switch2() {
+        let mut r = ByteReader::<U128>::from_bytes(b"abappap");
+        let mut tokens = [
+            Token::new(b"a", &1),
+            Token::new(b"b", &2),
+            Token::new(b"p", &3),
+        ];
+        assert_eq!(Ok(&1), switch(&mut r, &mut tokens));
+        assert_eq!(Ok(&2), switch(&mut r, &mut tokens));
+        assert_eq!(Ok(&1), switch(&mut r, &mut tokens));
+        assert_eq!(Ok(&3), switch(&mut r, &mut tokens));
+        assert_eq!(Ok(&3), switch(&mut r, &mut tokens));
+        assert_eq!(Ok(&1), switch(&mut r, &mut tokens));
+        assert_eq!(Ok(&3), switch(&mut r, &mut tokens));
+        assert_eq!(Err(()), switch(&mut r, &mut tokens));
+        assert_eq!(Err(()), switch(&mut r, &mut tokens));
+    }
+
+    #[test]
+    fn switch3() {
+        let mut r = ByteReader::<U128>::from_bytes(b"false");
+        assert_eq!(
+            Ok(&false),
+            switch(&mut r, &mut [Token::new(b"false", &false)])
+        );
+    }
+
+    #[test]
     fn dev_zero() {
         let f = File::open("/dev/zero").unwrap();
-        let mut r = ByteReader::<U2>::from_sysfd(SysFd(f.as_raw_fd() as u32)).unwrap();
+        let mut r = ByteReader::<U2>::from_sysfd(SysFd(f.as_raw_fd() as u32));
         assert_eq!(r.next(), Some(Ok(0)));
         assert_eq!(r.next(), Some(Ok(0)));
         assert_eq!(r.next(), Some(Ok(0)));
@@ -216,7 +356,7 @@ mod test {
     #[test]
     fn dev_null() {
         let f = File::open("/dev/null").unwrap();
-        let mut r = ByteReader::<U16>::from_sysfd(SysFd(f.as_raw_fd() as u32)).unwrap();
+        let mut r = ByteReader::<U16>::from_sysfd(SysFd(f.as_raw_fd() as u32));
         assert_eq!(r.next(), None);
         assert_eq!(r.next(), None);
     }
@@ -224,7 +364,7 @@ mod test {
     #[test]
     fn proc_atomicity() {
         let f = File::open("/proc/thread-self/syscall").unwrap();
-        let mut r = ByteReader::<U1>::from_sysfd(SysFd(f.as_raw_fd() as u32)).unwrap();
+        let mut r = ByteReader::<U1>::from_sysfd(SysFd(f.as_raw_fd() as u32));
         let syscall_nr = u64_dec(&mut r).unwrap();
         spaces(&mut r).unwrap();
         let arg_1 = u64_0x(&mut r).unwrap();
