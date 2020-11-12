@@ -1,5 +1,6 @@
 use crate::{
     parser,
+    protocol::VPtr,
     parser::{ByteReader, Token},
     process::task::StoppedTask,
 };
@@ -28,6 +29,17 @@ pub enum MemAreaName {
     VVar,
     Path,
     Other,
+}
+
+impl MemArea {
+    pub fn vptr(&self) -> VPtr {
+        VPtr(self.start)
+    }
+
+    pub fn len(&self) -> usize {
+        assert!(self.end >= self.start);
+        self.end - self.start + 1
+    }
 }
 
 pub struct MapsIterator<'q, 's, 't> {

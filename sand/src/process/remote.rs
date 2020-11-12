@@ -105,6 +105,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         let fake_syscall_nr = sc::nr::OPEN;
         let fake_syscall_arg = 0xffff_ffff_dddd_dddd_u64;
         regs.ip = self.syscall.0 as u64;
+        regs.sp = 0;
         SyscallInfo::nr_to_regs(fake_syscall_nr as isize, regs);
         SyscallInfo::args_to_regs(&[fake_syscall_arg as isize; 6], regs);
 
@@ -124,6 +125,39 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         assert_eq!(info.args, [fake_syscall_arg; 6]);
 
         result
+    }
+
+    pub async fn mmap(
+        &mut self,
+        addr: VPtr,
+        length: usize,
+        prot: isize,
+        flags: isize,
+        fd: isize,
+        offset: isize,
+    ) -> Result<VPtr, ()> {
+        let result = self
+            .syscall(
+                sc::nr::MMAP,
+                &[addr.0 as isize, length as isize, prot, flags, fd, offset],
+            )
+            .await;
+        if result == abi::MAP_FAILED {
+            Err(())
+        } else {
+            Ok(VPtr(result as usize))
+        }
+    }
+
+    pub async fn munmap(&mut self, addr: VPtr, length: usize) -> Result<(), ()> {
+        let result = self
+            .syscall(sc::nr::MUNMAP, &[addr.0 as isize, length as isize])
+            .await;
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }
 

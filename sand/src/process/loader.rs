@@ -28,45 +28,48 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         let mut tr = remote::Trampoline::new(self.stopped_task);
 
         loop {
-            let mut unmap = None;
-            for map in MapsIterator::new(tr.stopped_task) {
-                if map != tr.vdso && map != tr.vvar {
-                    let addr = map.start;
-                    let length = map.end - map.start + 1;
-                    unmap = Some([addr as isize, length as isize]);
+            let mut to_unmap = None;
+            for area in MapsIterator::new(tr.stopped_task) {
+                if area != tr.vdso && area != tr.vvar {
+                    to_unmap = Some(area);
                     break;
                 }
             }
-            match unmap {
-                Some(args) => assert_eq!(0, tr.syscall(nr::MUNMAP, &args).await),
+            match to_unmap {
+                Some(area) => tr.munmap(area.vptr(), area.len()).await.unwrap(),
                 None => break,
             }
         }
 
         let scratch_ptr = VPtr(0x10000);
-        assert_eq!(
-            scratch_ptr.0 as isize,
-            tr.syscall(
-                nr::MMAP,
-                &[
-                    scratch_ptr.0 as isize,
-                    0x100000,
-                    abi::PROT_READ | abi::PROT_WRITE,
-                    abi::MAP_ANONYMOUS | abi::MAP_PRIVATE | abi::MAP_FIXED
-                ]
-            )
-            .await
-        );
+        tr.mmap(
+            scratch_ptr,
+            0x100000,
+            abi::PROT_READ | abi::PROT_WRITE,
+            abi::MAP_ANONYMOUS | abi::MAP_PRIVATE | abi::MAP_FIXED,
+            0,
+            0,
+        )
+        .await
+        .unwrap();
 
         loop {
             let m = b"Hello World!\n";
-            remote::mem_write(self.stopped_task, scratch_ptr, m).unwrap();
+            remote::mem_write(tr.stopped_task, scratch_ptr, m).unwrap();
             assert_eq!(
                 m.len() as isize,
-                remote::Trampoline::new(self.stopped_task)
-                    .syscall(nr::WRITE, &[1, scratch_ptr.0 as isize, m.len() as isize])
+                tr.syscall(nr::WRITE, &[1, scratch_ptr.0 as isize, m.len() as isize])
                     .await
             );
+
+            remote::mem_write(
+                tr.stopped_task,
+                scratch_ptr,
+                &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            )
+            .unwrap();
+            tr.syscall(nr::NANOSLEEP, &[scratch_ptr.0 as isize, 0])
+                .await;
         }
     }
 }

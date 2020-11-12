@@ -56,6 +56,7 @@ pub const PTRACE_SYSCALL_INFO_SECCOMP: u8 = 3;
 pub const MAP_PRIVATE: isize = 0x02;
 pub const MAP_ANONYMOUS: isize = 0x20;
 pub const MAP_FIXED: isize = 0x10;
+pub const MAP_FAILED: isize = -1;
 
 // linux/include/uapi/asm-generic/mman-common.h
 pub const PROT_READ: isize = 1;
