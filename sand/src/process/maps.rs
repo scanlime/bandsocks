@@ -27,6 +27,7 @@ pub enum MemAreaName {
     None,
     VDSO,
     VVar,
+    VSyscall,
     Path,
     Other,
 }
@@ -92,6 +93,7 @@ impl<'q, 's, 't> Iterator for MapsIterator<'q, 's, 't> {
                     Token::new(b"/", &MemAreaName::Path),
                     Token::new(b"[vdso]\n", &MemAreaName::VDSO),
                     Token::new(b"[vvar]\n", &MemAreaName::VVar),
+                    Token::new(b"[vsyscall]\n", &MemAreaName::VSyscall),
                     Token::new(b"\n", &MemAreaName::None),
                 ],
             ) {

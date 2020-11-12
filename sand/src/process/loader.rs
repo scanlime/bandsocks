@@ -1,6 +1,6 @@
 use crate::{
     abi,
-    process::{maps::MapsIterator, remote, task::StoppedTask},
+    process::{remote, task::StoppedTask},
     protocol::{Errno, VPtr, VString},
 };
 use sc::nr;
@@ -26,20 +26,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
 
     pub async fn do_exec(self) -> Result<(), Errno> {
         let mut tr = remote::Trampoline::new(self.stopped_task);
-
-        loop {
-            let mut to_unmap = None;
-            for area in MapsIterator::new(tr.stopped_task) {
-                if area != tr.vdso && area != tr.vvar {
-                    to_unmap = Some(area);
-                    break;
-                }
-            }
-            match to_unmap {
-                Some(area) => tr.munmap(area.vptr(), area.len()).await.unwrap(),
-                None => break,
-            }
-        }
+        tr.unmap_all_userspace_mem().await;
 
         let scratch_ptr = VPtr(0x10000);
         tr.mmap(

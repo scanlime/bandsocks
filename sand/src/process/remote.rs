@@ -16,7 +16,8 @@ pub struct Trampoline<'q, 's, 't> {
     pub stopped_task: &'t mut StoppedTask<'q, 's>,
     pub vdso: MemArea,
     pub vvar: MemArea,
-    pub syscall: VPtr,
+    pub vsyscall: Option<MemArea>,
+    pub vdso_syscall: VPtr,
 }
 
 fn find_syscall<'q, 's>(
@@ -36,6 +37,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
     pub fn new(stopped_task: &'t mut StoppedTask<'q, 's>) -> Self {
         let mut vdso = None;
         let mut vvar = None;
+        let mut vsyscall = None;
 
         for map in MapsIterator::new(stopped_task) {
             match map.name {
@@ -46,8 +48,9 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                     assert_eq!(map.mayshare, false);
                     assert_eq!(map.dev_major, 0);
                     assert_eq!(map.dev_minor, 0);
+                    assert_eq!(vdso, None);
                     vdso = Some(map);
-                }
+                },
                 MemAreaName::VVar => {
                     assert_eq!(map.read, true);
                     assert_eq!(map.write, false);
@@ -55,21 +58,49 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                     assert_eq!(map.mayshare, false);
                     assert_eq!(map.dev_major, 0);
                     assert_eq!(map.dev_minor, 0);
+                    assert_eq!(vvar, None);
                     vvar = Some(map);
-                }
+                },
+                MemAreaName::VSyscall => {
+                    assert_eq!(map.read, false);
+                    assert_eq!(map.write, false);
+                    assert_eq!(map.execute, true);
+                    assert_eq!(map.mayshare, false);
+                    assert_eq!(map.dev_major, 0);
+                    assert_eq!(map.dev_minor, 0);
+                    assert_eq!(vsyscall, None);
+                    vsyscall = Some(map);
+                },
                 _ => {}
             }
         }
 
         let vdso = vdso.unwrap();
         let vvar = vvar.unwrap();
-        let syscall = find_syscall(stopped_task, &vdso).unwrap();
+        let vdso_syscall = find_syscall(stopped_task, &vdso).unwrap();
 
         Trampoline {
             stopped_task,
             vdso,
             vvar,
-            syscall,
+            vsyscall,
+            vdso_syscall,
+        }
+    }
+
+    pub async fn unmap_all_userspace_mem(&mut self) {
+        loop {
+            let mut to_unmap = None;
+            for area in MapsIterator::new(self.stopped_task) {
+                if area != self.vdso && area != self.vvar && Some(&area) != self.vsyscall.as_ref() {
+                    to_unmap = Some(area);
+                    break;
+                }
+            }
+            match to_unmap {
+                Some(area) => self.munmap(area.vptr(), area.len()).await.unwrap(),
+                None => return,
+            }
         }
     }
 
@@ -104,7 +135,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         // using the VDSO as a trampoline.
         let fake_syscall_nr = sc::nr::OPEN;
         let fake_syscall_arg = 0xffff_ffff_dddd_dddd_u64;
-        regs.ip = self.syscall.0 as u64;
+        regs.ip = self.vdso_syscall.0 as u64;
         regs.sp = 0;
         SyscallInfo::nr_to_regs(fake_syscall_nr as isize, regs);
         SyscallInfo::args_to_regs(&[fake_syscall_arg as isize; 6], regs);
