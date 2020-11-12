@@ -36,6 +36,20 @@ pub async fn syscall<'q, 's>(
     SyscallInfo::ret_from_regs(regs)
 }
 
+pub fn mem_read<'q, 's>(
+    stopped_task: &mut StoppedTask<'q, 's>,
+    ptr: VPtr,
+    bytes: &mut [u8],
+) -> Result<(), ()> {
+    let mem_fd = stopped_task.task.process_handle.mem.0;
+    match unsafe {
+        bytes.len() == syscall!(PREAD64, mem_fd, bytes.as_mut_ptr() as usize, bytes.len(), ptr.0)
+    } {
+        false => Err(()),
+        true => Ok(()),
+    }
+}
+
 pub fn mem_write<'q, 's>(
     stopped_task: &mut StoppedTask<'q, 's>,
     ptr: VPtr,
@@ -43,8 +57,7 @@ pub fn mem_write<'q, 's>(
 ) -> Result<(), ()> {
     let mem_fd = stopped_task.task.process_handle.mem.0;
     match unsafe {
-        ptr.0 == syscall!(LSEEK, mem_fd, ptr.0, abi::SEEK_SET)
-            && bytes.len() == syscall!(WRITE, mem_fd, bytes.as_ptr() as usize, bytes.len())
+        bytes.len() == syscall!(PWRITE64, mem_fd, bytes.as_ptr() as usize, bytes.len(), ptr.0)
     } {
         false => Err(()),
         true => Ok(()),
