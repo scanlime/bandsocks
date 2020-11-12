@@ -12,8 +12,8 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(location) = info.location() {
         bandsocks_sand::print!(" at {}:{}", location.file(), location.line());
     }
-   bandsocks_sand::println!();
-bandsocks_sand::nolibc::exit(bandsocks_sand::nolibc::EXIT_SUCCESS);
+    bandsocks_sand::println!();
+    bandsocks_sand::nolibc::exit(bandsocks_sand::nolibc::EXIT_SUCCESS);
 }
 
 #[cfg(not(test))]

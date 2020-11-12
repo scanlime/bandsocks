@@ -50,7 +50,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                     assert_eq!(map.dev_minor, 0);
                     assert_eq!(vdso, None);
                     vdso = Some(map);
-                },
+                }
                 MemAreaName::VVar => {
                     assert_eq!(map.read, true);
                     assert_eq!(map.write, false);
@@ -60,7 +60,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                     assert_eq!(map.dev_minor, 0);
                     assert_eq!(vvar, None);
                     vvar = Some(map);
-                },
+                }
                 MemAreaName::VSyscall => {
                     assert_eq!(map.read, false);
                     assert_eq!(map.write, false);
@@ -70,7 +70,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                     assert_eq!(map.dev_minor, 0);
                     assert_eq!(vsyscall, None);
                     vsyscall = Some(map);
-                },
+                }
                 _ => {}
             }
         }

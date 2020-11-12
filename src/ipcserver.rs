@@ -3,7 +3,8 @@ use crate::{
     process::Process,
     sand,
     sand::protocol::{
-        buffer::IPCBuffer, Errno, FromSand, MessageFromSand, MessageToSand, SysFd, ToSand, VPid,
+        buffer::IPCBuffer, Errno, FileBacking, FromSand, MessageFromSand, MessageToSand, SysFd,
+        ToSand, VPid,
     },
 };
 use fd_queue::{tokio::UnixStream, EnqueueFd};
@@ -122,7 +123,8 @@ impl IPCServer {
                         log::info!("{:x?} sys_open({:?})", message.task, path);
                         let backing_file = std::fs::File::open("/dev/null")?;
                         let fd = SysFd(backing_file.as_raw_fd() as u32);
-                        self.reply(&message, ToSand::FileOpenReply(Ok(fd))).await?;
+                        self.reply(&message, ToSand::FileOpenReply(Ok(FileBacking::Normal(fd))))
+                            .await?;
                         drop(backing_file);
                     }
                 }

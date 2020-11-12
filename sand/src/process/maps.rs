@@ -1,8 +1,8 @@
 use crate::{
     parser,
-    protocol::VPtr,
     parser::{ByteReader, Token},
     process::task::StoppedTask,
+    protocol::VPtr,
 };
 use core::{iter::Iterator, marker::PhantomData};
 use heapless::consts::*;
@@ -45,7 +45,7 @@ impl MemArea {
 
 pub struct MapsIterator<'q, 's, 't> {
     stopped_task: PhantomData<&'t mut StoppedTask<'q, 's>>,
-    stream: ByteReader<U4096>
+    stream: ByteReader<U4096>,
 }
 
 impl<'q, 's, 't> MapsIterator<'q, 's, 't> {
@@ -137,7 +137,7 @@ mod test {
         let r = ByteReader::<U4096>::from_sysfd(SysFd(f.as_raw_fd() as u32));
         let iter = MapsIterator {
             stopped_task: PhantomData,
-            stream: r
+            stream: r,
         };
         let mut found_vdso = false;
         for map in iter {
