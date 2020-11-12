@@ -39,6 +39,12 @@ pub fn cont(pid: SysPid) {
     }
 }
 
+pub fn single_step(pid: SysPid) {
+    unsafe {
+        syscall!(PTRACE, abi::PTRACE_SINGLESTEP, pid.0, 0, 0);
+    }
+}
+
 pub fn trace_syscall(pid: SysPid) {
     unsafe {
         syscall!(PTRACE, abi::PTRACE_SYSCALL, pid.0, 0, 0);

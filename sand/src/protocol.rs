@@ -65,6 +65,12 @@ pub struct VPid(pub u32);
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub struct VPtr(pub usize);
 
+impl VPtr {
+    pub fn add(&self, count: usize) -> VPtr {
+        VPtr(self.0 + count)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub struct VString(pub VPtr);
 

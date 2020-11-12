@@ -20,6 +20,7 @@ pin-project = "1"
 seccomp-tiny = "0.1.1"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 sc = "0.2.3"
+twoway = { version = "0.2.1", default-features = false }
 
 [workspace]
 # Separate workspace, with our own build profiles:

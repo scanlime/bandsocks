@@ -6,7 +6,7 @@ use crate::{
 use core::{iter::Iterator, marker::PhantomData};
 use heapless::consts::*;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct MemArea {
     pub start: usize,
     pub end: usize,
@@ -25,13 +25,14 @@ pub struct MemArea {
 pub enum MemAreaName {
     None,
     VDSO,
+    VVar,
     Path,
     Other,
 }
 
 pub struct MapsIterator<'q, 's, 't> {
     stopped_task: PhantomData<&'t mut StoppedTask<'q, 's>>,
-    stream: ByteReader<U4096>,
+    stream: ByteReader<U4096>
 }
 
 impl<'q, 's, 't> MapsIterator<'q, 's, 't> {
@@ -78,6 +79,7 @@ impl<'q, 's, 't> Iterator for MapsIterator<'q, 's, 't> {
                 &mut [
                     Token::new(b"/", &MemAreaName::Path),
                     Token::new(b"[vdso]\n", &MemAreaName::VDSO),
+                    Token::new(b"[vvar]\n", &MemAreaName::VVar),
                     Token::new(b"\n", &MemAreaName::None),
                 ],
             ) {
@@ -127,6 +129,9 @@ mod test {
         for map in iter {
             if map.name == MemAreaName::VDSO {
                 assert_eq!(map.execute, true);
+                assert_eq!(map.read, true);
+                assert_eq!(map.write, false);
+                assert_eq!(map.mayshare, false);
                 assert_eq!(map.dev_major, 0);
                 assert_eq!(map.dev_minor, 0);
                 assert_eq!(found_vdso, false);
