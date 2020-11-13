@@ -9,9 +9,9 @@ use crate::{
 };
 use fd_queue::tokio::UnixStream;
 use std::{
-    env::split_paths,
     collections::BTreeMap,
     default::Default,
+    env::split_paths,
     ffi::{OsStr, OsString},
     mem::size_of_val,
     os::unix::io::AsRawFd,
@@ -181,7 +181,12 @@ pub struct Container {
 }
 
 fn args_header_bytes(header: &InitArgsHeader) -> &[u8] {
-    unsafe { slice::from_raw_parts( header as *const InitArgsHeader as *const u8, size_of_val(header) ) }
+    unsafe {
+        slice::from_raw_parts(
+            header as *const InitArgsHeader as *const u8,
+            size_of_val(header),
+        )
+    }
 }
 
 impl Container {
@@ -205,28 +210,42 @@ impl Container {
         env: BTreeMap<OsString, OsString>,
         dir: PathBuf,
     ) -> Result<Container, RuntimeError> {
-
-        let mut cmd_path = match argv.first() {
+        let mut filename = match argv.first() {
             Some(argv0) => PathBuf::from(argv0),
             None => return Err(RuntimeError::NoEntryPoint),
         };
 
-        // the execvpe() behavior here is that path resolution happens if there are no slashes
-        // in the original name, i.e. if it is relative and of length one.
-        if cmd_path.is_relative() && cmd_path.iter().count() == 1 {
+        // the execvpe() behavior here is that path resolution happens if there are no
+        // slashes in the original name, i.e. if it is relative and of length
+        // one.
+        if filename.is_relative() && filename.iter().count() == 1 {
             if let Some(env_paths) = env.get(&OsString::from("PATH")) {
                 for env_path in split_paths(env_paths) {
-                    let mut buf = PathBuf::from(env_path);
-                    buf.push(&cmd_path);
+                    let mut buf = PathBuf::from(&dir);
+                    buf.push(&env_path);
+                    buf.push(&filename);
                     if filesystem.get_file_data(&buf).is_ok() {
-                        cmd_path = buf;
+                        filename = buf;
                     }
                 }
             }
         }
 
-        log::info!("resolved command to {:?} with args={:?}, env={:?}, dir={:?}",
-                   cmd_path, argv, env, dir);
+        let args_header = InitArgsHeader {
+            dir_len: dir.as_os_str().len() + 1,
+            filename_len: filename.as_os_str().len() + 1,
+            argv_len: argv.iter().map(|s| s.len() + 1).sum::<usize>() + 1,
+            envp_len: env.iter().map(|(k, v)| k.len() + 1 + v.len() + 1).sum::<usize>() + 1,
+        };
+
+        log::info!(
+            "resolved command filename to {:?} with args={:?}, env={:?}, dir={:?} -> {:?}",
+            filename,
+            argv,
+            env,
+            dir,
+            args_header
+        );
 
         Ok(Container {
             join: tokio::spawn(async move {
@@ -235,7 +254,6 @@ impl Container {
                     .await?
                     .task();
 
-                let args_header: InitArgsHeader = Default::default();
                 args_server
                     .write_all(args_header_bytes(&args_header))
                     .await?;
