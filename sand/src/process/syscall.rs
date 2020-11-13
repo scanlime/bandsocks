@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
-    protocol::{Errno, FileAccess, FileBacking, FromTask, SysFd, ToTask, VPtr, VString},
+    protocol::{Errno, FileBacking, FromTask, SysFd, ToTask, VPtr, VString},
 };
 use sc::nr;
 
@@ -65,15 +65,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let filename = arg_string(0);
                 let argv = arg_ptr(1);
                 let envp = arg_ptr(2);
-                let is_entrypoint_special = self.stopped_task.task.task_data.parent.is_none()
-                    && filename == VString(VPtr(0))
-                    && argv == VPtr(0)
-                    && envp == VPtr(0);
-                let loader = if is_entrypoint_special {
-                    Loader::from_entrypoint(self.stopped_task)
-                } else {
-                    Loader::from_execve(self.stopped_task, filename, argv, envp)
-                };
+                let loader = Loader::new(self.stopped_task, filename, argv, envp);
                 let result = loader.do_exec().await;
                 self.return_result(result).await
             }
@@ -81,12 +73,12 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::ACCESS => {
                 let result = ipc_call!(
                     self.stopped_task.task,
-                    FromTask::FileAccess(FileAccess {
+                    FromTask::FileAccess {
                         dir: None,
                         path: arg_string(0),
                         mode: arg_i32(1),
-                    }),
-                    ToTask::FileAccessReply(result),
+                    },
+                    ToTask::Reply(result),
                     result
                 );
                 self.return_result(result).await
@@ -96,7 +88,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::ChDir(arg_string(0)),
-                    ToTask::ChDirReply(result),
+                    ToTask::Reply(result),
                     result
                 );
                 self.return_result(result).await
@@ -106,14 +98,12 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::FileOpen {
-                        file: FileAccess {
-                            dir: None,
-                            path: arg_string(0),
-                            mode: arg_i32(2),
-                        },
+                        dir: None,
+                        path: arg_string(0),
                         flags: arg_i32(1),
+                        mode: arg_i32(2),
                     },
-                    ToTask::FileOpenReply(result),
+                    ToTask::FileReply(result),
                     result
                 );
                 self.return_file_result(result).await
@@ -123,14 +113,12 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::FileOpen {
-                        file: FileAccess {
-                            dir: None,
-                            path: arg_string(1),
-                            mode: arg_i32(3),
-                        },
-                        flags: arg_i32(2)
+                        dir: None,
+                        path: arg_string(1),
+                        flags: arg_i32(2),
+                        mode: arg_i32(3),
                     },
-                    ToTask::FileOpenReply(result),
+                    ToTask::FileReply(result),
                     result
                 );
                 self.return_file_result(result).await

@@ -1,30 +1,45 @@
 use crate::{
     abi,
     process::{remote, task::StoppedTask},
-    protocol::{Errno, VPtr, VString},
+    protocol::{Errno, FromTask, ToTask, VPtr, VString},
 };
 use sc::nr;
 
 pub struct Loader<'q, 's, 't> {
     stopped_task: &'t mut StoppedTask<'q, 's>,
+    filename: VString,
+    argv: VPtr,
+    envp: VPtr,
 }
 
 impl<'q, 's, 't> Loader<'q, 's, 't> {
-    pub fn from_entrypoint(stopped_task: &'t mut StoppedTask<'q, 's>) -> Loader<'q, 's, 't> {
-        Loader { stopped_task }
-    }
-
-    pub fn from_execve(
+    pub fn new(
         stopped_task: &'t mut StoppedTask<'q, 's>,
         filename: VString,
         argv: VPtr,
         envp: VPtr,
     ) -> Loader<'q, 's, 't> {
-        println!("ignoring exec args, {:?} {:?} {:?}", filename, argv, envp);
-        Loader { stopped_task }
+        Loader {
+            stopped_task,
+            filename,
+            argv,
+            envp,
+        }
     }
 
     pub async fn do_exec(self) -> Result<(), Errno> {
+        let result = ipc_call!(
+            self.stopped_task.task,
+            FromTask::FileOpen {
+                dir: None,
+                path: self.filename,
+                mode: 0,
+                flags: abi::O_RDONLY as i32,
+            },
+            ToTask::FileReply(result),
+            result
+        );
+
         let mut tr = remote::Trampoline::new(self.stopped_task);
         tr.unmap_all_userspace_mem().await;
 

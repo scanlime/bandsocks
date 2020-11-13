@@ -122,35 +122,49 @@ impl IPCServer {
                         log::info!("{:x?} chdir({:?})", task, path);
                         self.send_message(&MessageToSand::Task {
                             task: *task,
-                            op: ToTask::ChDirReply(Ok(())),
+                            op: ToTask::Reply(Ok(())),
                         })
                         .await?;
                     }
                 },
 
-                FromTask::FileAccess(access) => match self.process_table.get_mut(task) {
-                    None => Err(IPCError::WrongProcessState)?,
-                    Some(process) => {
-                        let path = process.read_string(access.path)?;
-                        log::info!("{:x?} sys_access({:?})", task, path);
-                        self.send_message(&MessageToSand::Task {
-                            task: *task,
-                            op: ToTask::FileAccessReply(Err(Errno(-libc::ENOENT))),
-                        })
-                        .await?;
+                FromTask::FileAccess { dir, path, mode } => {
+                    match self.process_table.get_mut(task) {
+                        None => Err(IPCError::WrongProcessState)?,
+                        Some(process) => {
+                            let path = process.read_string(*path)?;
+                            log::info!("{:x?} FileAccess({:?}, {:?}, {:?})", task, dir, path, mode);
+                            self.send_message(&MessageToSand::Task {
+                                task: *task,
+                                op: ToTask::Reply(Err(Errno(-libc::ENOENT))),
+                            })
+                            .await?;
+                        }
                     }
-                },
+                }
 
-                FromTask::FileOpen { file, flags: _ } => match self.process_table.get_mut(task) {
+                FromTask::FileOpen {
+                    dir,
+                    path,
+                    flags,
+                    mode,
+                } => match self.process_table.get_mut(task) {
                     None => Err(IPCError::WrongProcessState)?,
                     Some(process) => {
-                        let path = process.read_string(file.path)?;
-                        log::info!("{:x?} sys_open({:?})", task, path);
+                        let path = process.read_string(*path)?;
+                        log::info!(
+                            "{:x?} FileOpen({:?}, {:?}, flags={:?}, mode={:?})",
+                            task,
+                            dir,
+                            path,
+                            flags,
+                            mode
+                        );
                         let backing_file = std::fs::File::open("/dev/null")?;
                         let fd = SysFd(backing_file.as_raw_fd() as u32);
                         self.send_message(&MessageToSand::Task {
                             task: *task,
-                            op: ToTask::FileOpenReply(Ok(FileBacking::Normal(fd))),
+                            op: ToTask::FileReply(Ok(FileBacking::Normal(fd))),
                         })
                         .await?;
                         drop(backing_file);
@@ -162,7 +176,7 @@ impl IPCServer {
                     Some(_process) => {
                         self.send_message(&MessageToSand::Task {
                             task: *task,
-                            op: ToTask::ProcessKillReply(Ok(())),
+                            op: ToTask::Reply(Ok(())),
                         })
                         .await?;
                     }

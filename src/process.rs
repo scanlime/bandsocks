@@ -34,6 +34,8 @@ pub struct Process {
     sys_pid: SysPid,
     mem_file: File,
     maps_file: File,
+
+    current_dir: INodeNum, // fixme
 }
 
 impl Process {

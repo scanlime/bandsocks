@@ -54,18 +54,25 @@ impl InitArgsHeader {
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum ToTask {
     OpenProcessReply(ProcessHandle),
-    FileOpenReply(Result<FileBacking, Errno>),
-    FileAccessReply(Result<(), Errno>),
-    ProcessKillReply(Result<(), Errno>),
-    ChDirReply(Result<(), Errno>),
+    FileReply(Result<FileBacking, Errno>),
+    Reply(Result<(), Errno>),
 }
 
 /// A message originating from one lightweight task in the tracer
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum FromTask {
     OpenProcess(SysPid),
-    FileAccess(FileAccess),
-    FileOpen { file: FileAccess, flags: i32 },
+    FileAccess {
+        dir: Option<SysFd>,
+        path: VString,
+        mode: i32,
+    },
+    FileOpen {
+        dir: Option<SysFd>,
+        path: VString,
+        flags: i32,
+        mode: i32,
+    },
     ProcessKill(VPid, Signal),
     ChDir(VString),
 }
@@ -942,19 +949,19 @@ mod test {
     fn messages() {
         let msg1 = MessageToSand::Task {
             task: VPid(12345),
-            op: ToTask::FileOpenReply(Ok(FileBacking::Normal(SysFd(5)))),
+            op: ToTask::FileReply(Ok(FileBacking::Normal(SysFd(5)))),
         };
         let msg2 = MessageToSand::Task {
             task: VPid(39503),
-            op: ToTask::FileOpenReply(Err(Errno(2333))),
+            op: ToTask::FileReply(Err(Errno(2333))),
         };
         let msg3 = MessageToSand::Task {
             task: VPid(29862),
-            op: ToTask::FileOpenReply(Ok(FileBacking::Normal(SysFd(99999)))),
+            op: ToTask::FileReply(Ok(FileBacking::Normal(SysFd(99999)))),
         };
         let msg4 = MessageToSand::Task {
             task: VPid(125),
-            op: ToTask::FileOpenReply(Ok(FileBacking::VFSMapRef {
+            op: ToTask::FileReply(Ok(FileBacking::VFSMapRef {
                 source: SysFd(200),
                 offset: 1,
                 filesize: 2,
@@ -1071,18 +1078,16 @@ mod test {
         MessageFromSand::Task {
             task: VPid(0x12349955),
             op: FromTask::FileOpen {
-                file: FileAccess {
-                    dir: None,
-                    path: VString(VPtr(0x5544332211009933)),
-                    mode: 0x55667788,
-                },
+                dir: None,
+                path: VString(VPtr(0x5544332211009933)),
+                mode: 0x55667788,
                 flags: 0x34562222
             }
         },
         MessageFromSand,
         [
             0x00, 0x55, 0x99, 0x34, 0x12, 0x02, 0x00, 0x33, 0x99, 0x00, 0x11, 0x22, 0x33, 0x44,
-            0x55, 0x88, 0x77, 0x66, 0x55, 0x22, 0x22, 0x56, 0x34
+            0x55, 0x22, 0x22, 0x56, 0x34, 0x88, 0x77, 0x66, 0x55,
         ],
         []
     );
@@ -1091,18 +1096,17 @@ mod test {
         MessageFromSand::Task {
             task: VPid(0x22222222),
             op: FromTask::FileOpen {
-                file: FileAccess {
-                    dir: Some(SysFd(0x11111111)),
-                    path: VString(VPtr(0x3333333333333333)),
-                    mode: 0x44444444,
-                },
+                dir: Some(SysFd(0x11111111)),
+                path: VString(VPtr(0x3333333333333333)),
+                mode: 0x44444444,
+
                 flags: 0x55555555
             }
         },
         MessageFromSand,
         [
             0x00, 0x22, 0x22, 0x22, 0x22, 0x02, 0x01, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            0x33, 0x44, 0x44, 0x44, 0x44, 0x55, 0x55, 0x55, 0x55
+            0x33, 0x55, 0x55, 0x55, 0x55, 0x44, 0x44, 0x44, 0x44,
         ],
         [SysFd(0x11111111)]
     );
@@ -1110,7 +1114,7 @@ mod test {
         sys_open_reply_1,
         MessageToSand::Task {
             task: VPid(0x54555657),
-            op: ToTask::FileOpenReply(Ok(FileBacking::Normal(SysFd(42)))),
+            op: ToTask::FileReply(Ok(FileBacking::Normal(SysFd(42)))),
         },
         MessageToSand,
         [0x00, 0x57, 0x56, 0x55, 0x54, 0x01, 0x00, 0x00],
@@ -1120,7 +1124,7 @@ mod test {
         sys_open_reply_2,
         MessageToSand::Task {
             task: VPid(0x11223344),
-            op: ToTask::FileOpenReply(Err(Errno(-10)))
+            op: ToTask::FileReply(Err(Errno(-10)))
         },
         MessageToSand,
         [0x00, 0x44, 0x33, 0x22, 0x11, 0x01, 0x01, 0xf6, 0xff, 0xff, 0xff],
