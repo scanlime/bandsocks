@@ -20,9 +20,9 @@ pub enum MessageFromSand {
 #[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct InitArgsHeader {
+    total_len: usize,
     argc: usize,
-    argv_len: usize,
-    envp_len: usize,
+    argv: usize,
 }
 
 /// A message delivered to one of the lightweight tasks in the tracer

@@ -9,6 +9,7 @@ use crate::{
 };
 use fd_queue::tokio::UnixStream;
 use std::{
+    env::split_paths,
     collections::BTreeMap,
     default::Default,
     ffi::{OsStr, OsString},
@@ -204,22 +205,42 @@ impl Container {
         env: BTreeMap<OsString, OsString>,
         dir: PathBuf,
     ) -> Result<Container, RuntimeError> {
+
+        let mut cmd_path = match argv.first() {
+            Some(argv0) => PathBuf::from(argv0),
+            None => return Err(RuntimeError::NoEntryPoint),
+        };
+
+        // the execvpe() behavior here is that path resolution happens if there are no slashes
+        // in the original name, i.e. if it is relative and of length one.
+        if cmd_path.is_relative() && cmd_path.iter().count() == 1 {
+            if let Some(env_paths) = env.get(&OsString::from("PATH")) {
+                for env_path in split_paths(env_paths) {
+                    let mut buf = PathBuf::from(env_path);
+                    buf.push(&cmd_path);
+                    if filesystem.get_file_data(&buf).is_ok() {
+                        cmd_path = buf;
+                    }
+                }
+            }
+        }
+
+        log::info!("resolved command to {:?} with args={:?}, env={:?}, dir={:?}",
+                   cmd_path, argv, env, dir);
+
         Ok(Container {
             join: tokio::spawn(async move {
                 let (mut args_server, args_client) = UnixStream::pair()?;
-
-                let args_header: InitArgsHeader = Default::default();
-
-                args_server
-                    .write_all(args_header_bytes(&args_header))
-                    .await?;
-
                 let ipc_task = IPCServer::new(filesystem, SysFd(args_client.as_raw_fd() as u32))
                     .await?
                     .task();
 
-                ipc_task.await??;
+                let args_header: InitArgsHeader = Default::default();
+                args_server
+                    .write_all(args_header_bytes(&args_header))
+                    .await?;
 
+                ipc_task.await??;
                 Ok(())
             }),
         })
