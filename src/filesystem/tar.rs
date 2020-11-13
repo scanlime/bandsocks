@@ -5,23 +5,23 @@ use crate::{
         vfs::{Filesystem, Stat},
     },
 };
-use memmap::Mmap;
-use std::{
-    io::{Cursor, Read},
-    sync::Arc,
-};
+use std::io::{Cursor, Read};
 use tar::{Archive, Entry, EntryType};
 
-pub fn extract_metadata(mut fs: &mut Filesystem, archive: &Arc<Mmap>) -> Result<(), ImageError> {
+pub fn extract_metadata(mut fs: &mut Filesystem, archive: &MapRef) -> Result<(), ImageError> {
     let mut offset: usize = 0;
     while let Some(entry) = Archive::new(Cursor::new(&archive[offset..]))
         .entries()?
         .next()
     {
         let entry = entry?;
+        let entry_size = entry.size() as usize;
         let file_begin = offset + (entry.raw_file_position() as usize);
-        let file = MapRef::new(archive, file_begin, entry.size() as usize);
-        offset = pad_to_block_multiple(file_begin + entry.size() as usize);
+        println!("{:x?}", file_begin);
+        let file = archive
+            .clone_range(file_begin, entry_size)
+            .map_err(|_| ImageError::TARFileError)?;
+        offset = pad_to_block_multiple(file_begin + entry_size);
         extract_file_metadata(&mut fs, entry, file)?;
     }
     Ok(())

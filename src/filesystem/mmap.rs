@@ -1,20 +1,85 @@
-use memmap::Mmap;
-use std::{ops::Deref, sync::Arc};
+use memmap::{Mmap, MmapOptions};
+use std::{
+    fs::File,
+    io,
+    ops::Deref,
+    os::unix::{io::AsRawFd, prelude::RawFd},
+    path::Path,
+    sync::{Arc, Weak},
+};
+
+#[derive(Debug)]
+struct Source {
+    file: File,
+    map: Mmap,
+}
+
+#[derive(Debug, Clone)]
+pub struct WeakMapRef {
+    source: Weak<Source>,
+    offset: usize,
+    filesize: usize,
+}
+
+impl WeakMapRef {
+    pub fn upgrade(&self) -> Option<MapRef> {
+        self.source.upgrade().map(|source| MapRef {
+            source,
+            offset: self.offset,
+            filesize: self.filesize,
+        })
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct MapRef {
-    source: Arc<Mmap>,
+    source: Arc<Source>,
     offset: usize,
     filesize: usize,
 }
 
 impl MapRef {
-    pub fn new(source: &Arc<Mmap>, offset: usize, filesize: usize) -> Self {
-        MapRef {
-            source: source.clone(),
-            offset,
+    pub fn open(path: &Path) -> Result<MapRef, io::Error> {
+        let file = File::open(path)?;
+        let map = unsafe { MmapOptions::new().map(&file) }?;
+        let filesize = map.len();
+        Ok(MapRef {
+            source: Arc::new(Source { file, map }),
+            offset: 0,
             filesize,
+        })
+    }
+
+    pub fn downgrade(&self) -> WeakMapRef {
+        WeakMapRef {
+            source: Arc::downgrade(&self.source),
+            offset: self.offset,
+            filesize: self.filesize,
         }
+    }
+
+    pub fn clone_range(&self, offset: usize, len: usize) -> Result<MapRef, ()> {
+        if offset + len <= self.filesize {
+            Ok(MapRef {
+                source: self.source.clone(),
+                offset: self.offset + offset,
+                filesize: len,
+            })
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.filesize
+    }
+
+    pub fn source_fd(&self) -> RawFd {
+        self.source.file.as_raw_fd()
+    }
+
+    pub fn source_offset(&self) -> usize {
+        self.offset
     }
 }
 
@@ -24,7 +89,7 @@ impl Deref for MapRef {
     fn deref(&self) -> &[u8] {
         let start = self.offset;
         let end = start + self.filesize;
-        &self.source[start..end]
+        &self.source.map[start..end]
     }
 }
 

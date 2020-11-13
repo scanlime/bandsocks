@@ -1,9 +1,10 @@
 use crate::{
     abi,
     process::{remote, task::StoppedTask},
-    protocol::{Errno, FromTask, ToTask, VPtr, VString},
+    protocol::{Errno, FileBacking, FromTask, ToTask, VPtr, VString},
 };
-use sc::nr;
+use goblin::elf64;
+use sc::{nr, syscall};
 
 pub struct Loader<'q, 's, 't> {
     stopped_task: &'t mut StoppedTask<'q, 's>,
@@ -39,7 +40,33 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             ToTask::FileReply(result),
             result
         );
-        println!("result={:?}, argv={:x?} envp={:x?}", result, self.argv, self.envp);
+
+        println!(
+            "result={:?}, argv={:x?} envp={:x?}",
+            result, self.argv, self.envp
+        );
+
+        if let Ok(FileBacking::VFSMapRef {
+            source,
+            offset,
+            filesize,
+        }) = result
+        {
+            let mut header: elf64::header::Header = Default::default();
+            let result = unsafe {
+                syscall!(
+                    PREAD64,
+                    source.0,
+                    &mut header as *mut elf64::header::Header,
+                    elf64::header::SIZEOF_EHDR,
+                    offset
+                ) as isize
+            };
+            println!(
+                "read: {:?}, filesize={:?} header={:?}",
+                result, filesize, header
+            );
+        }
 
         let mut tr = remote::Trampoline::new(self.stopped_task);
         tr.unmap_all_userspace_mem().await;
@@ -47,7 +74,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         let scratch_ptr = VPtr(0x10000);
         tr.mmap(
             scratch_ptr,
-            0x100000,
+            0x1000,
             abi::PROT_READ | abi::PROT_WRITE,
             abi::MAP_ANONYMOUS | abi::MAP_PRIVATE | abi::MAP_FIXED,
             0,
@@ -65,7 +92,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
                     .await
             );
 
-            remote::mem_write_words(tr.stopped_task, scratch_ptr, &[0, 500000000]).unwrap();
+            remote::mem_write_words(tr.stopped_task, scratch_ptr, &[1, 500000000]).unwrap();
             tr.syscall(nr::NANOSLEEP, &[scratch_ptr.0 as isize, 0])
                 .await;
         }

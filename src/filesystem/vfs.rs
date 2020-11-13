@@ -220,7 +220,7 @@ impl Filesystem {
     pub fn map_file(&self, f: &VFile) -> Result<MapRef, VFSError> {
         match &self.inodes[f.inode] {
             None => Err(VFSError::NotFound),
-            Some(node) => match node.data {
+            Some(node) => match &node.data {
                 Node::Directory(_) => Err(VFSError::FileExpected),
                 Node::SymbolicLink(_) => Err(VFSError::FileExpected),
                 Node::NormalFile(map_ref) => Ok(map_ref.clone()),
@@ -231,7 +231,7 @@ impl Filesystem {
     pub fn is_file(&self, f: &VFile) -> bool {
         match &self.inodes[f.inode] {
             None => false,
-            Some(node) => match node.data {
+            Some(node) => match &node.data {
                 Node::Directory(_) => false,
                 Node::NormalFile(_) => true,
                 Node::SymbolicLink(_) => false,
@@ -242,7 +242,7 @@ impl Filesystem {
     pub fn is_directory(&self, f: &VFile) -> bool {
         match &self.inodes[f.inode] {
             None => false,
-            Some(node) => match node.data {
+            Some(node) => match &node.data {
                 Node::Directory(_) => false,
                 Node::NormalFile(_) => true,
                 Node::SymbolicLink(_) => false,

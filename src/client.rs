@@ -1,6 +1,6 @@
 use crate::{
     errors::ImageError,
-    filesystem::{tar, vfs},
+    filesystem::{mmap::MapRef, tar, vfs},
     image::Image,
     manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
     storage::{FileStorage, StorageKey},
@@ -10,7 +10,6 @@ use crate::{
 use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
 use flate2::read::GzDecoder;
-use memmap::Mmap;
 use std::{
     io::Read,
     path::{Path, PathBuf},
@@ -91,8 +90,8 @@ impl Client {
 
     async fn pull_manifest(&mut self, image: &Reference) -> Result<Manifest, ImageError> {
         let key = StorageKey::Manifest(image.clone());
-        let mmap = match self.storage.get(&key)? {
-            Some(mmap) => mmap,
+        let map = match self.storage.get(&key)? {
+            Some(map) => map,
             None => {
                 let rc = self.registry_client_for(image).await?;
                 match rc
@@ -107,12 +106,12 @@ impl Client {
                 }
             }
         };
-        let slice = &mmap[..];
+        let slice = &map[..];
         log::debug!("raw json manifest, {}", String::from_utf8_lossy(slice));
         Ok(serde_json::from_slice(slice)?)
     }
 
-    fn local_blob(&mut self, digest: &str) -> Result<Option<Arc<Mmap>>, ImageError> {
+    fn local_blob(&mut self, digest: &str) -> Result<Option<MapRef>, ImageError> {
         let key = StorageKey::Blob(digest.to_string());
         self.storage.get(&key)
     }
@@ -120,11 +119,11 @@ impl Client {
     fn local_blob_list(
         &mut self,
         digest_list: &[String],
-    ) -> Result<Option<Vec<Arc<Mmap>>>, ImageError> {
+    ) -> Result<Option<Vec<MapRef>>, ImageError> {
         let mut result = vec![];
         for digest in digest_list {
-            if let Some(mmap) = self.local_blob(digest)? {
-                result.push(mmap);
+            if let Some(mapref) = self.local_blob(digest)? {
+                result.push(mapref);
             }
         }
         if result.len() == digest_list.len() {
@@ -134,10 +133,10 @@ impl Client {
         }
     }
 
-    async fn pull_blob(&mut self, image: &Reference, link: &Link) -> Result<Arc<Mmap>, ImageError> {
+    async fn pull_blob(&mut self, image: &Reference, link: &Link) -> Result<MapRef, ImageError> {
         let key = StorageKey::Blob(link.digest.clone());
-        let mmap = match self.storage.get(&key)? {
-            Some(mmap) => mmap,
+        let mapref = match self.storage.get(&key)? {
+            Some(mapref) => mapref,
             None => {
                 let rc = self.registry_client_for(image).await?;
                 let blob_data = rc.get_blob(&image.repository(), &link.digest).await?;
@@ -145,8 +144,8 @@ impl Client {
                 self.storage.insert(&key, blob_data).await?
             }
         };
-        if mmap.len() as u64 == link.size {
-            Ok(mmap)
+        if mapref.len() as u64 == link.size {
+            Ok(mapref)
         } else {
             // In the event the server gives us bad data, get_blob() should already
             // catch that during the digest verification. This path is more likely to hit
@@ -161,8 +160,8 @@ impl Client {
         link: &Link,
     ) -> Result<RuntimeConfig, ImageError> {
         if link.media_type == media_types::RUNTIME_CONFIG {
-            let mmap = self.pull_blob(image, link).await?;
-            let slice = &mmap[..];
+            let mapref = self.pull_blob(image, link).await?;
+            let slice = &mapref[..];
             log::debug!(
                 "raw json runtime config, {}",
                 String::from_utf8_lossy(slice)

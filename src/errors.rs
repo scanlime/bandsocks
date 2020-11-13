@@ -69,6 +69,20 @@ pub enum VFSError {
     INodeRefCountError,
 }
 
+impl VFSError {
+    pub fn to_errno(&self) -> libc::c_int {
+        match self {
+            VFSError::DirectoryExpected => libc::ENOTDIR,
+            VFSError::FileExpected => libc::EISDIR,
+            VFSError::UnallocNode => libc::ENOENT,
+            VFSError::NotFound => libc::ENOENT,
+            VFSError::PathSegmentLimitExceeded => libc::ENAMETOOLONG,
+            VFSError::SymbolicLinkLimitExceeded => libc::ELOOP,
+            VFSError::INodeRefCountError => libc::ENOMEM,
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum IPCError {
     #[error("ipc io error: {0}")]

@@ -1,19 +1,21 @@
-use crate::{errors::ImageError, Reference};
-use memmap::{Mmap, MmapOptions};
+use crate::{
+    errors::ImageError,
+    filesystem::mmap::{MapRef, WeakMapRef},
+    Reference,
+};
 use regex::Regex;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
-    sync::{Arc, Weak},
     time::SystemTime,
 };
 use tokio::io::AsyncWriteExt;
 
 pub struct FileStorage {
     path: PathBuf,
-    memo: HashMap<StorageKey, Weak<Mmap>>,
+    memo: HashMap<StorageKey, WeakMapRef>,
 }
 
 impl FileStorage {
@@ -24,7 +26,7 @@ impl FileStorage {
         }
     }
 
-    pub fn get(&mut self, key: &StorageKey) -> Result<Option<Arc<Mmap>>, ImageError> {
+    pub fn get(&mut self, key: &StorageKey) -> Result<Option<MapRef>, ImageError> {
         log::debug!("storage get, {:?}", key);
         match self.memo.get(key).and_then(|weak| weak.upgrade()) {
             Some(arc) => {
@@ -33,30 +35,23 @@ impl FileStorage {
             }
             None => {
                 let path = key.to_path(&self.path)?;
-                match std::fs::File::open(&path) {
+                match MapRef::open(&path) {
                     Err(e) => match e.kind() {
                         std::io::ErrorKind::NotFound => Ok(None),
                         _ => Err(e.into()),
                     },
-                    Ok(file) => {
-                        let mmap = unsafe { MmapOptions::new().map(&file)? };
-                        let arc = Arc::new(mmap);
-                        let key: StorageKey = key.clone();
+                    Ok(mapref) => {
                         log::debug!("storage get, {:?}, succeeded opening new mapping", key);
-                        self.memo.insert(key, Arc::downgrade(&arc));
-                        Ok(Some(arc))
+                        self.memo.insert(key.clone(), mapref.downgrade());
+                        Ok(Some(mapref))
                     }
                 }
             }
         }
     }
 
-    pub async fn insert(
-        &mut self,
-        key: &StorageKey,
-        data: Vec<u8>,
-    ) -> Result<Arc<Mmap>, ImageError> {
-        log::debug!("storage insert, {:?}, {} bytes", key, data.len());
+    pub async fn insert(&mut self, key: &StorageKey, data: Vec<u8>) -> Result<MapRef, ImageError> {
+        log::debug!("Storage insert, {:?}, {} bytes", key, data.len());
 
         // Prepare directories
         let mut temp_path = self.path.clone();
