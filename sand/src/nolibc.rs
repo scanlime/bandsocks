@@ -34,6 +34,24 @@ impl fmt::Write for SysFd {
     }
 }
 
+impl SysFd {
+    pub fn read_exact(&self, bytes: &mut [u8]) -> Result<(), isize> {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let slice = &mut bytes[offset..];
+            let result = unsafe {
+                syscall!(READ, self.0, slice.as_mut_ptr() as usize, slice.len()) as isize
+            };
+            if result <= 0 {
+                return Err(result);
+            } else {
+                offset += result as usize;
+            }
+        }
+        Ok(())
+    }
+}
+
 pub fn getpid() -> usize {
     unsafe { syscall!(GETPID) }
 }

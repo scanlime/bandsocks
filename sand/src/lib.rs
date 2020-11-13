@@ -60,7 +60,7 @@ pub fn c_main(argc: isize, argv: *const *const u8) -> isize {
 
         RunMode::InitLoader(fd) => {
             seccomp::policy_for_loader();
-            init::with_args_from_fd(fd);
+            init::with_args_from_fd(&fd);
         }
     }
 

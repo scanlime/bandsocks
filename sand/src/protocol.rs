@@ -23,7 +23,31 @@ pub struct InitArgsHeader {
     pub dir_len: usize,
     pub filename_len: usize,
     pub argv_len: usize,
+    pub arg_count: usize,
     pub envp_len: usize,
+    pub env_count: usize,
+}
+
+impl InitArgsHeader {
+    #[allow(dead_code)]
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            core::slice::from_raw_parts(
+                self as *const InitArgsHeader as *const u8,
+                core::mem::size_of_val(self),
+            )
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        unsafe {
+            core::slice::from_raw_parts_mut(
+                self as *mut InitArgsHeader as *mut u8,
+                core::mem::size_of_val(self),
+            )
+        }
+    }
 }
 
 /// A message delivered to one of the lightweight tasks in the tracer
@@ -33,6 +57,7 @@ pub enum ToTask {
     FileOpenReply(Result<FileBacking, Errno>),
     FileAccessReply(Result<(), Errno>),
     ProcessKillReply(Result<(), Errno>),
+    ChDirReply(Result<(), Errno>),
 }
 
 /// A message originating from one lightweight task in the tracer
@@ -42,6 +67,7 @@ pub enum FromTask {
     FileAccess(FileAccess),
     FileOpen { file: FileAccess, flags: i32 },
     ProcessKill(VPid, Signal),
+    ChDir(VString),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]

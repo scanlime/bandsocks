@@ -50,7 +50,8 @@ impl IPCServer {
         let (mut server_socket, child_socket) = UnixStream::pair()?;
         clear_close_on_exec_flag(child_socket.as_raw_fd());
 
-        // Queue the init message before running the sand process
+        // Queue the init message before running the sand process. It will exit early if
+        // it starts up idle.
         send_message(&mut server_socket, &MessageToSand::Init { args: args_fd }).await?;
 
         let mut sand_bin = Cursor::new(sand::PROGRAM_DATA);
@@ -113,6 +114,19 @@ impl IPCServer {
                         .await?;
                     }
                 }
+
+                FromTask::ChDir(path) => match self.process_table.get_mut(task) {
+                    None => Err(IPCError::WrongProcessState)?,
+                    Some(process) => {
+                        let path = process.read_string(*path)?;
+                        log::info!("{:x?} chdir({:?})", task, path);
+                        self.send_message(&MessageToSand::Task {
+                            task: *task,
+                            op: ToTask::ChDirReply(Ok(())),
+                        })
+                        .await?;
+                    }
+                },
 
                 FromTask::FileAccess(access) => match self.process_table.get_mut(task) {
                     None => Err(IPCError::WrongProcessState)?,

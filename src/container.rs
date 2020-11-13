@@ -13,10 +13,8 @@ use std::{
     default::Default,
     env::split_paths,
     ffi::{OsStr, OsString},
-    mem::size_of_val,
-    os::unix::io::AsRawFd,
+    os::unix::{ffi::OsStrExt, io::AsRawFd},
     path::{Path, PathBuf},
-    slice,
     sync::Arc,
 };
 use tokio::{io::AsyncWriteExt, task::JoinHandle};
@@ -180,15 +178,6 @@ pub struct Container {
     join: JoinHandle<Result<(), RuntimeError>>,
 }
 
-fn args_header_bytes(header: &InitArgsHeader) -> &[u8] {
-    unsafe {
-        slice::from_raw_parts(
-            header as *const InitArgsHeader as *const u8,
-            size_of_val(header),
-        )
-    }
-}
-
 impl Container {
     pub fn new() -> ContainerBuilder {
         Default::default()
@@ -235,7 +224,13 @@ impl Container {
             dir_len: dir.as_os_str().len() + 1,
             filename_len: filename.as_os_str().len() + 1,
             argv_len: argv.iter().map(|s| s.len() + 1).sum::<usize>() + 1,
-            envp_len: env.iter().map(|(k, v)| k.len() + 1 + v.len() + 1).sum::<usize>() + 1,
+            envp_len: env
+                .iter()
+                .map(|(k, v)| k.len() + 1 + v.len() + 1)
+                .sum::<usize>()
+                + 1,
+            arg_count: argv.len(),
+            env_count: env.len(),
         };
 
         log::info!(
@@ -249,16 +244,37 @@ impl Container {
 
         Ok(Container {
             join: tokio::spawn(async move {
-                let (mut args_server, args_client) = UnixStream::pair()?;
-                let ipc_task = IPCServer::new(filesystem, SysFd(args_client.as_raw_fd() as u32))
-                    .await?
-                    .task();
+                let (mut args, args_client) = UnixStream::pair()?;
+                let client_fd = args_client.as_raw_fd();
+                assert_eq!(0, unsafe { libc::fcntl(client_fd, libc::F_SETFL, 0) });
+                let client_fd = SysFd(client_fd as u32);
+                let ipc_task = IPCServer::new(filesystem, client_fd).await?.task();
 
-                args_server
-                    .write_all(args_header_bytes(&args_header))
-                    .await?;
+                args.write_all(args_header.as_bytes()).await?;
 
+                args.write_all(dir.as_os_str().as_bytes()).await?;
+                args.write_all(b"\0").await?;
+
+                args.write_all(filename.as_os_str().as_bytes()).await?;
+                args.write_all(b"\0").await?;
+
+                for arg in argv {
+                    args.write_all(arg.as_os_str().as_bytes()).await?;
+                    args.write_all(b"\0").await?;
+                }
+                args.write_all(b"\0").await?;
+
+                for (k, v) in env.iter() {
+                    args.write_all(k.as_os_str().as_bytes()).await?;
+                    args.write_all(b"=").await?;
+                    args.write_all(v.as_os_str().as_bytes()).await?;
+                    args.write_all(b"\0").await?;
+                }
+                args.write_all(b"\0").await?;
+
+                args.flush().await?;
                 ipc_task.await??;
+
                 Ok(())
             }),
         })

@@ -92,6 +92,16 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_result(result).await
             }
 
+            nr::CHDIR => {
+                let result = ipc_call!(
+                    self.stopped_task.task,
+                    FromTask::ChDir(arg_string(0)),
+                    ToTask::ChDirReply(result),
+                    result
+                );
+                self.return_result(result).await
+            }
+
             nr::OPEN => {
                 let result = ipc_call!(
                     self.stopped_task.task,
