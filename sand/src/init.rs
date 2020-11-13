@@ -26,6 +26,7 @@ pub fn with_args_from_fd(fd: &SysFd) -> ! {
                 |pointers: &mut [usize]| {
                     let (argv_ptrs, pointers) = pointers.split_at_mut(header.arg_count + 1);
                     let (envp_ptrs, pointers) = pointers.split_at_mut(header.env_count + 1);
+                    assert_eq!(pointers.len(), 0);
 
                     cstr_vec_pointers(argv, header.arg_count, argv_ptrs);
                     cstr_vec_pointers(envp, header.env_count, envp_ptrs);

@@ -213,7 +213,7 @@ impl Container {
                     let mut buf = PathBuf::from(&dir);
                     buf.push(&env_path);
                     buf.push(&filename);
-                    if filesystem.get_file_data(&buf).is_ok() {
+                    if filesystem.open(&buf).is_ok() {
                         filename = buf;
                     }
                 }

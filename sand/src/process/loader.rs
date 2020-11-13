@@ -39,6 +39,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             ToTask::FileReply(result),
             result
         );
+        println!("result={:?}, argv={:x?} envp={:x?}", result, self.argv, self.envp);
 
         let mut tr = remote::Trampoline::new(self.stopped_task);
         tr.unmap_all_userspace_mem().await;

@@ -24,6 +24,12 @@ pub struct Filesystem {
     root: INodeNum,
 }
 
+#[derive(Debug, Clone)]
+pub struct VFile {
+    inode: INodeNum,
+    // future home of per-file-object flags
+}
+
 pub struct VFSWriter<'a> {
     fs: &'a mut Filesystem,
     workdir: INodeNum,
@@ -195,14 +201,52 @@ impl Filesystem {
         result
     }
 
-    pub fn get_file_data(&self, path: &Path) -> Result<MapRef, VFSError> {
-        log::trace!("get_file_data, {:?}", path);
+    pub fn open_root(&self) -> VFile {
+        self.open(Path::new("/")).unwrap()
+    }
+
+    pub fn open(&self, path: &Path) -> Result<VFile, VFSError> {
+        self.open_at(None, path)
+    }
+
+    pub fn open_at(&self, at_dir: Option<&VFile>, path: &Path) -> Result<VFile, VFSError> {
+        log::info!("open, {:?} at_dir={:?}", path, at_dir);
         let mut limits = Limits::reset();
         let entry = self.resolve_path(&mut limits, self.root, path)?;
         let entry = self.resolve_symlinks(&mut limits, entry)?;
-        match &self.get_inode(entry.child)?.data {
-            Node::NormalFile(mmap) => Ok(mmap.clone()),
-            _ => Err(VFSError::FileExpected),
+        Ok(VFile { inode: entry.child })
+    }
+
+    pub fn map_file(&self, f: &VFile) -> Result<MapRef, VFSError> {
+        match &self.inodes[f.inode] {
+            None => Err(VFSError::NotFound),
+            Some(node) => match node.data {
+                Node::Directory(_) => Err(VFSError::FileExpected),
+                Node::SymbolicLink(_) => Err(VFSError::FileExpected),
+                Node::NormalFile(map_ref) => Ok(map_ref.clone()),
+            },
+        }
+    }
+
+    pub fn is_file(&self, f: &VFile) -> bool {
+        match &self.inodes[f.inode] {
+            None => false,
+            Some(node) => match node.data {
+                Node::Directory(_) => false,
+                Node::NormalFile(_) => true,
+                Node::SymbolicLink(_) => false,
+            },
+        }
+    }
+
+    pub fn is_directory(&self, f: &VFile) -> bool {
+        match &self.inodes[f.inode] {
+            None => false,
+            Some(node) => match node.data {
+                Node::Directory(_) => false,
+                Node::NormalFile(_) => true,
+                Node::SymbolicLink(_) => false,
+            },
         }
     }
 }

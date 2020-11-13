@@ -1,5 +1,6 @@
 use crate::{
     errors::IPCError,
+    filesystem::vfs::VFile,
     sand::protocol::{ProcessHandle, SysFd, SysPid, VPtr, VString},
 };
 use regex::Regex;
@@ -30,16 +31,25 @@ fn page_remaining(vptr: VPtr) -> usize {
 }
 
 #[derive(Debug)]
+pub struct ProcessStatus {
+    // todo: uid, gid, loads of other stuff here.
+    pub current_dir: VFile,
+}
+
+#[derive(Debug)]
 pub struct Process {
     sys_pid: SysPid,
     mem_file: File,
     maps_file: File,
-
-    current_dir: INodeNum, // fixme
+    pub status: ProcessStatus,
 }
 
 impl Process {
-    pub fn open(sys_pid: SysPid, tracer: &Child) -> Result<Process, IPCError> {
+    pub fn open(
+        sys_pid: SysPid,
+        tracer: &Child,
+        status: ProcessStatus,
+    ) -> Result<Process, IPCError> {
         // Check before and after opening the file, to prevent PID races
         check_can_open(sys_pid, tracer)?;
         let mem_file = open_mem_file(sys_pid)?;
@@ -49,6 +59,7 @@ impl Process {
             sys_pid,
             mem_file,
             maps_file,
+            status,
         })
     }
 
