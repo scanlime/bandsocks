@@ -21,6 +21,7 @@ extern crate std;
 pub mod nolibc;
 
 mod abi;
+mod init;
 mod ipc;
 mod parser;
 mod process;
@@ -30,20 +31,18 @@ mod seccomp;
 mod tracer;
 
 use crate::{
-    ipc::Socket, nolibc::c_strv_slice, process::task::task_fn, protocol::SysFd,
-    ptrace::RawExecArgs, tracer::Tracer,
+    ipc::Socket, nolibc::c_strv_slice, process::task::task_fn, protocol::SysFd, tracer::Tracer,
 };
-use core::ptr::null;
 use sc::syscall;
 
-const SELF_EXE: &[u8] = b"/proc/self/exe\0";
-const STAGE_1_TRACER: &[u8] = b"sand\0";
-const STAGE_2_LOADER: &[u8] = b"sand-exec\0";
+pub const SELF_EXE: &[u8] = b"/proc/self/exe\0";
+pub const STAGE_1_TRACER: &[u8] = b"sand\0";
+pub const STAGE_2_INIT_LOADER: &[u8] = b"sand-exec\0";
 
 enum RunMode {
     Unknown,
     Tracer(SysFd),
-    Loader,
+    InitLoader(SysFd),
 }
 
 pub fn c_main(argc: isize, argv: *const *const u8) -> isize {
@@ -56,17 +55,12 @@ pub fn c_main(argc: isize, argv: *const *const u8) -> isize {
 
         RunMode::Tracer(fd) => {
             seccomp::policy_for_tracer();
-            Tracer::new(Socket::from_sys_fd(&fd), task_fn).run(unsafe {
-                &RawExecArgs::new(SELF_EXE, &[STAGE_2_LOADER.as_ptr(), null()], &[null()])
-            });
+            Tracer::new(Socket::from_sys_fd(&fd), task_fn).run();
         }
 
-        RunMode::Loader => {
-            // Running inside the tracer; load a more restrictive seccomp policy, then
-            // issue a special form of 'exec' that the tracer accepts only once. This
-            // becomes the first in-container process via the emulated ELF loader.
+        RunMode::InitLoader(fd) => {
             seccomp::policy_for_loader();
-            unsafe { syscall!(EXECVE, 0, 0, 0) };
+            init::with_args_from_fd(fd);
         }
     }
 
@@ -80,14 +74,15 @@ fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> R
         && envp.len() == 1
         && check_sealed_exe_environment().is_ok()
     {
-        // Stage 1: no other args, a single 'FD' env var, sealed exe
         match parse_envp_as_fd(envp) {
             Some(fd) => RunMode::Tracer(fd),
             None => RunMode::Unknown,
         }
-    } else if argv0 == STAGE_2_LOADER && argv.len() == 1 && envp.is_empty() {
-        // Stage 2: no other args, empty environment
-        RunMode::Loader
+    } else if argv0 == STAGE_2_INIT_LOADER && argv.len() == 1 && envp.len() == 1 {
+        match parse_envp_as_fd(envp) {
+            Some(fd) => RunMode::InitLoader(fd),
+            None => RunMode::Unknown,
+        }
     } else {
         RunMode::Unknown
     }

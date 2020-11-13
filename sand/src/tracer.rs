@@ -2,11 +2,12 @@ use crate::{
     abi,
     ipc::Socket,
     process::{table::ProcessTable, Event, TaskFn},
-    protocol::{MessageFromSand, MessageToSand, SysPid, VPid},
+    protocol::{MessageFromSand, MessageToSand, SysFd, SysPid, VPid},
     ptrace,
     ptrace::RawExecArgs,
 };
-use core::{future::Future, pin::Pin, task::Poll};
+use core::{future::Future, pin::Pin, ptr::null, task::Poll};
+use heapless::{consts::*, String};
 use pin_project::pin_project;
 use sc::syscall;
 
@@ -25,15 +26,20 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         }
     }
 
-    pub fn run(mut self, args: &RawExecArgs) {
-        let mut pin = unsafe { Pin::new_unchecked(&mut self) };
-        pin.as_mut().spawn(args);
+    pub fn run(mut self) {
+        let pin = unsafe { Pin::new_unchecked(&mut self) };
         pin.event_loop();
     }
 
-    fn spawn(self: Pin<&mut Self>, args: &RawExecArgs) {
+    fn init_loader(self: Pin<&mut Self>, args_fd: &SysFd) {
+        let mut fd_str = String::<U16>::from("FD=");
+        fd_str.push_str(&String::<U16>::from(args_fd.0)).unwrap();
+        fd_str.push('\0').unwrap();
+        let loader_argv = [crate::STAGE_2_INIT_LOADER.as_ptr(), null()];
+        let loader_env = [fd_str.as_ptr(), null()];
+        let exec_args = unsafe { RawExecArgs::new(crate::SELF_EXE, &loader_argv, &loader_env) };
         match unsafe { syscall!(FORK) } as isize {
-            result if result == 0 => unsafe { ptrace::be_the_child_process(args) },
+            result if result == 0 => unsafe { ptrace::be_the_child_process(&exec_args) },
             result if result < 0 => panic!("fork error"),
             result => {
                 let sys_pid = SysPid(result as u32);
@@ -53,24 +59,22 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     fn event_loop(mut self: Pin<&mut Self>) {
         let mut siginfo: abi::SigInfo = Default::default();
         loop {
+            while let Some(message) = self.as_mut().project().ipc.recv() {
+                self.as_mut().message_event(message);
+            }
             match ptrace::wait(&mut siginfo) {
                 err if err == -abi::ECHILD => break,
                 err if err == -abi::EINTR => (),
                 err if err == 0 => self.as_mut().siginfo_event(&siginfo),
                 err => panic!("unexpected waitid response ({})", err),
             }
-            while let Some(message) = self.as_mut().project().ipc.recv() {
-                self.as_mut().message_event(message);
-            }
         }
     }
 
     fn message_event(self: Pin<&mut Self>, message: MessageToSand) {
         match message {
-            MessageToSand::Task{ task, op } => self.task_event(task, Event::Message(op)),
-            MessageToSand::Init{ args } => {
-                println!("new process goes here, args={:?}", args);
-            }
+            MessageToSand::Task { task, op } => self.task_event(task, Event::Message(op)),
+            MessageToSand::Init { args } => self.init_loader(&args),
         }
     }
 

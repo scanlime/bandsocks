@@ -5,31 +5,24 @@
 /// Any message sent from the IPC server to the sand process
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum MessageToSand {
-    Task {
-        task: VPid,
-        op: ToTask
-    },
-    Init {
-        args: SysFd
-    }
+    Task { task: VPid, op: ToTask },
+    Init { args: SysFd },
 }
 
 /// Any message sent from the sand process to the IPC server
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum MessageFromSand {
-    Task {
-        task: VPid,
-        op: FromTask,
-    }
+    Task { task: VPid, op: FromTask },
 }
 
-/// Fixed size header for the variable sized startup data in the Init 'args' pipe
-#[derive(Debug, Clone)]
+/// Fixed size header for the variable sized startup data in the Init 'args'
+/// pipe
+#[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct InitArgsHeader {
     argc: usize,
     argv_len: usize,
-    envp_len: usize
+    envp_len: usize,
 }
 
 /// A message delivered to one of the lightweight tasks in the tracer
@@ -920,21 +913,21 @@ mod test {
 
     #[test]
     fn messages() {
-        let msg1 = MessageToSand {
+        let msg1 = MessageToSand::Task {
             task: VPid(12345),
-            op: ToSand::FileOpenReply(Ok(FileBacking::Normal(SysFd(5)))),
+            op: ToTask::FileOpenReply(Ok(FileBacking::Normal(SysFd(5)))),
         };
-        let msg2 = MessageToSand {
+        let msg2 = MessageToSand::Task {
             task: VPid(39503),
-            op: ToSand::FileOpenReply(Err(Errno(2333))),
+            op: ToTask::FileOpenReply(Err(Errno(2333))),
         };
-        let msg3 = MessageToSand {
+        let msg3 = MessageToSand::Task {
             task: VPid(29862),
-            op: ToSand::FileOpenReply(Ok(FileBacking::Normal(SysFd(99999)))),
+            op: ToTask::FileOpenReply(Ok(FileBacking::Normal(SysFd(99999)))),
         };
-        let msg4 = MessageToSand {
+        let msg4 = MessageToSand::Task {
             task: VPid(125),
-            op: ToSand::FileOpenReply(Ok(FileBacking::VFSMapRef {
+            op: ToTask::FileOpenReply(Ok(FileBacking::VFSMapRef {
                 source: SysFd(200),
                 offset: 1,
                 filesize: 2,
@@ -945,7 +938,7 @@ mod test {
         buf.push_back(&msg2).unwrap();
         buf.push_back(&msg3).unwrap();
         buf.push_back(&msg4).unwrap();
-        assert_eq!(buf.as_slice().bytes.len(), 47);
+        assert_eq!(buf.as_slice().bytes.len(), 51);
         assert_eq!(buf.as_slice().files.len(), 3);
         assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg1));
         assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg2));
@@ -1048,9 +1041,9 @@ mod test {
     );
     check!(
         sys_open_1,
-        MessageFromSand {
+        MessageFromSand::Task {
             task: VPid(0x12349955),
-            op: FromSand::FileOpen {
+            op: FromTask::FileOpen {
                 file: FileAccess {
                     dir: None,
                     path: VString(VPtr(0x5544332211009933)),
@@ -1061,16 +1054,16 @@ mod test {
         },
         MessageFromSand,
         [
-            0x55, 0x99, 0x34, 0x12, 0x02, 0x00, 0x33, 0x99, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55,
-            0x88, 0x77, 0x66, 0x55, 0x22, 0x22, 0x56, 0x34
+            0x00, 0x55, 0x99, 0x34, 0x12, 0x02, 0x00, 0x33, 0x99, 0x00, 0x11, 0x22, 0x33, 0x44,
+            0x55, 0x88, 0x77, 0x66, 0x55, 0x22, 0x22, 0x56, 0x34
         ],
         []
     );
     check!(
         sys_open_2,
-        MessageFromSand {
+        MessageFromSand::Task {
             task: VPid(0x22222222),
-            op: FromSand::FileOpen {
+            op: FromTask::FileOpen {
                 file: FileAccess {
                     dir: Some(SysFd(0x11111111)),
                     path: VString(VPtr(0x3333333333333333)),
@@ -1081,42 +1074,42 @@ mod test {
         },
         MessageFromSand,
         [
-            0x22, 0x22, 0x22, 0x22, 0x02, 0x01, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            0x44, 0x44, 0x44, 0x44, 0x55, 0x55, 0x55, 0x55
+            0x00, 0x22, 0x22, 0x22, 0x22, 0x02, 0x01, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x33, 0x44, 0x44, 0x44, 0x44, 0x55, 0x55, 0x55, 0x55
         ],
         [SysFd(0x11111111)]
     );
     check!(
         sys_open_reply_1,
-        MessageToSand {
+        MessageToSand::Task {
             task: VPid(0x54555657),
-            op: ToSand::FileOpenReply(Ok(FileBacking::Normal(SysFd(42)))),
+            op: ToTask::FileOpenReply(Ok(FileBacking::Normal(SysFd(42)))),
         },
         MessageToSand,
-        [0x57, 0x56, 0x55, 0x54, 0x01, 0x00, 0x00],
+        [0x00, 0x57, 0x56, 0x55, 0x54, 0x01, 0x00, 0x00],
         [SysFd(42)]
     );
     check!(
         sys_open_reply_2,
-        MessageToSand {
+        MessageToSand::Task {
             task: VPid(0x11223344),
-            op: ToSand::FileOpenReply(Err(Errno(-10)))
+            op: ToTask::FileOpenReply(Err(Errno(-10)))
         },
         MessageToSand,
-        [0x44, 0x33, 0x22, 0x11, 0x01, 0x01, 0xf6, 0xff, 0xff, 0xff],
+        [0x00, 0x44, 0x33, 0x22, 0x11, 0x01, 0x01, 0xf6, 0xff, 0xff, 0xff],
         []
     );
     check!(
         process_open_reply_1,
-        MessageToSand {
+        MessageToSand::Task {
             task: VPid(0x66669999),
-            op: ToSand::OpenProcessReply(ProcessHandle {
+            op: ToTask::OpenProcessReply(ProcessHandle {
                 mem: SysFd(10),
                 maps: SysFd(20)
             })
         },
         MessageToSand,
-        [0x99, 0x99, 0x66, 0x66, 0],
+        [0x00, 0x99, 0x99, 0x66, 0x66, 0],
         [SysFd(10), SysFd(20)]
     );
 }

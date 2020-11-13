@@ -29,10 +29,29 @@ pub struct IPCServer {
     process_table: HashMap<VPid, Process>,
 }
 
+pub async fn send_message(
+    stream: &mut UnixStream,
+    message: &MessageToSand,
+) -> Result<(), IPCError> {
+    log::info!("<{:x?}", message);
+
+    let mut buffer = IPCBuffer::new();
+    buffer.push_back(message)?;
+    for file in buffer.as_slice().files {
+        stream.enqueue(file)?;
+    }
+    stream.write_all(buffer.as_slice().bytes).await?;
+    stream.flush().await?;
+    Ok(())
+}
+
 impl IPCServer {
-    pub fn new(filesystem: Filesystem) -> Result<IPCServer, IPCError> {
-        let (server_socket, child_socket) = UnixStream::pair()?;
+    pub async fn new(filesystem: Filesystem, args_fd: SysFd) -> Result<IPCServer, IPCError> {
+        let (mut server_socket, child_socket) = UnixStream::pair()?;
         clear_close_on_exec_flag(child_socket.as_raw_fd());
+
+        // Queue the init message before running the sand process
+        send_message(&mut server_socket, &MessageToSand::Init { args: args_fd }).await?;
 
         let mut sand_bin = Cursor::new(sand::PROGRAM_DATA);
         let mut cmd = SealedCommand::new(&mut sand_bin).unwrap();
@@ -72,16 +91,7 @@ impl IPCServer {
     }
 
     pub async fn send_message(&mut self, message: &MessageToSand) -> Result<(), IPCError> {
-        log::info!("<{:x?}", message);
-
-        let mut buffer = IPCBuffer::new();
-        buffer.push_back(message)?;
-        for file in buffer.as_slice().files {
-            self.stream.enqueue(file)?;
-        }
-        self.stream.write_all(buffer.as_slice().bytes).await?;
-        self.stream.flush().await?;
-        Ok(())
+        send_message(&mut self.stream, message).await
     }
 
     async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), IPCError> {

@@ -1,10 +1,10 @@
 use crate::{
     client::Client,
-    errors::{IPCError, ImageError, RuntimeError},
+    errors::{ImageError, RuntimeError},
     filesystem::vfs::Filesystem,
     image::Image,
     ipcserver::IPCServer,
-    sand::protocol::{MessageToSand, SysFd},
+    sand::protocol::{InitArgsHeader, SysFd},
     Reference,
 };
 use fd_queue::tokio::UnixStream;
@@ -12,8 +12,10 @@ use std::{
     collections::BTreeMap,
     default::Default,
     ffi::{OsStr, OsString},
+    mem::size_of_val,
     os::unix::io::AsRawFd,
     path::{Path, PathBuf},
+    slice,
     sync::Arc,
 };
 use tokio::{io::AsyncWriteExt, task::JoinHandle};
@@ -34,7 +36,7 @@ enum EnvBuilder {
 }
 
 impl ContainerBuilder {
-    pub async fn spawn(&self) -> Result<Container, RuntimeError> {
+    pub fn spawn(&self) -> Result<Container, RuntimeError> {
         // it might be nice to enforce this at compile-time instead... right now it
         // seemed worth allowing for multiple ways to load images without the
         // types getting too complex.
@@ -102,7 +104,7 @@ impl ContainerBuilder {
             Err(RuntimeError::NoEntryPoint)?
         }
 
-        Ok(Container::startup(filesystem, argv, env, dir).await?)
+        Ok(Container::startup(filesystem, argv, env, dir)?)
     }
 
     pub fn image(&mut self, image: &Arc<Image>) -> &mut Self {
@@ -174,8 +176,11 @@ impl ContainerBuilder {
 
 #[derive(Debug)]
 pub struct Container {
-    args_sockets: (UnixStream, UnixStream),
-    ipc_join: JoinHandle<Result<(), IPCError>>,
+    join: JoinHandle<Result<(), RuntimeError>>,
+}
+
+fn args_header_bytes(header: &InitArgsHeader) -> &[u8] {
+    unsafe { slice::from_raw_parts( header as *const InitArgsHeader as *const u8, size_of_val(header) ) }
 }
 
 impl Container {
@@ -184,8 +189,7 @@ impl Container {
     }
 
     pub async fn wait(self) -> Result<(), RuntimeError> {
-        self.ipc_join.await??;
-        Ok(())
+        self.join.await?
     }
 
     pub async fn pull(image_reference: &Reference) -> Result<ContainerBuilder, ImageError> {
@@ -194,25 +198,30 @@ impl Container {
         Ok(builder)
     }
 
-    async fn startup(
+    fn startup(
         filesystem: Filesystem,
         argv: Vec<OsString>,
         env: BTreeMap<OsString, OsString>,
         dir: PathBuf,
     ) -> Result<Container, RuntimeError> {
-        let args_sockets = UnixStream::pair()?;
-        let ipc = IPCServer::new(filesystem)?;
-
-        ipc.send_message(&MessageToSand::Init {
-            args: SysFd(args_sockets.1.as_raw_fd() as u32),
-        })
-        .await?;
-
-        args_sockets.0.write_all(b"blah").await?;
-
         Ok(Container {
-            args_sockets,
-            ipc_join: ipc.task(),
+            join: tokio::spawn(async move {
+                let (mut args_server, args_client) = UnixStream::pair()?;
+
+                let args_header: InitArgsHeader = Default::default();
+
+                args_server
+                    .write_all(args_header_bytes(&args_header))
+                    .await?;
+
+                let ipc_task = IPCServer::new(filesystem, SysFd(args_client.as_raw_fd() as u32))
+                    .await?
+                    .task();
+
+                ipc_task.await??;
+
+                Ok(())
+            }),
         })
     }
 }

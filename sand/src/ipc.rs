@@ -15,7 +15,7 @@ use core::{
 use sc::syscall;
 use typenum::Unsigned;
 
-static SIGIO_FLAG: AtomicBool = AtomicBool::new(false);
+static SIGIO_FLAG: AtomicBool = AtomicBool::new(true);
 
 pub struct Socket {
     fd: SysFd,
