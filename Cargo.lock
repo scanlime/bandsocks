@@ -122,6 +122,7 @@ dependencies = [
  "heapless",
  "memoffset",
  "pin-project 1.0.1",
+ "plain",
  "sc",
  "seccomp-tiny",
  "serde",

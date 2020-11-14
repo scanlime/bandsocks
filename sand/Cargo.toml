@@ -18,7 +18,8 @@ hash32 = "0.1.1"
 hash32-derive = "0.1.0"
 pin-project = "1"
 seccomp-tiny = "0.1.1"
-goblin = { version = "0.2.3", default-features = false, features = ["elf64"] }
+zero = "0.1.2"
+xmas-elf = "0.7.0"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 smalloca = { version = "0.1.0", default-features = false }
 sc = "0.2.3"
