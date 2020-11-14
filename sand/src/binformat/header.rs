@@ -10,7 +10,7 @@ pub struct Header {
 }
 
 impl Header {
-    pub fn load(sys_fd: &SysFd) -> Result<Header, Errno> {
+    pub async fn load(sys_fd: &SysFd) -> Result<Header, Errno> {
         let mut buffer = [0u8; abi::BINPRM_BUF_SIZE];
         let result =
             unsafe { syscall!(PREAD64, sys_fd.0, buffer.as_mut_ptr(), buffer.len(), 0) as isize };

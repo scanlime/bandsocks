@@ -37,15 +37,15 @@ pub fn with_args_from_fd(fd: &SysFd) -> ! {
                     }
 
                     // now let the emulated kernel take over
-                    unsafe {
+                    let error = unsafe {
                         syscall!(
                             EXECVE,
                             filename.as_ptr(),
                             argv_ptrs.as_ptr(),
                             envp_ptrs.as_ptr()
-                        )
+                        ) as isize
                     };
-                    unreachable!();
+                    panic!("initial exec failed ({})", error);
                 },
             );
         },
