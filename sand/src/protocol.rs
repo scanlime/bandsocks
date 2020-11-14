@@ -85,16 +85,6 @@ pub struct FileAccess {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub enum FileBacking {
-    Normal(SysFd),
-    VFSMapRef {
-        source: SysFd,
-        offset: usize,
-        filesize: usize,
-    },
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ProcessHandle {
     pub mem: SysFd,
     pub maps: SysFd,
@@ -949,7 +939,7 @@ mod test {
     fn messages() {
         let msg1 = MessageToSand::Task {
             task: VPid(12345),
-            op: ToTask::FileReply(Ok(FileBacking::Normal(SysFd(5)))),
+            op: ToTask::FileReply(Ok(SysFd(5))),
         };
         let msg2 = MessageToSand::Task {
             task: VPid(39503),
@@ -957,15 +947,11 @@ mod test {
         };
         let msg3 = MessageToSand::Task {
             task: VPid(29862),
-            op: ToTask::FileReply(Ok(FileBacking::Normal(SysFd(99999)))),
+            op: ToTask::FileReply(Ok(SysFd(99999))),
         };
         let msg4 = MessageToSand::Task {
             task: VPid(125),
-            op: ToTask::FileReply(Ok(FileBacking::VFSMapRef {
-                source: SysFd(200),
-                offset: 1,
-                filesize: 2,
-            })),
+            op: ToTask::FileReply(Ok(SysFd(299))),
         };
         let mut buf = buffer::IPCBuffer::new();
         buf.push_back(&msg1).unwrap();

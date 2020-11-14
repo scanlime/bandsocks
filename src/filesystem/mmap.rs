@@ -2,7 +2,7 @@ use memmap::{Mmap, MmapOptions};
 use std::{
     fs::File,
     io,
-    ops::Deref,
+    ops::{Deref, Range},
     os::unix::{io::AsRawFd, prelude::RawFd},
     path::Path,
     sync::{Arc, Weak},
@@ -58,12 +58,12 @@ impl MapRef {
         }
     }
 
-    pub fn clone_range(&self, offset: usize, len: usize) -> Result<MapRef, ()> {
-        if offset + len <= self.filesize {
+    pub fn range(&self, range: &Range<usize>) -> Result<MapRef, ()> {
+        if range.end <= self.filesize {
             Ok(MapRef {
                 source: self.source.clone(),
-                offset: self.offset + offset,
-                filesize: len,
+                offset: self.offset + range.start,
+                filesize: range.end - range.start,
             })
         } else {
             Err(())

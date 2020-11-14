@@ -1,9 +1,9 @@
 use crate::{
-    client::Client,
     errors::{ImageError, RuntimeError},
-    filesystem::vfs::Filesystem,
+    filesystem::{storage::FileStorage, vfs::Filesystem},
     image::Image,
     ipcserver::IPCServer,
+    registry::Client,
     sand::protocol::{InitArgsHeader, SysFd},
     Reference,
 };
@@ -47,6 +47,7 @@ impl ContainerBuilder {
         // this is a shallow copy of the image's reference filesystem, which the
         // container can modify
         let filesystem = image.filesystem.clone();
+        let storage = image.storage.clone();
 
         // working directory is the configured one joined with an optional relative or
         // absolute override
@@ -103,7 +104,7 @@ impl ContainerBuilder {
             Err(RuntimeError::NoEntryPoint)?
         }
 
-        Ok(Container::startup(filesystem, argv, env, dir)?)
+        Ok(Container::startup(filesystem, storage, argv, env, dir)?)
     }
 
     pub fn image(&mut self, image: &Arc<Image>) -> &mut Self {
@@ -195,6 +196,7 @@ impl Container {
 
     fn startup(
         filesystem: Filesystem,
+        storage: FileStorage,
         argv: Vec<OsString>,
         env: BTreeMap<OsString, OsString>,
         dir: PathBuf,
@@ -248,7 +250,7 @@ impl Container {
                 let client_fd = args_client.as_raw_fd();
                 assert_eq!(0, unsafe { libc::fcntl(client_fd, libc::F_SETFL, 0) });
                 let client_fd = SysFd(client_fd as u32);
-                let ipc_task = IPCServer::new(filesystem, client_fd).await?.task();
+                let ipc_task = IPCServer::new(filesystem, storage, client_fd).await?.task();
 
                 args.write_all(args_header.as_bytes()).await?;
 

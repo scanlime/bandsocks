@@ -1,9 +1,12 @@
 use crate::{
     errors::ImageError,
-    filesystem::{mmap::MapRef, tar, vfs},
+    filesystem::{
+        mmap::MapRef,
+        storage::{FileStorage, StorageKey},
+        tar, vfs,
+    },
     image::Image,
     manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
-    storage::{FileStorage, StorageKey},
     Reference,
 };
 
@@ -21,6 +24,7 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
+    #[allow(dead_code)]
     pub fn cache_dir(&mut self, dir: &Path) -> &mut Self {
         self.cache_dir = Some(dir.to_path_buf());
         self
@@ -90,7 +94,7 @@ impl Client {
 
     async fn pull_manifest(&mut self, image: &Reference) -> Result<Manifest, ImageError> {
         let key = StorageKey::Manifest(image.clone());
-        let map = match self.storage.get(&key)? {
+        let map = match self.storage.get(&key).await? {
             Some(map) => map,
             None => {
                 let rc = self.registry_client_for(image).await?;
@@ -100,7 +104,7 @@ impl Client {
                 {
                     dkregistry::v2::manifest::Manifest::S2(schema) => {
                         let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
-                        self.storage.insert(&key, spec_data).await?
+                        self.storage.insert(&key, &spec_data).await?
                     }
                     _ => Err(ImageError::UnsupportedManifestType)?,
                 }
@@ -111,19 +115,23 @@ impl Client {
         Ok(serde_json::from_slice(slice)?)
     }
 
-    fn local_blob(&mut self, digest: &str) -> Result<Option<MapRef>, ImageError> {
+    async fn local_blob(&mut self, digest: &str) -> Result<Option<StorageKey>, ImageError> {
         let key = StorageKey::Blob(digest.to_string());
-        self.storage.get(&key)
+        match self.storage.get(&key).await {
+            Err(e) => Err(e),
+            Ok(None) => Ok(None),
+            Ok(_map) => Ok(Some(key)),
+        }
     }
 
-    fn local_blob_list(
+    async fn local_blob_list(
         &mut self,
         digest_list: &[String],
-    ) -> Result<Option<Vec<MapRef>>, ImageError> {
+    ) -> Result<Option<Vec<StorageKey>>, ImageError> {
         let mut result = vec![];
         for digest in digest_list {
-            if let Some(mapref) = self.local_blob(digest)? {
-                result.push(mapref);
+            if let Some(map) = self.local_blob(digest).await? {
+                result.push(map);
             }
         }
         if result.len() == digest_list.len() {
@@ -135,13 +143,13 @@ impl Client {
 
     async fn pull_blob(&mut self, image: &Reference, link: &Link) -> Result<MapRef, ImageError> {
         let key = StorageKey::Blob(link.digest.clone());
-        let mapref = match self.storage.get(&key)? {
+        let mapref = match self.storage.get(&key).await? {
             Some(mapref) => mapref,
             None => {
                 let rc = self.registry_client_for(image).await?;
                 let blob_data = rc.get_blob(&image.repository(), &link.digest).await?;
                 log::info!("{} downloaded, {} bytes", link.digest, link.size);
-                self.storage.insert(&key, blob_data).await?
+                self.storage.insert(&key, &blob_data).await?
             }
         };
         if mapref.len() as u64 == link.size {
@@ -185,7 +193,7 @@ impl Client {
             output.len(),
             key
         );
-        self.storage.insert(&key, output).await?;
+        self.storage.insert(&key, &output).await?;
         Ok(())
     }
 
@@ -204,7 +212,7 @@ impl Client {
             ))?;
         }
         let ids = &config.rootfs.diff_ids;
-        let content = match self.local_blob_list(ids)? {
+        let content = match self.local_blob_list(ids).await? {
             Some(content) => Ok(content),
             None => {
                 for link in &manifest.layers {
@@ -215,7 +223,7 @@ impl Client {
                         Err(ImageError::UnsupportedLayerType(link.media_type.clone()))?;
                     }
                 }
-                match self.local_blob_list(ids)? {
+                match self.local_blob_list(ids).await? {
                     Some(content) => Ok(content),
                     None => Err(ImageError::UnexpectedDecompressedLayerContent),
                 }
@@ -223,14 +231,17 @@ impl Client {
         }?;
 
         let mut filesystem = vfs::Filesystem::new();
+        let storage = self.storage.clone();
+
         for layer in &content {
-            tar::extract_metadata(&mut filesystem, layer)?;
+            tar::extract(&mut filesystem, &storage, layer).await?;
         }
 
         Ok(Arc::new(Image {
             digest: manifest.config.digest,
             config,
             filesystem,
+            storage,
         }))
     }
 }

@@ -1,4 +1,10 @@
-use crate::{errors::VFSError, filesystem::mmap::MapRef};
+use crate::{
+    errors::VFSError,
+    filesystem::{
+        mmap::MapRef,
+        storage::{FileStorage, StorageKey},
+    },
+};
 use std::{
     collections::{BTreeMap, HashSet},
     ffi::{OsStr, OsString},
@@ -9,13 +15,14 @@ use std::{
 
 type INodeNum = usize;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Stat {
     pub mode: u32,
     pub uid: u64,
     pub gid: u64,
     pub mtime: u64,
     pub nlink: u64,
+    pub size: u64,
 }
 
 #[derive(Clone)]
@@ -30,8 +37,8 @@ pub struct VFile {
     // future home of per-file-object flags
 }
 
-pub struct VFSWriter<'a> {
-    fs: &'a mut Filesystem,
+pub struct VFSWriter<'f> {
+    fs: &'f mut Filesystem,
     workdir: INodeNum,
 }
 
@@ -47,10 +54,11 @@ struct DirEntryRef {
     child: INodeNum,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum Node {
     Directory(BTreeMap<OsString, INodeNum>),
-    NormalFile(MapRef),
+    EmptyFile,
+    MappedFile(StorageKey),
     SymbolicLink(PathBuf),
 }
 
@@ -86,7 +94,7 @@ impl Limits {
     }
 }
 
-impl Filesystem {
+impl<'s> Filesystem {
     pub fn new() -> Self {
         let root = 0;
         let mut fs = Filesystem {
@@ -98,7 +106,7 @@ impl Filesystem {
         fs
     }
 
-    pub fn writer<'a>(&'a mut self) -> VFSWriter<'a> {
+    pub fn writer<'f>(&'f mut self) -> VFSWriter<'f> {
         let workdir = self.root;
         VFSWriter { workdir, fs: self }
     }
@@ -217,13 +225,47 @@ impl Filesystem {
         Ok(VFile { inode: entry.child })
     }
 
-    pub fn map_file(&self, f: &VFile) -> Result<MapRef, VFSError> {
+    pub async fn map_file(
+        &self,
+        storage: &FileStorage,
+        f: &VFile,
+    ) -> Result<Option<MapRef>, VFSError> {
         match &self.inodes[f.inode] {
             None => Err(VFSError::NotFound),
             Some(node) => match &node.data {
                 Node::Directory(_) => Err(VFSError::FileExpected),
                 Node::SymbolicLink(_) => Err(VFSError::FileExpected),
-                Node::NormalFile(map_ref) => Ok(map_ref.clone()),
+                Node::EmptyFile => Ok(None),
+                Node::MappedFile(storage_key) => Ok(Some(
+                    self.map_file_with_storage_key(storage, storage_key).await?,
+                )),
+            },
+        }
+    }
+
+    async fn map_file_with_storage_key(
+        &self,
+        storage: &FileStorage,
+        storage_key: &StorageKey,
+    ) -> Result<MapRef, VFSError> {
+        match storage.get(&storage_key).await {
+            Ok(Some(mapref)) => Ok(mapref),
+            Err(_) | Ok(None) => match storage_key {
+                StorageKey::BlobPart(digest, range) => {
+                    match storage.get(&StorageKey::Blob(digest.clone())).await {
+                        Err(_) | Ok(None) => Err(VFSError::ImageStorageError),
+                        Ok(Some(part_of)) => {
+                            let part_of = part_of
+                                .range(range)
+                                .map_err(|_| VFSError::ImageStorageError)?;
+                            match storage.insert(storage_key, &part_of).await {
+                                Ok(mapref) => Ok(mapref),
+                                Err(_) => Err(VFSError::ImageStorageError),
+                            }
+                        }
+                    }
+                }
+                _ => Err(VFSError::ImageStorageError),
             },
         }
     }
@@ -233,7 +275,8 @@ impl Filesystem {
             None => false,
             Some(node) => match &node.data {
                 Node::Directory(_) => false,
-                Node::NormalFile(_) => true,
+                Node::MappedFile(_) => true,
+                Node::EmptyFile => true,
                 Node::SymbolicLink(_) => false,
             },
         }
@@ -243,15 +286,16 @@ impl Filesystem {
         match &self.inodes[f.inode] {
             None => false,
             Some(node) => match &node.data {
-                Node::Directory(_) => false,
-                Node::NormalFile(_) => true,
+                Node::Directory(_) => true,
+                Node::MappedFile(_) => false,
+                Node::EmptyFile => false,
                 Node::SymbolicLink(_) => false,
             },
         }
     }
 }
 
-impl<'a> VFSWriter<'a> {
+impl<'f> VFSWriter<'f> {
     fn alloc_inode_number(&mut self) -> INodeNum {
         let num = self.fs.inodes.len() as INodeNum;
         self.fs.inodes.push(None);
@@ -386,10 +430,10 @@ impl<'a> VFSWriter<'a> {
         }
     }
 
-    pub fn write_file_mapping(
+    pub fn write_file(
         &mut self,
         path: &Path,
-        data: MapRef,
+        data: Option<StorageKey>,
         stat: Stat,
     ) -> Result<(), VFSError> {
         let mut limits = Limits::reset();
@@ -399,7 +443,10 @@ impl<'a> VFSWriter<'a> {
             num,
             INode {
                 stat,
-                data: Node::NormalFile(data),
+                data: match data {
+                    Some(mapref) => Node::MappedFile(mapref),
+                    None => Node::EmptyFile,
+                },
             },
         );
         self.add_child_to_directory(dir, name, num)?;
@@ -484,25 +531,6 @@ impl<'a> VFSWriter<'a> {
     }
 }
 
-impl fmt::Debug for Node {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Node::Directory(_) => f.write_fmt(format_args!("<dir>")),
-            Node::SymbolicLink(path) => f.write_fmt(format_args!("@{:?}", path)),
-            Node::NormalFile(mmap) => f.write_fmt(format_args!("{} bytes", mmap.len())),
-        }
-    }
-}
-
-impl fmt::Debug for Stat {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!(
-            "{:o} {}:{} @{} {}",
-            self.mode, self.uid, self.gid, self.mtime, self.nlink
-        ))
-    }
-}
-
 impl fmt::Debug for Filesystem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut stack = vec![(PathBuf::new(), self.root)];
@@ -517,10 +545,10 @@ impl fmt::Debug for Filesystem {
                             match self.get_inode(*child) {
                                 Ok(child_node) => {
                                     f.write_fmt(format_args!(
-                                        "{:5}  {:30} {:30}  /{}\n",
+                                        "{:5}  {:?} {:?}  /{}\n",
                                         *child,
-                                        format!("{:?}", child_node.stat),
-                                        format!("{:?}", child_node.data),
+                                        child_node.stat,
+                                        child_node.data,
                                         child_path.to_string_lossy()
                                     ))?;
 

@@ -47,6 +47,9 @@ pub enum ImageError {
 
 #[derive(Error, Debug)]
 pub enum VFSError {
+    #[error("unexpected filesystem image storage error")]
+    ImageStorageError,
+
     #[error("expected a directory, found another node type")]
     DirectoryExpected,
 
@@ -72,6 +75,7 @@ pub enum VFSError {
 impl VFSError {
     pub fn to_errno(&self) -> libc::c_int {
         match self {
+            VFSError::ImageStorageError => libc::EIO,
             VFSError::DirectoryExpected => libc::ENOTDIR,
             VFSError::FileExpected => libc::EISDIR,
             VFSError::UnallocNode => libc::ENOENT,

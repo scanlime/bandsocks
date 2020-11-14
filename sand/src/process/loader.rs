@@ -46,25 +46,20 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             result, self.argv, self.envp
         );
 
-        if let Ok(FileBacking::VFSMapRef {
-            source,
-            offset,
-            filesize,
-        }) = result
-        {
+        if let Ok(FileBacking::Normal(sys_fd)) = result {
             let mut header: elf64::header::Header = Default::default();
             let result = unsafe {
                 syscall!(
                     PREAD64,
-                    source.0,
+                    sys_fd.0,
                     &mut header as *mut elf64::header::Header,
                     elf64::header::SIZEOF_EHDR,
-                    offset
+                    0
                 ) as isize
             };
             println!(
-                "read: {:?}, filesize={:?} header={:?}",
-                result, filesize, header
+                "read: {:?}, header={:?}",
+                result, header
             );
         }
 

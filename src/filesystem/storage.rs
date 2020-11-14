@@ -8,12 +8,23 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
+    ops::Range,
     path::{Path, PathBuf},
+    sync::Arc,
     time::SystemTime,
 };
-use tokio::io::AsyncWriteExt;
+use tokio::{
+    fs::{os::unix::OpenOptionsExt, OpenOptions},
+    io::AsyncWriteExt,
+    sync::RwLock,
+};
 
+#[derive(Clone)]
 pub struct FileStorage {
+    inner: Arc<RwLock<Shared>>,
+}
+
+struct Shared {
     path: PathBuf,
     memo: HashMap<StorageKey, WeakMapRef>,
 }
@@ -21,62 +32,76 @@ pub struct FileStorage {
 impl FileStorage {
     pub fn new(path: PathBuf) -> Self {
         FileStorage {
-            path,
-            memo: HashMap::new(),
+            inner: Arc::new(RwLock::new(Shared {
+                path,
+                memo: HashMap::new(),
+            })),
         }
     }
 
-    pub fn get(&mut self, key: &StorageKey) -> Result<Option<MapRef>, ImageError> {
+    pub async fn get(&self, key: &StorageKey) -> Result<Option<MapRef>, ImageError> {
         log::debug!("storage get, {:?}", key);
-        match self.memo.get(key).and_then(|weak| weak.upgrade()) {
-            Some(arc) => {
-                log::debug!("storage get, {:?}, succeeded from memo", key);
-                Ok(Some(arc))
-            }
-            None => {
-                let path = key.to_path(&self.path)?;
-                match MapRef::open(&path) {
-                    Err(e) => match e.kind() {
-                        std::io::ErrorKind::NotFound => Ok(None),
-                        _ => Err(e.into()),
-                    },
-                    Ok(mapref) => {
-                        log::debug!("storage get, {:?}, succeeded opening new mapping", key);
-                        self.memo.insert(key.clone(), mapref.downgrade());
-                        Ok(Some(mapref))
-                    }
-                }
+        if let Some(arc) = self
+            .inner
+            .read()
+            .await
+            .memo
+            .get(key)
+            .and_then(|weak| weak.upgrade())
+        {
+            log::debug!("storage get, {:?}, succeeded from memo", key);
+            return Ok(Some(arc));
+        }
+        let mut locked = self.inner.write().await;
+        let path = key.to_path(&locked.path)?;
+        match MapRef::open(&path) {
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NotFound => Ok(None),
+                _ => Err(e.into()),
+            },
+            Ok(mapref) => {
+                log::debug!("storage get, {:?}, succeeded opening new mapping", key);
+                locked.memo.insert(key.clone(), mapref.downgrade());
+                Ok(Some(mapref))
             }
         }
     }
 
-    pub async fn insert(&mut self, key: &StorageKey, data: Vec<u8>) -> Result<MapRef, ImageError> {
+    pub async fn insert(&self, key: &StorageKey, data: &[u8]) -> Result<MapRef, ImageError> {
         log::debug!("Storage insert, {:?}, {} bytes", key, data.len());
+        {
+            let locked = self.inner.read().await;
 
-        // Prepare directories
-        let mut temp_path = self.path.clone();
-        push_temp_path(&mut temp_path)?;
-        if let Some(parent) = temp_path.as_path().parent() {
-            tokio::fs::create_dir_all(parent).await?;
+            // Prepare directories
+            let mut temp_path = locked.path.clone();
+            push_temp_path(&mut temp_path)?;
+            if let Some(parent) = temp_path.as_path().parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            let dest_path = key.to_path(&locked.path)?;
+            if let Some(parent) = dest_path.as_path().parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+
+            // Write data to a nearby temp file first
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o440)
+                .open(&temp_path)
+                .await?;
+            file.write_all(&data).await?;
+            file.flush().await?;
+            std::mem::drop(file);
+
+            // This part is atomic
+            tokio::fs::rename(temp_path, dest_path).await?;
         }
-        let dest_path = key.to_path(&self.path)?;
-        if let Some(parent) = dest_path.as_path().parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
-        // Write data to a nearby temp file first
-        let mut file = tokio::fs::File::create(&temp_path).await?;
-        file.write_all(&data).await?;
-        file.flush().await?;
-        std::mem::drop(file);
-
-        // This part is atomic
-        tokio::fs::rename(temp_path, dest_path).await?;
 
         // The resulting mmap might be a different file than the one we just wrote, if
         // another process or thread was racing with us. The content should be
         // identical.
-        match self.get(key)? {
+        match self.get(key).await? {
             Some(mapping) => Ok(mapping),
             None => Err(ImageError::StorageMissingAfterInsert),
         }
@@ -87,11 +112,23 @@ impl FileStorage {
 pub enum StorageKey {
     Blob(String),
     Manifest(Reference),
+    BlobPart(String, Range<usize>),
 }
 
 impl StorageKey {
     pub fn from_blob_data(data: &[u8]) -> StorageKey {
         StorageKey::Blob(format!("sha256:{:x}", Sha256::digest(data)))
+    }
+
+    pub fn range(&self, range: Range<usize>) -> Result<StorageKey, ()> {
+        match self {
+            StorageKey::Blob(digest) => Ok(StorageKey::BlobPart(digest.clone(), range)),
+            StorageKey::Manifest(_) => Err(()),
+            StorageKey::BlobPart(digest, part) => Ok(StorageKey::BlobPart(
+                digest.clone(),
+                (range.start + part.start)..(range.end + part.start),
+            )),
+        }
     }
 }
 
@@ -102,6 +139,10 @@ impl PartialEq for StorageKey {
         match self {
             StorageKey::Blob(s) => match other {
                 StorageKey::Blob(o) => s == o,
+                _ => false,
+            },
+            StorageKey::BlobPart(s, r) => match other {
+                StorageKey::BlobPart(o, q) => s == o && r == q,
                 _ => false,
             },
             StorageKey::Manifest(s) => match other {
@@ -121,6 +162,10 @@ impl Hash for StorageKey {
         std::mem::discriminant(self).hash(state);
         match self {
             StorageKey::Blob(s) => s.hash(state),
+            StorageKey::BlobPart(s, r) => {
+                s.hash(state);
+                r.hash(state);
+            }
             StorageKey::Manifest(m) => {
                 m.registry().hash(state);
                 m.repository().hash(state);
@@ -160,6 +205,13 @@ impl StorageKey {
                 let mut path = base_dir.to_path_buf();
                 push_checked_path(&mut path, "blobs")?;
                 push_checked_path(&mut path, &digest.replace(":", "_"))?;
+                Ok(path)
+            }
+            StorageKey::BlobPart(digest, range) => {
+                let mut path = base_dir.to_path_buf();
+                push_checked_path(&mut path, "parts")?;
+                push_checked_path(&mut path, &digest.replace(":", "_"))?;
+                push_checked_path(&mut path, &format!("{:x}_{:x}", range.start, range.end))?;
                 Ok(path)
             }
             StorageKey::Manifest(reference) => {

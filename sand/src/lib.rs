@@ -31,7 +31,7 @@ mod seccomp;
 mod tracer;
 
 use crate::{
-    ipc::Socket, nolibc::c_strv_slice, process::task::task_fn, protocol::SysFd, tracer::Tracer,
+    ipc::Socket, process::task::task_fn, protocol::SysFd, tracer::Tracer,
 };
 use sc::syscall;
 
@@ -45,12 +45,8 @@ enum RunMode {
     InitLoader(SysFd),
 }
 
-pub fn c_main(argc: isize, argv: *const *const u8) -> isize {
-    let argv_slice = unsafe { c_strv_slice(argv) };
-    assert_eq!(argc as usize, argv_slice.len());
-    let envp_slice = unsafe { c_strv_slice(argv.offset(argv_slice.len() as isize + 1)) };
-
-    match check_environment_determine_mode(argv_slice, envp_slice) {
+pub fn c_main(argv: &[*const u8], envp: &[*const u8]) -> usize {
+    match check_environment_determine_mode(argv, envp) {
         RunMode::Unknown => panic!("where am i"),
 
         RunMode::Tracer(fd) => {
@@ -63,8 +59,7 @@ pub fn c_main(argc: isize, argv: *const *const u8) -> isize {
             init::with_args_from_fd(&fd);
         }
     }
-
-    nolibc::exit(nolibc::EXIT_SUCCESS)
+    nolibc::EXIT_SUCCESS
 }
 
 fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> RunMode {
