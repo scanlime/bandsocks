@@ -1,6 +1,9 @@
 use crate::{
     errors::IPCError,
-    filesystem::{storage::FileStorage, vfs::Filesystem},
+    filesystem::{
+        storage::FileStorage,
+        vfs::{Filesystem, VFile},
+    },
     process::{Process, ProcessStatus},
     sand,
     sand::protocol::{
@@ -14,7 +17,6 @@ use std::{
     collections::HashMap,
     io::Cursor,
     os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
-    path::Path,
     process::Child,
 };
 use tokio::{
@@ -114,15 +116,21 @@ impl IPCServer {
         .await
     }
 
-    async fn task_file_reply(&mut self, task: VPid, result: Result<VFile, Errno>) -> Result<(), IPCError> {
-        let mapref = result.map(|vfile| self.filesystem.map_file(self.storage, vfile));
-        let self.send_message(&MessageToSand::Task {
+    async fn task_file_reply(
+        &mut self,
+        task: VPid,
+        result: Result<VFile, Errno>,
+    ) -> Result<(), IPCError> {
+        let storage = match result {
+            Err(e) => Err(e),
+            Ok(vfile) => match self.filesystem.vfile_storage(&self.storage, &vfile).await {
+                Ok(file) => Ok(file),
+                Err(e) => Err(Errno(-e.to_errno())),
+            },
+        };
+        self.send_message(&MessageToSand::Task {
             task,
-            op: ToTask::FileReply(result.map(|vfile| {
-                self.filesystem.map_file(self.storage, vfile)
-            }).flatten().map(|mapref| {
-
-            })
+            op: ToTask::FileReply(storage.map(|file| SysFd(file.as_raw_fd() as u32))),
         })
         .await
     }
@@ -153,7 +161,7 @@ impl IPCServer {
             FromTask::ChDir(path) => match self.process_table.get_mut(&task) {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(process) => {
-                    let result = do_chdir(process, path).await;
+                    let result = do_chdir(process, &self.filesystem, path).await;
                     self.task_reply(task, result).await
                 }
             },
@@ -161,7 +169,7 @@ impl IPCServer {
             FromTask::FileAccess { dir, path, mode } => match self.process_table.get_mut(&task) {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(process) => {
-                    let result = do_access(process, dir, path, mode).await;
+                    let result = do_access(process, &self.filesystem, dir, path, mode).await;
                     self.task_reply(task, result).await
                 }
             },
@@ -174,17 +182,23 @@ impl IPCServer {
             } => match self.process_table.get_mut(&task) {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(process) => {
-                    let result = do_open(process, dir, path, flags, mode).await;
-                    self.task_file_reply(result).await
+                    let result = do_open(
+                        process,
+                        &self.filesystem,
+                        &self.storage,
+                        dir,
+                        path,
+                        flags,
+                        mode,
+                    )
+                    .await;
+                    self.task_file_reply(task, result).await
                 }
             },
 
             FromTask::ProcessKill(_vpid, _signal) => match self.process_table.get_mut(&task) {
                 None => Err(IPCError::WrongProcessState)?,
-                Some(_process) => {
-                    let mut reply = |op| self.send_message(&MessageToSand::Task { task, op });
-                    reply(ToTask::Reply(Ok(()))).await
-                }
+                Some(_process) => self.task_reply(task, Ok(())).await,
             },
         }
     }
@@ -198,23 +212,49 @@ fn clear_close_on_exec_flag(fd: RawFd) {
     assert_eq!(result, 0);
 }
 
-async fn do_chdir(process: &mut Process, path: VString) -> Result<(), Errno> {
-    let path = process
-        .read_string(path)
-        .map_err(|_| Errno(-libc::EFAULT))?;
-    log::info!("{:?} chdir({:?})", process, path);
+fn user_string(process: &mut Process, s: VString) -> Result<String, Errno> {
+    process.read_string(s).map_err(|_| Errno(-libc::EFAULT))
+}
+
+async fn do_chdir(
+    process: &mut Process,
+    _filesystem: &Filesystem,
+    path: VString,
+) -> Result<(), Errno> {
+    let path = user_string(process, path)?;
+    log::info!("chdir({:?}) {:?}", path, process);
     Ok(())
 }
 
 async fn do_access(
     process: &mut Process,
+    _filesystem: &Filesystem,
     dir: Option<SysFd>,
     path: VString,
     mode: i32,
 ) -> Result<(), Errno> {
-    let path = process
-        .read_string(path)
-        .map_err(|_| Errno(-libc::EFAULT))?;
-    log::info!("{:?} access({:?}, {:?}, {:?})", process, dir, path, mode);
+    let path = user_string(process, path)?;
+    log::info!("access({:?}, {:?}, {:?}) {:?}", dir, path, mode, process);
+    Err(Errno(-libc::ENOENT))
+}
+
+async fn do_open(
+    process: &mut Process,
+    _filesystem: &Filesystem,
+    _storage: &FileStorage,
+    dir: Option<SysFd>,
+    path: VString,
+    flags: i32,
+    mode: i32,
+) -> Result<VFile, Errno> {
+    let path = user_string(process, path)?;
+    log::info!(
+        "open({:?}, {:?}, {:?}, {:?}) {:?}",
+        dir,
+        path,
+        flags,
+        mode,
+        process
+    );
     Err(Errno(-libc::ENOENT))
 }

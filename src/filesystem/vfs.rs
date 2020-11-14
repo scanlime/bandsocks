@@ -1,9 +1,6 @@
 use crate::{
     errors::VFSError,
-    filesystem::{
-        mmap::MapRef,
-        storage::{FileStorage, StorageKey},
-    },
+    filesystem::storage::{FileStorage, StorageKey},
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -12,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tokio::fs::File;
 
 type INodeNum = usize;
 
@@ -58,7 +56,7 @@ struct DirEntryRef {
 enum Node {
     Directory(BTreeMap<OsString, INodeNum>),
     EmptyFile,
-    MappedFile(StorageKey),
+    NormalFile(StorageKey),
     SymbolicLink(PathBuf),
 }
 
@@ -225,47 +223,27 @@ impl<'s> Filesystem {
         Ok(VFile { inode: entry.child })
     }
 
-    pub async fn map_file(
-        &self,
-        storage: &FileStorage,
-        f: &VFile,
-    ) -> Result<Option<MapRef>, VFSError> {
+    pub fn vfile_stat<'a>(&'a self, f: &VFile) -> Result<&'a Stat, VFSError> {
+        match &self.inodes[f.inode] {
+            None => Err(VFSError::NotFound),
+            Some(node) => Ok(&node.stat),
+        }
+    }
+
+    pub async fn vfile_storage(&self, storage: &FileStorage, f: &VFile) -> Result<File, VFSError> {
         match &self.inodes[f.inode] {
             None => Err(VFSError::NotFound),
             Some(node) => match &node.data {
                 Node::Directory(_) => Err(VFSError::FileExpected),
                 Node::SymbolicLink(_) => Err(VFSError::FileExpected),
-                Node::EmptyFile => Ok(None),
-                Node::MappedFile(storage_key) => Ok(Some(
-                    self.map_file_with_storage_key(storage, storage_key).await?,
-                )),
-            },
-        }
-    }
-
-    async fn map_file_with_storage_key(
-        &self,
-        storage: &FileStorage,
-        storage_key: &StorageKey,
-    ) -> Result<MapRef, VFSError> {
-        match storage.get(&storage_key).await {
-            Ok(Some(mapref)) => Ok(mapref),
-            Err(_) | Ok(None) => match storage_key {
-                StorageKey::BlobPart(digest, range) => {
-                    match storage.get(&StorageKey::Blob(digest.clone())).await {
-                        Err(_) | Ok(None) => Err(VFSError::ImageStorageError),
-                        Ok(Some(part_of)) => {
-                            let part_of = part_of
-                                .range(range)
-                                .map_err(|_| VFSError::ImageStorageError)?;
-                            match storage.insert(storage_key, &part_of).await {
-                                Ok(mapref) => Ok(mapref),
-                                Err(_) => Err(VFSError::ImageStorageError),
-                            }
-                        }
-                    }
-                }
-                _ => Err(VFSError::ImageStorageError),
+                Node::EmptyFile => match File::open("/dev/null").await {
+                    Ok(f) => Ok(f),
+                    Err(_) => Err(VFSError::ImageStorageError),
+                },
+                Node::NormalFile(k) => match storage.open_part(k).await {
+                    Ok(Some(f)) => Ok(f),
+                    Err(_) | Ok(None) => Err(VFSError::ImageStorageError),
+                },
             },
         }
     }
@@ -275,7 +253,7 @@ impl<'s> Filesystem {
             None => false,
             Some(node) => match &node.data {
                 Node::Directory(_) => false,
-                Node::MappedFile(_) => true,
+                Node::NormalFile(_) => true,
                 Node::EmptyFile => true,
                 Node::SymbolicLink(_) => false,
             },
@@ -287,7 +265,7 @@ impl<'s> Filesystem {
             None => false,
             Some(node) => match &node.data {
                 Node::Directory(_) => true,
-                Node::MappedFile(_) => false,
+                Node::NormalFile(_) => false,
                 Node::EmptyFile => false,
                 Node::SymbolicLink(_) => false,
             },
@@ -444,7 +422,7 @@ impl<'f> VFSWriter<'f> {
             INode {
                 stat,
                 data: match data {
-                    Some(mapref) => Node::MappedFile(mapref),
+                    Some(key) => Node::NormalFile(key),
                     None => Node::EmptyFile,
                 },
             },

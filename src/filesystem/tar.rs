@@ -14,8 +14,8 @@ pub async fn extract(
     archive: &StorageKey,
 ) -> Result<(), ImageError> {
     let mut offset: usize = 0;
-    let archive_map = match storage.get(archive).await? {
-        Some(mapref) => mapref,
+    let archive_map = match storage.mmap(archive).await? {
+        Some(map) => map,
         None => return Err(ImageError::TARFileError),
     };
     while let Some(entry) = Archive::new(Cursor::new(&archive_map[offset..]))

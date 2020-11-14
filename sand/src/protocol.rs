@@ -54,7 +54,7 @@ impl InitArgsHeader {
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum ToTask {
     OpenProcessReply(ProcessHandle),
-    FileReply(Result<FileBacking, Errno>),
+    FileReply(Result<SysFd, Errno>),
     Reply(Result<(), Errno>),
 }
 
@@ -958,7 +958,7 @@ mod test {
         buf.push_back(&msg2).unwrap();
         buf.push_back(&msg3).unwrap();
         buf.push_back(&msg4).unwrap();
-        assert_eq!(buf.as_slice().bytes.len(), 51);
+        assert_eq!(buf.as_slice().bytes.len(), 32);
         assert_eq!(buf.as_slice().files.len(), 3);
         assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg1));
         assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg2));
@@ -1100,10 +1100,10 @@ mod test {
         sys_open_reply_1,
         MessageToSand::Task {
             task: VPid(0x54555657),
-            op: ToTask::FileReply(Ok(FileBacking::Normal(SysFd(42)))),
+            op: ToTask::FileReply(Ok(SysFd(42))),
         },
         MessageToSand,
-        [0x00, 0x57, 0x56, 0x55, 0x54, 0x01, 0x00, 0x00],
+        [0x00, 0x57, 0x56, 0x55, 0x54, 0x01, 0x00],
         [SysFd(42)]
     );
     check!(

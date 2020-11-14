@@ -1,7 +1,6 @@
 use crate::{
     errors::ImageError,
     filesystem::{
-        mmap::MapRef,
         storage::{FileStorage, StorageKey},
         tar, vfs,
     },
@@ -13,6 +12,7 @@ use crate::{
 use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
 use flate2::read::GzDecoder;
+use memmap::Mmap;
 use std::{
     io::Read,
     path::{Path, PathBuf},
@@ -94,7 +94,7 @@ impl Client {
 
     async fn pull_manifest(&mut self, image: &Reference) -> Result<Manifest, ImageError> {
         let key = StorageKey::Manifest(image.clone());
-        let map = match self.storage.get(&key).await? {
+        let map = match self.storage.mmap(&key).await? {
             Some(map) => map,
             None => {
                 let rc = self.registry_client_for(image).await?;
@@ -104,9 +104,13 @@ impl Client {
                 {
                     dkregistry::v2::manifest::Manifest::S2(schema) => {
                         let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
-                        self.storage.insert(&key, &spec_data).await?
+                        self.storage.insert(&key, &spec_data).await?;
+                        match self.storage.mmap(&key).await? {
+                            Some(map) => map,
+                            None => return Err(ImageError::StorageMissingAfterInsert),
+                        }
                     }
-                    _ => Err(ImageError::UnsupportedManifestType)?,
+                    _ => return Err(ImageError::UnsupportedManifestType),
                 }
             }
         };
@@ -117,7 +121,7 @@ impl Client {
 
     async fn local_blob(&mut self, digest: &str) -> Result<Option<StorageKey>, ImageError> {
         let key = StorageKey::Blob(digest.to_string());
-        match self.storage.get(&key).await {
+        match self.storage.open(&key).await {
             Err(e) => Err(e),
             Ok(None) => Ok(None),
             Ok(_map) => Ok(Some(key)),
@@ -141,19 +145,23 @@ impl Client {
         }
     }
 
-    async fn pull_blob(&mut self, image: &Reference, link: &Link) -> Result<MapRef, ImageError> {
+    async fn pull_blob(&mut self, image: &Reference, link: &Link) -> Result<Mmap, ImageError> {
         let key = StorageKey::Blob(link.digest.clone());
-        let mapref = match self.storage.get(&key).await? {
-            Some(mapref) => mapref,
+        let mmap = match self.storage.mmap(&key).await? {
+            Some(map) => map,
             None => {
                 let rc = self.registry_client_for(image).await?;
                 let blob_data = rc.get_blob(&image.repository(), &link.digest).await?;
                 log::info!("{} downloaded, {} bytes", link.digest, link.size);
-                self.storage.insert(&key, &blob_data).await?
+                self.storage.insert(&key, &blob_data).await?;
+                match self.storage.mmap(&key).await? {
+                    Some(map) => map,
+                    None => return Err(ImageError::StorageMissingAfterInsert),
+                }
             }
         };
-        if mapref.len() as u64 == link.size {
-            Ok(mapref)
+        if mmap.len() as u64 == link.size {
+            Ok(mmap)
         } else {
             // In the event the server gives us bad data, get_blob() should already
             // catch that during the digest verification. This path is more likely to hit

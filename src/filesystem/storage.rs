@@ -1,110 +1,96 @@
-use crate::{
-    errors::ImageError,
-    filesystem::mmap::{MapRef, WeakMapRef},
-    Reference,
-};
+use crate::{errors::ImageError, Reference};
+use memmap::{Mmap, MmapOptions};
 use regex::Regex;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
     hash::{Hash, Hasher},
     ops::Range,
     path::{Path, PathBuf},
-    sync::Arc,
     time::SystemTime,
 };
 use tokio::{
-    fs::{os::unix::OpenOptionsExt, OpenOptions},
+    fs::{os::unix::OpenOptionsExt, File, OpenOptions},
     io::AsyncWriteExt,
-    sync::RwLock,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FileStorage {
-    inner: Arc<RwLock<Shared>>,
-}
-
-struct Shared {
     path: PathBuf,
-    memo: HashMap<StorageKey, WeakMapRef>,
 }
 
 impl FileStorage {
     pub fn new(path: PathBuf) -> Self {
-        FileStorage {
-            inner: Arc::new(RwLock::new(Shared {
-                path,
-                memo: HashMap::new(),
-            })),
-        }
+        FileStorage { path }
     }
 
-    pub async fn get(&self, key: &StorageKey) -> Result<Option<MapRef>, ImageError> {
-        log::debug!("storage get, {:?}", key);
-        if let Some(arc) = self
-            .inner
-            .read()
-            .await
-            .memo
-            .get(key)
-            .and_then(|weak| weak.upgrade())
-        {
-            log::debug!("storage get, {:?}, succeeded from memo", key);
-            return Ok(Some(arc));
-        }
-        let mut locked = self.inner.write().await;
-        let path = key.to_path(&locked.path)?;
-        match MapRef::open(&path) {
+    pub async fn open(&self, key: &StorageKey) -> Result<Option<File>, ImageError> {
+        let path = key.to_path(&self.path)?;
+        match File::open(path).await {
             Err(e) => match e.kind() {
                 std::io::ErrorKind::NotFound => Ok(None),
                 _ => Err(e.into()),
             },
-            Ok(mapref) => {
-                log::debug!("storage get, {:?}, succeeded opening new mapping", key);
-                locked.memo.insert(key.clone(), mapref.downgrade());
-                Ok(Some(mapref))
-            }
+            Ok(f) => Ok(Some(f)),
         }
     }
 
-    pub async fn insert(&self, key: &StorageKey, data: &[u8]) -> Result<MapRef, ImageError> {
-        log::debug!("Storage insert, {:?}, {} bytes", key, data.len());
-        {
-            let locked = self.inner.read().await;
+    pub async fn open_part(&self, key: &StorageKey) -> Result<Option<File>, ImageError> {
+        match self.open(key).await? {
+            Some(f) => Ok(Some(f)),
+            None => match key.clone() {
+                StorageKey::BlobPart(digest, range) => {
+                    match self.mmap(&StorageKey::Blob(digest)).await? {
+                        None => Ok(None),
+                        Some(part_of) => {
+                            let part = &part_of[range];
+                            self.insert(key, &part).await?;
+                            self.open(key).await
+                        }
+                    }
+                }
+                _ => Ok(None),
+            },
+        }
+    }
 
-            // Prepare directories
-            let mut temp_path = locked.path.clone();
-            push_temp_path(&mut temp_path)?;
-            if let Some(parent) = temp_path.as_path().parent() {
-                tokio::fs::create_dir_all(parent).await?;
+    pub async fn mmap(&self, key: &StorageKey) -> Result<Option<Mmap>, ImageError> {
+        match self.open(key).await? {
+            Some(file) => {
+                let file = file.into_std().await;
+                Ok(Some(unsafe { MmapOptions::new().map(&file) }?))
             }
-            let dest_path = key.to_path(&locked.path)?;
-            if let Some(parent) = dest_path.as_path().parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
+            None => Ok(None),
+        }
+    }
 
-            // Write data to a nearby temp file first
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o440)
-                .open(&temp_path)
-                .await?;
-            file.write_all(&data).await?;
-            file.flush().await?;
-            std::mem::drop(file);
+    pub async fn insert(&self, key: &StorageKey, data: &[u8]) -> Result<(), ImageError> {
+        log::info!("insert {:?}, {} bytes", key, data.len());
 
-            // This part is atomic
-            tokio::fs::rename(temp_path, dest_path).await?;
+        // Prepare directories
+        let mut temp_path = self.path.clone();
+        push_temp_path(&mut temp_path)?;
+        if let Some(parent) = temp_path.as_path().parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let dest_path = key.to_path(&self.path)?;
+        if let Some(parent) = dest_path.as_path().parent() {
+            tokio::fs::create_dir_all(parent).await?;
         }
 
-        // The resulting mmap might be a different file than the one we just wrote, if
-        // another process or thread was racing with us. The content should be
-        // identical.
-        match self.get(key).await? {
-            Some(mapping) => Ok(mapping),
-            None => Err(ImageError::StorageMissingAfterInsert),
-        }
+        // Write data to a nearby temp file first
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o440)
+            .open(&temp_path)
+            .await?;
+        file.write_all(&data).await?;
+        file.flush().await?;
+        std::mem::drop(file);
+
+        // atomic and idempotent
+        tokio::fs::rename(temp_path, dest_path).await?;
+        Ok(())
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::{
     abi,
     process::{remote, task::StoppedTask},
-    protocol::{Errno, FileBacking, FromTask, ToTask, VPtr, VString},
+    protocol::{Errno, FromTask, ToTask, VPtr, VString},
 };
 use goblin::elf64;
 use sc::{nr, syscall};
@@ -46,7 +46,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             result, self.argv, self.envp
         );
 
-        if let Ok(FileBacking::Normal(sys_fd)) = result {
+        if let Ok(sys_fd) = result {
             let mut header: elf64::header::Header = Default::default();
             let result = unsafe {
                 syscall!(
@@ -57,10 +57,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
                     0
                 ) as isize
             };
-            println!(
-                "read: {:?}, header={:?}",
-                result, header
-            );
+            println!("read: {:?}, header={:?}", result, header);
         }
 
         let mut tr = remote::Trampoline::new(self.stopped_task);

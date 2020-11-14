@@ -21,7 +21,8 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 unsafe fn __libc_start_main(_: usize, argc: isize, argv: *const *const u8) -> isize {
     let argv_slice = bandsocks_sand::nolibc::c_strv_slice(argv);
     assert_eq!(argc as usize, argv_slice.len());
-    let envp_slice = bandsocks_sand::nolibc::c_strv_slice(argv.offset(argv_slice.len() as isize + 1));
+    let envp_slice =
+        bandsocks_sand::nolibc::c_strv_slice(argv.offset(argv_slice.len() as isize + 1));
     let result = bandsocks_sand::c_main(argv_slice, envp_slice);
     bandsocks_sand::nolibc::exit(result)
 }

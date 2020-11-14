@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
-    protocol::{Errno, FileBacking, FromTask, SysFd, ToTask, VPtr, VString},
+    protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
 };
 use sc::nr;
 
@@ -24,17 +24,6 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         -abi::EINVAL
     }
 
-    async fn return_file(&mut self, file: FileBacking) -> isize {
-        // to do, keep track of backing in a fd table and then pass the sysfd if any
-        match file {
-            FileBacking::Normal(sys_fd) => self.return_sysfd(sys_fd).await,
-            file => {
-                println!("unimplemented fd passing, {:?}", file);
-                -abi::EINVAL
-            }
-        }
-    }
-
     async fn return_errno(&mut self, err: Errno) -> isize {
         assert!(err.0 < 0);
         err.0 as isize
@@ -47,9 +36,9 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         }
     }
 
-    async fn return_file_result(&mut self, result: Result<FileBacking, Errno>) -> isize {
+    async fn return_file_result(&mut self, result: Result<SysFd, Errno>) -> isize {
         match result {
-            Ok(backing) => self.return_file(backing).await,
+            Ok(f) => self.return_sysfd(f).await,
             Err(err) => self.return_errno(err).await,
         }
     }

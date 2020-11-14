@@ -30,9 +30,7 @@ mod ptrace;
 mod seccomp;
 mod tracer;
 
-use crate::{
-    ipc::Socket, process::task::task_fn, protocol::SysFd, tracer::Tracer,
-};
+use crate::{ipc::Socket, process::task::task_fn, protocol::SysFd, tracer::Tracer};
 use sc::syscall;
 
 pub const SELF_EXE: &[u8] = b"/proc/self/exe\0";
