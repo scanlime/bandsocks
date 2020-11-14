@@ -1,10 +1,10 @@
 use crate::{
     abi,
+    binformat::header::Header,
     process::{remote, task::StoppedTask},
-    protocol::{Errno, FromTask, ToTask, VPtr, VString},
+    protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
 };
-use goblin::elf64;
-use sc::{nr, syscall};
+use sc::nr;
 
 pub struct Loader<'q, 's, 't> {
     stopped_task: &'t mut StoppedTask<'q, 's>,
@@ -28,8 +28,8 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         }
     }
 
-    pub async fn do_exec(self) -> Result<(), Errno> {
-        let result = ipc_call!(
+    pub async fn exec(self) -> Result<(), Errno> {
+        let sys_fd = ipc_call!(
             self.stopped_task.task,
             FromTask::FileOpen {
                 dir: None,
@@ -39,26 +39,22 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             },
             ToTask::FileReply(result),
             result
-        );
+        )?;
+        let result = self.exec_with_fd(&sys_fd).await;
+        sys_fd.close().unwrap();
+        result
+    }
 
+    async fn exec_with_fd(self, sys_fd: &SysFd) -> Result<(), Errno> {
+        let header = Header::load(sys_fd)?;
+        self.exec_with_header(sys_fd, &header).await
+    }
+
+    async fn exec_with_header(self, sys_fd: &SysFd, header: &Header) -> Result<(), Errno> {
         println!(
-            "result={:?}, argv={:x?} envp={:x?}",
-            result, self.argv, self.envp
+            "fd={:?} header={:?}, argv={:x?} envp={:x?}",
+            sys_fd, header, self.argv, self.envp
         );
-
-        if let Ok(sys_fd) = result {
-            let mut header: elf64::header::Header = Default::default();
-            let result = unsafe {
-                syscall!(
-                    PREAD64,
-                    sys_fd.0,
-                    &mut header as *mut elf64::header::Header,
-                    elf64::header::SIZEOF_EHDR,
-                    0
-                ) as isize
-            };
-            println!("read: {:?}, header={:?}", result, header);
-        }
 
         let mut tr = remote::Trampoline::new(self.stopped_task);
         tr.unmap_all_userspace_mem().await;

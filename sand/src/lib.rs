@@ -21,6 +21,7 @@ extern crate std;
 pub mod nolibc;
 
 mod abi;
+mod binformat;
 mod init;
 mod ipc;
 mod parser;

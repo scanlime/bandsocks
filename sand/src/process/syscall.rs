@@ -55,7 +55,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let argv = arg_ptr(1);
                 let envp = arg_ptr(2);
                 let loader = Loader::new(self.stopped_task, filename, argv, envp);
-                let result = loader.do_exec().await;
+                let result = loader.exec().await;
                 self.return_result(result).await
             }
 

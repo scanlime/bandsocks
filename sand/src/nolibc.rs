@@ -35,6 +35,14 @@ impl fmt::Write for SysFd {
 }
 
 impl SysFd {
+    pub fn close(&self) -> Result<(), ()> {
+        if 0 == unsafe { syscall!(CLOSE, self.0) } {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
     pub fn read_exact(&self, bytes: &mut [u8]) -> Result<(), isize> {
         let mut offset = 0;
         while offset < bytes.len() {

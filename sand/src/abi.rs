@@ -318,3 +318,6 @@ pub const O_NONBLOCK: usize = 0o4000;
 
 /// linux/include/uapi/linux/fcntl.h
 pub const AT_FDCWD: i32 = -100;
+
+/// linux/include/uapi/linux/binfmts.h
+pub const BINPRM_BUF_SIZE: usize = 256;
