@@ -116,10 +116,14 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         let result = match scratchpad.send_fd(&self.file).await {
             Err(e) => Err(e),
             Ok(fd) => {
+                Ok(VPtr(0))
+                /*
                 scratchpad
                     .trampoline
                     .mmap(addr, length, prot, flags, fd, offset)
                     .await
+
+                 */
             }
         };
         scratchpad.free().await?;

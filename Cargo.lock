@@ -127,8 +127,6 @@ dependencies = [
  "smalloca",
  "twoway",
  "typenum",
- "xmas-elf",
- "zero",
 ]
 
 [[package]]
@@ -1920,22 +1918,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmas-elf"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e74de9a366f6ab8c405fa6b371d9ac24943921fa14b3d64afcb202065c405f11"
-dependencies = [
- "zero",
-]
-
-[[package]]
 name = "yaml-rust"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e66366e18dc58b46801afbf2ca7661a9f59cc8c5962c29892b6039b4f86fa992"
-
-[[package]]
-name = "zero"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f1bc8a6b2005884962297587045002d8cfb8dcec9db332f4ca216ddc5de82c5"

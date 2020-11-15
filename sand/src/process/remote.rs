@@ -371,6 +371,8 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
     }
 
     pub async fn send_fd(&mut self, local: &SysFd) -> Result<RemoteFd, Errno> {
-        unimplemented!();
+        let socket_pair = &self.trampoline.stopped_task.task.task_data.socket_pair;
+        println!("{:?}", socket_pair);
+        Ok(RemoteFd(0))
     }
 }
