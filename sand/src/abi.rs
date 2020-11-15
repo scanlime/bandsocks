@@ -57,7 +57,6 @@ pub const PTRACE_SYSCALL_INFO_SECCOMP: u8 = 3;
 pub const MAP_PRIVATE: isize = 0x02;
 pub const MAP_ANONYMOUS: isize = 0x20;
 pub const MAP_FIXED: isize = 0x10;
-pub const MAP_FAILED: isize = -1;
 
 // linux/include/uapi/asm-generic/mman-common.h
 pub const PROT_READ: isize = 1;
@@ -197,6 +196,7 @@ pub const EINTR: isize = 4;
 pub const ENOEXEC: isize = 8;
 pub const ECHILD: isize = 10;
 pub const EAGAIN: isize = 11;
+pub const EFAULT: isize = 14;
 pub const EINVAL: isize = 22;
 pub const ECONNRESET: isize = 104;
 
@@ -333,3 +333,6 @@ pub const AF_UNIX: usize = 1;
 /// linux/include/linux/net.h
 pub const SOCK_STREAM: usize = 1;
 
+/// linux/arch/x86/include/asm/page_types.h
+pub const PAGE_SHIFT: usize = 12;
+pub const PAGE_SIZE: usize = 1 << PAGE_SHIFT;

@@ -6,11 +6,15 @@ use crate::{
         task::StoppedTask,
         Event,
     },
-    protocol::{SysFd, VPtr},
+    protocol::{Errno, SysFd, VPtr},
     ptrace,
 };
 use core::mem::size_of;
-use sc::syscall;
+use sc::{nr, syscall};
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[repr(C)]
+pub struct RemoteFd(pub u32);
 
 #[derive(Debug)]
 pub struct Trampoline<'q, 's, 't> {
@@ -165,41 +169,38 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         length: usize,
         prot: isize,
         flags: isize,
-        fd: isize,
+        fd: RemoteFd,
         offset: isize,
-    ) -> Result<VPtr, ()> {
+    ) -> Result<VPtr, Errno> {
         let result = self
             .syscall(
                 sc::nr::MMAP,
-                &[addr.0 as isize, length as isize, prot, flags, fd, offset],
+                &[
+                    addr.0 as isize,
+                    length as isize,
+                    prot,
+                    flags,
+                    fd.0 as isize,
+                    offset,
+                ],
             )
             .await;
-        if result == abi::MAP_FAILED {
-            Err(())
+        if result < 0 {
+            Err(Errno(result as i32))
         } else {
             Ok(VPtr(result as usize))
         }
     }
 
-    pub async fn munmap(&mut self, addr: VPtr, length: usize) -> Result<(), ()> {
+    pub async fn munmap(&mut self, addr: VPtr, length: usize) -> Result<(), Errno> {
         let result = self
             .syscall(sc::nr::MUNMAP, &[addr.0 as isize, length as isize])
             .await;
         if result == 0 {
             Ok(())
         } else {
-            Err(())
+            Err(Errno(result as i32))
         }
-    }
-
-    pub async fn send_fd(&mut self, local: SysFd) -> Result<SysFd, ()> {
-        //TO DO.
-        unimplemented!();
-        // need a socket pair: just added to taskdata
-        // need temp ram in trampoline
-        //   - how much?
-        //   - how long does it live?
-        //   - is it per threadgroup?
     }
 }
 
@@ -282,5 +283,94 @@ pub fn mem_find<'q, 's>(
         }
         // overlap just enough to detect matches across chunk boundaries
         chunk_offset += chunk_size - pattern.len() + 1;
+    }
+}
+
+#[derive(Debug)]
+pub struct RemoteMemoryGuard;
+
+impl Drop for RemoteMemoryGuard {
+    fn drop(&mut self) {
+        panic!("can't drop live remote memory")
+    }
+}
+
+#[derive(Debug)]
+pub struct Scratchpad<'q, 's, 't, 'r> {
+    pub trampoline: &'r mut Trampoline<'q, 's, 't>,
+    pub page_ptr: VPtr,
+    mem: RemoteMemoryGuard,
+}
+
+impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
+    pub async fn new(
+        trampoline: &'r mut Trampoline<'q, 's, 't>,
+    ) -> Result<Scratchpad<'q, 's, 't, 'r>, Errno> {
+        let page_ptr = trampoline
+            .mmap(
+                VPtr(0),
+                abi::PAGE_SIZE,
+                abi::PROT_READ | abi::PROT_WRITE,
+                abi::MAP_PRIVATE | abi::MAP_ANONYMOUS,
+                RemoteFd(0),
+                0,
+            )
+            .await?;
+        Ok(Scratchpad {
+            trampoline,
+            page_ptr,
+            mem: RemoteMemoryGuard,
+        })
+    }
+
+    pub async fn free(self) -> Result<(), Errno> {
+        core::mem::forget(self.mem);
+        self.trampoline.munmap(self.page_ptr, abi::PAGE_SIZE).await
+    }
+
+    pub async fn write_fd(&mut self, fd: &RemoteFd, bytes: &[u8]) -> Result<usize, Errno> {
+        if bytes.len() > abi::PAGE_SIZE {
+            return Err(Errno(-abi::EINVAL as i32));
+        }
+        mem_write_padded_bytes(self.trampoline.stopped_task, self.page_ptr, bytes)
+            .map_err(|_| Errno(-abi::EFAULT as i32))?;
+        let result = self
+            .trampoline
+            .syscall(
+                nr::WRITE,
+                &[
+                    fd.0 as isize,
+                    self.page_ptr.0 as isize,
+                    bytes.len() as isize,
+                ],
+            )
+            .await;
+        if result > 0 {
+            Ok(result as usize)
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub async fn sleep(&mut self, secs: usize, nanosecs: usize) -> Result<(), Errno> {
+        mem_write_words(
+            self.trampoline.stopped_task,
+            self.page_ptr,
+            &[secs, nanosecs],
+        )
+        .map_err(|_| Errno(-abi::EFAULT as i32))?;
+        let result = self
+            .trampoline
+            .syscall(nr::NANOSLEEP, &[self.page_ptr.0 as isize, 0])
+            .await;
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub async fn send_fd(&mut self, local: &SysFd) -> Result<RemoteFd, Errno> {
+        unimplemented!();
     }
 }

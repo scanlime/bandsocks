@@ -1,9 +1,9 @@
 use crate::{binformat::Header, process::loader::Loader, protocol::Errno};
 
-pub fn detect(header: &Header) -> bool {
+pub fn detect(_header: &Header) -> bool {
     false
 }
 
-pub async fn load<'q, 's, 't>(loader: Loader<'q, 's, 't>, header: Header) -> Result<(), Errno> {
+pub async fn load<'q, 's, 't>(_loader: Loader<'q, 's, 't>, _header: Header) -> Result<(), Errno> {
     Ok(())
 }

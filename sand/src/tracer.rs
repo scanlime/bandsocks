@@ -32,19 +32,13 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     }
 
     fn init_loader(self: Pin<&mut Self>, args_fd: &SysFd) {
-        // The stage 2 loader turns an args socket from the runtime into a normal
-        // execve() call
         let mut fd_str = String::<U16>::from("FD=");
         fd_str.push_str(&String::<U16>::from(args_fd.0)).unwrap();
         fd_str.push('\0').unwrap();
         let loader_argv = [crate::STAGE_2_INIT_LOADER.as_ptr(), null()];
         let loader_env = [fd_str.as_ptr(), null()];
         let exec_args = unsafe { RawExecArgs::new(crate::SELF_EXE, &loader_argv, &loader_env) };
-
-        // Each process needs a TaskSocketPair; the first one is created here and passed
-        // via fork
-        let socket_pair = TaskSocketPair::new();
-
+        let socket_pair = TaskSocketPair::new_inheritable();
         match unsafe { syscall!(FORK) } as isize {
             result if result == 0 => unsafe { ptrace::be_the_child_process(&exec_args) },
             result if result < 0 => panic!("fork error"),

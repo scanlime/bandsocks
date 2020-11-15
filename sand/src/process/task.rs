@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::{SyscallInfo, UserRegs},
     nolibc::{fcntl, socketpair},
-    process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
+    process::{remote::RemoteFd, syscall::SyscallEmulator, Event, EventSource, MessageSender},
     protocol::{FromTask, ProcessHandle, SysFd, SysPid, ToTask, VPid},
     ptrace,
 };
@@ -11,7 +11,7 @@ use core::fmt::{self, Debug, Formatter};
 #[derive(Debug, Clone)]
 pub struct TaskSocketPair {
     pub tracer: SysFd,
-    pub remote: SysFd,
+    pub remote: RemoteFd,
 }
 
 #[derive(Debug, Clone)]
@@ -40,11 +40,13 @@ pub struct StoppedTask<'q, 's> {
 }
 
 impl TaskSocketPair {
-    pub fn new() -> Self {
+    pub fn new_inheritable() -> Self {
         let (tracer, remote) =
             socketpair(abi::AF_UNIX, abi::SOCK_STREAM, 0).expect("task socket pair");
         fcntl(&tracer, abi::F_SETFD, abi::F_CLOEXEC).expect("task socket fcntl");
         fcntl(&remote, abi::F_SETFD, 0).expect("task socket fcntl");
+        // The file will be inherited
+        let remote = RemoteFd(remote.0);
         TaskSocketPair { tracer, remote }
     }
 }

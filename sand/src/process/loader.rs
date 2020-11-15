@@ -1,13 +1,16 @@
 use crate::{
     abi, binformat,
     binformat::Header,
-    process::{remote::Trampoline, task::StoppedTask},
+    process::{
+        remote::{RemoteFd, Scratchpad, Trampoline},
+        task::StoppedTask,
+    },
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
 };
 use sc::syscall;
 
 pub struct Loader<'q, 's, 't> {
-    tr: Trampoline<'q, 's, 't>,
+    trampoline: Trampoline<'q, 's, 't>,
     file: SysFd,
     filename: VString,
     argv: VPtr,
@@ -50,8 +53,9 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             ToTask::FileReply(result),
             result
         )?;
+        let trampoline = Trampoline::new(stopped_task);
         Ok(Loader {
-            tr: Trampoline::new(stopped_task),
+            trampoline,
             file,
             filename,
             argv,
@@ -88,7 +92,16 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
     }
 
     pub async fn unmap_all_userspace_mem(&mut self) {
-        self.tr.unmap_all_userspace_mem().await
+        self.trampoline.unmap_all_userspace_mem().await
+    }
+
+    pub async fn debug_loop(&mut self) -> ! {
+        let fd = RemoteFd(1);
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await.unwrap();
+        loop {
+            scratchpad.write_fd(&fd, b"debug loop\n").await.unwrap();
+            scratchpad.sleep(10, 0).await.unwrap();
+        }
     }
 
     pub async fn mmap(
@@ -98,9 +111,18 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         prot: isize,
         flags: isize,
         offset: isize,
-    ) -> Result<VPtr, ()> {
-        // to do: remote fd passing
-        let fd = -1;
-        self.tr.mmap(addr, length, prot, flags, fd, offset).await
+    ) -> Result<VPtr, Errno> {
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
+        let result = match scratchpad.send_fd(&self.file).await {
+            Err(e) => Err(e),
+            Ok(fd) => {
+                scratchpad
+                    .trampoline
+                    .mmap(addr, length, prot, flags, fd, offset)
+                    .await
+            }
+        };
+        scratchpad.free().await?;
+        result
     }
 }
