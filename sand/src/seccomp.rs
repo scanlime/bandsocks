@@ -31,6 +31,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::LSEEK,
             nr::SENDMSG,
             nr::RECVMSG,
+            nr::SOCKETPAIR,
             nr::CLOSE,
             nr::EXIT_GROUP,
             nr::EXIT,
@@ -42,6 +43,8 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::MPROTECT,
             nr::MUNMAP,
             nr::NANOSLEEP,
+            // fixme: only allow some operations
+            nr::FCNTL,
         ],
         &[ret(SECCOMP_RET_ALLOW)],
     );
@@ -62,9 +65,6 @@ pub fn policy_for_tracer() {
             nr::GETPID,
             nr::RT_SIGACTION,
             nr::RT_SIGRETURN,
-            // xxx: this needs careful parameter conditions, since it can send signals
-            //      and probably do other weird non-fd-related things
-            nr::FCNTL,
             // need this to get to the next stage
             // xxx: drop this privilege as soon as we initialize the tracer
             nr::EXECVE,

@@ -1,17 +1,25 @@
 use crate::{
     abi,
     abi::{SyscallInfo, UserRegs},
+    nolibc::{fcntl, socketpair},
     process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
-    protocol::{FromTask, ProcessHandle, SysPid, ToTask, VPid},
+    protocol::{FromTask, ProcessHandle, SysFd, SysPid, ToTask, VPid},
     ptrace,
 };
 use core::fmt::{self, Debug, Formatter};
+
+#[derive(Debug, Clone)]
+pub struct TaskSocketPair {
+    pub tracer: SysFd,
+    pub remote: SysFd,
+}
 
 #[derive(Debug, Clone)]
 pub struct TaskData {
     pub vpid: VPid,
     pub sys_pid: SysPid,
     pub parent: Option<VPid>,
+    pub socket_pair: TaskSocketPair,
 }
 
 pub async fn task_fn(events: EventSource<'_>, msg: MessageSender<'_>, task_data: TaskData) {
@@ -29,6 +37,16 @@ pub struct Task<'q> {
 pub struct StoppedTask<'q, 's> {
     pub task: &'s mut Task<'q>,
     pub regs: &'s mut UserRegs,
+}
+
+impl TaskSocketPair {
+    pub fn new() -> Self {
+        let (tracer, remote) =
+            socketpair(abi::AF_UNIX, abi::SOCK_STREAM, 0).expect("task socket pair");
+        fcntl(&tracer, abi::F_SETFD, abi::F_CLOEXEC).expect("task socket fcntl");
+        fcntl(&remote, abi::F_SETFD, 0).expect("task socket fcntl");
+        TaskSocketPair { tracer, remote }
+    }
 }
 
 impl<'q> Debug for Task<'q> {

@@ -69,6 +69,17 @@ pub fn exit(code: usize) -> ! {
     unreachable!()
 }
 
+pub fn socketpair(domain: usize, type_: usize, protocol: usize) -> Result<(SysFd, SysFd), isize> {
+    let mut pair = [0u32; 2];
+    let result =
+        unsafe { syscall!(SOCKETPAIR, domain, type_, protocol, pair.as_mut_ptr()) as isize };
+    if result == 0 {
+        Ok((SysFd(pair[0]), SysFd(pair[1])))
+    } else {
+        Err(result)
+    }
+}
+
 pub fn write_stderr(msg: fmt::Arguments) {
     let mut stderr = SysFd(2);
     if fmt::write(&mut stderr, msg).is_err() {

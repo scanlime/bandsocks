@@ -1,9 +1,4 @@
-use crate::{
-    abi,
-    binformat::Header,
-    process::loader::Loader,
-    protocol::{Errno, SysFd},
-};
+use crate::{binformat::Header, process::loader::Loader, protocol::Errno};
 
 pub fn detect(header: &Header) -> bool {
     false

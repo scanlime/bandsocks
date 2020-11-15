@@ -309,9 +309,13 @@ pub struct SigSet {
 }
 
 /// linux/include/uapi/asm-generic/fcntl.h
+pub const F_SETFD: usize = 2;
+/// linux/include/uapi/asm-generic/fcntl.h
 pub const F_SETFL: usize = 4;
 /// linux/include/uapi/asm-generic/fcntl.h
 pub const F_SETOWN: usize = 8;
+/// linux/include/uapi/asm-generic/fcntl.h
+pub const F_CLOEXEC: usize = 1;
 /// linux/include/uapi/asm-generic/fcntl.h
 pub const FASYNC: usize = 0o20000;
 /// linux/include/uapi/asm-generic/fcntl.h
@@ -322,3 +326,10 @@ pub const AT_FDCWD: i32 = -100;
 
 /// linux/include/uapi/linux/binfmts.h
 pub const BINPRM_BUF_SIZE: usize = 256;
+
+/// linux/include/linux/socket.h
+pub const AF_UNIX: usize = 1;
+
+/// linux/include/linux/net.h
+pub const SOCK_STREAM: usize = 1;
+

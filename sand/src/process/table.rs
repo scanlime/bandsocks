@@ -1,5 +1,8 @@
 use crate::{
-    process::{task::TaskData, Process, TaskFn},
+    process::{
+        task::{TaskData, TaskSocketPair},
+        Process, TaskFn,
+    },
     protocol::{SysPid, VPid},
 };
 use core::{future::Future, pin::Pin};
@@ -63,13 +66,19 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
         result
     }
 
-    pub fn insert(mut self: Pin<&mut Self>, sys_pid: SysPid, parent: Option<VPid>) -> Option<VPid> {
+    pub fn insert(
+        mut self: Pin<&mut Self>,
+        sys_pid: SysPid,
+        parent: Option<VPid>,
+        socket_pair: TaskSocketPair,
+    ) -> Option<VPid> {
         let vpid = self.as_mut().allocate_vpid();
         vpid.map(move |vpid| {
             let task_data = TaskData {
                 sys_pid,
                 vpid,
                 parent,
+                socket_pair,
             };
             let project = self.project();
             let index = table_index_for_vpid(vpid).unwrap();

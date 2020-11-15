@@ -4,7 +4,7 @@ use crate::{
     process::{remote::Trampoline, task::StoppedTask},
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
 };
-use sc::{nr, syscall};
+use sc::syscall;
 
 pub struct Loader<'q, 's, 't> {
     tr: Trampoline<'q, 's, 't>,
@@ -98,7 +98,9 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         prot: isize,
         flags: isize,
         offset: isize,
-    ) {
+    ) -> Result<VPtr, ()> {
+        // to do: remote fd passing
+        let fd = -1;
         self.tr.mmap(addr, length, prot, flags, fd, offset).await
     }
 }

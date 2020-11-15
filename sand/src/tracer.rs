@@ -1,7 +1,7 @@
 use crate::{
     abi,
     ipc::Socket,
-    process::{table::ProcessTable, Event, TaskFn},
+    process::{table::ProcessTable, task::TaskSocketPair, Event, TaskFn},
     protocol::{MessageFromSand, MessageToSand, SysFd, SysPid, VPid},
     ptrace,
     ptrace::RawExecArgs,
@@ -32,28 +32,31 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     }
 
     fn init_loader(self: Pin<&mut Self>, args_fd: &SysFd) {
+        // The stage 2 loader turns an args socket from the runtime into a normal
+        // execve() call
         let mut fd_str = String::<U16>::from("FD=");
         fd_str.push_str(&String::<U16>::from(args_fd.0)).unwrap();
         fd_str.push('\0').unwrap();
         let loader_argv = [crate::STAGE_2_INIT_LOADER.as_ptr(), null()];
         let loader_env = [fd_str.as_ptr(), null()];
         let exec_args = unsafe { RawExecArgs::new(crate::SELF_EXE, &loader_argv, &loader_env) };
+
+        // Each process needs a TaskSocketPair; the first one is created here and passed
+        // via fork
+        let socket_pair = TaskSocketPair::new();
+
         match unsafe { syscall!(FORK) } as isize {
             result if result == 0 => unsafe { ptrace::be_the_child_process(&exec_args) },
             result if result < 0 => panic!("fork error"),
             result => {
                 let sys_pid = SysPid(result as u32);
                 let parent = None;
-                self.expect_new_child(sys_pid, parent);
+                self.project()
+                    .process_table
+                    .insert(sys_pid, parent, socket_pair)
+                    .expect("virtual process limit exceeded");
             }
         }
-    }
-
-    fn expect_new_child(self: Pin<&mut Self>, sys_pid: SysPid, parent: Option<VPid>) {
-        self.project()
-            .process_table
-            .insert(sys_pid, parent)
-            .expect("virtual process limit exceeded");
     }
 
     fn event_loop(mut self: Pin<&mut Self>) {

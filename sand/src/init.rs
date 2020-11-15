@@ -15,6 +15,8 @@ pub fn with_args_from_fd(fd: &SysFd) -> ! {
         header.dir_len + header.filename_len + header.argv_len + header.envp_len,
         |bytes: &mut [u8]| {
             fd.read_exact(bytes).unwrap();
+            fd.close().unwrap();
+
             let (dir, bytes) = bytes.split_at(header.dir_len);
             let (filename, bytes) = bytes.split_at(header.filename_len);
             let (argv, bytes) = bytes.split_at(header.argv_len);
