@@ -6,7 +6,7 @@ use crate::{
         task::StoppedTask,
         Event,
     },
-    protocol::VPtr,
+    protocol::{SysFd, VPtr},
     ptrace,
 };
 use core::mem::size_of;
@@ -190,6 +190,16 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         } else {
             Err(())
         }
+    }
+
+    pub async fn send_fd(&mut self, local: SysFd) -> Result<SysFd, ()> {
+        //TO DO.
+        unimplemented!();
+        // need a socket pair: just added to taskdata
+        // need temp ram in trampoline
+        //   - how much?
+        //   - how long does it live?
+        //   - is it per threadgroup?
     }
 }
 
