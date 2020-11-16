@@ -490,6 +490,10 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
             )
             .map_err(|_| Errno(-abi::EFAULT as i32))?
         };
-        Ok(RemoteFd(remote_cmsg.fd))
+        if remote_cmsg.hdr == BASE_LAYOUT.cmsg.hdr {
+            Ok(RemoteFd(remote_cmsg.fd))
+        } else {
+            Err(Errno(-abi::EFAULT as i32))
+        }
     }
 }

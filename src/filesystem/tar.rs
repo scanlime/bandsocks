@@ -60,6 +60,10 @@ fn extract_file_metadata<'a, R: Read>(
     let kind = entry.header().entry_type();
     let path = entry.path()?;
     let link_name = entry.link_name()?;
+    let device = (
+        entry.header().device_major()?,
+        entry.header().device_minor()?,
+    );
     let stat = Stat {
         nlink: 0,
         mode: entry.header().mode()?,
@@ -70,6 +74,7 @@ fn extract_file_metadata<'a, R: Read>(
     };
 
     match kind {
+        EntryType::Fifo => fsw.write_fifo(&path, stat)?,
         EntryType::Regular => fsw.write_file(&path, data, stat)?,
         EntryType::Directory => fsw.write_directory_metadata(&path, stat)?,
         EntryType::Symlink => match link_name {
@@ -79,6 +84,14 @@ fn extract_file_metadata<'a, R: Read>(
         EntryType::Link => match link_name {
             Some(link_name) => fsw.write_hardlink(&path, &link_name)?,
             None => Err(ImageError::TARFileError)?,
+        },
+        EntryType::Char => match device {
+            (Some(major), Some(minor)) => fsw.write_char_device(&path, stat, major, minor)?,
+            _ => Err(ImageError::TARFileError)?,
+        },
+        EntryType::Block => match device {
+            (Some(major), Some(minor)) => fsw.write_block_device(&path, stat, major, minor)?,
+            _ => Err(ImageError::TARFileError)?,
         },
         _ => log::error!(
             "skipping unsupported tar file entry type {:?}, {:?}",

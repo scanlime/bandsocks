@@ -58,6 +58,9 @@ enum Node {
     EmptyFile,
     NormalFile(StorageKey),
     SymbolicLink(PathBuf),
+    Char(u32, u32),
+    Block(u32, u32),
+    Fifo,
 }
 
 struct Limits {
@@ -234,8 +237,6 @@ impl<'s> Filesystem {
         match &self.inodes[f.inode] {
             None => Err(VFSError::NotFound),
             Some(node) => match &node.data {
-                Node::Directory(_) => Err(VFSError::FileExpected),
-                Node::SymbolicLink(_) => Err(VFSError::FileExpected),
                 Node::EmptyFile => match File::open("/dev/null").await {
                     Ok(f) => Ok(f),
                     Err(_) => Err(VFSError::ImageStorageError),
@@ -244,6 +245,7 @@ impl<'s> Filesystem {
                     Ok(Some(f)) => Ok(f),
                     Err(_) | Ok(None) => Err(VFSError::ImageStorageError),
                 },
+                _ => Err(VFSError::FileExpected),
             },
         }
     }
@@ -252,10 +254,9 @@ impl<'s> Filesystem {
         match &self.inodes[f.inode] {
             None => false,
             Some(node) => match &node.data {
-                Node::Directory(_) => false,
                 Node::NormalFile(_) => true,
                 Node::EmptyFile => true,
-                Node::SymbolicLink(_) => false,
+                _ => false,
             },
         }
     }
@@ -265,9 +266,7 @@ impl<'s> Filesystem {
             None => false,
             Some(node) => match &node.data {
                 Node::Directory(_) => true,
-                Node::NormalFile(_) => false,
-                Node::EmptyFile => false,
-                Node::SymbolicLink(_) => false,
+                _ => false,
             },
         }
     }
@@ -459,6 +458,63 @@ impl<'f> VFSWriter<'f> {
             .child;
         let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
         self.add_child_to_directory(dir, name, link_to_node)?;
+        Ok(())
+    }
+
+    pub fn write_fifo(&mut self, path: &Path, stat: Stat) -> Result<(), VFSError> {
+        let mut limits = Limits::reset();
+        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
+        let num = self.alloc_inode_number();
+        self.put_inode(
+            num,
+            INode {
+                stat,
+                data: Node::Fifo,
+            },
+        );
+        self.add_child_to_directory(dir, name, num)?;
+        Ok(())
+    }
+
+    pub fn write_char_device(
+        &mut self,
+        path: &Path,
+        stat: Stat,
+        major: u32,
+        minor: u32,
+    ) -> Result<(), VFSError> {
+        let mut limits = Limits::reset();
+        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
+        let num = self.alloc_inode_number();
+        self.put_inode(
+            num,
+            INode {
+                stat,
+                data: Node::Char(major, minor),
+            },
+        );
+        self.add_child_to_directory(dir, name, num)?;
+        Ok(())
+    }
+
+    pub fn write_block_device(
+        &mut self,
+        path: &Path,
+        stat: Stat,
+        major: u32,
+        minor: u32,
+    ) -> Result<(), VFSError> {
+        let mut limits = Limits::reset();
+        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
+        let num = self.alloc_inode_number();
+        self.put_inode(
+            num,
+            INode {
+                stat,
+                data: Node::Block(major, minor),
+            },
+        );
+        self.add_child_to_directory(dir, name, num)?;
         Ok(())
     }
 

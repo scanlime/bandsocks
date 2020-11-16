@@ -243,7 +243,7 @@ pub struct MsgHdr {
 pub const MSG_DONTWAIT: usize = 0x40;
 
 // linux/include/linux/socket.h
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CMsgHdr {
     pub cmsg_len: usize,
