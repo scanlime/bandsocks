@@ -280,8 +280,9 @@ pub fn mem_write_padded_bytes<'q, 's>(
         let mut padded_chunk = 0usize.to_ne_bytes();
         padded_chunk[0..chunk.len()].copy_from_slice(chunk);
         mem_write_word(stopped_task, ptr, usize::from_ne_bytes(padded_chunk))?;
-        ptr = ptr.add(padded_chunk.len());
+        ptr = ptr.add(size_of::<usize>());
     }
+    mem_write_word(stopped_task, ptr, 0)?;
     Ok(())
 }
 
@@ -373,7 +374,7 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
     }
 
     pub async fn write_fd(&mut self, fd: &RemoteFd, bytes: &[u8]) -> Result<usize, Errno> {
-        if bytes.len() > abi::PAGE_SIZE {
+        if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
             return Err(Errno(-abi::EINVAL as i32));
         }
         mem_write_padded_bytes(self.trampoline.stopped_task, self.page_ptr, bytes)
@@ -405,6 +406,26 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
             .await;
         if result == 0 {
             Ok(())
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub async fn memfd_create(&mut self, name: &[u8], flags: isize) -> Result<RemoteFd, Errno> {
+        if name.len() > abi::PAGE_SIZE - size_of::<usize>() {
+            return Err(Errno(-abi::EINVAL as i32));
+        }
+        mem_write_padded_bytes(self.trampoline.stopped_task, self.page_ptr, name)
+            .map_err(|_| Errno(-abi::EFAULT as i32))?;
+        let result = self
+            .trampoline
+            .syscall(
+                nr::MEMFD_CREATE,
+                &[self.page_ptr.0 as isize, flags as isize],
+            )
+            .await;
+        if result > 0 {
+            Ok(RemoteFd(result as u32))
         } else {
             Err(Errno(result as i32))
         }

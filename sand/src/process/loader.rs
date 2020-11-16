@@ -15,6 +15,9 @@ pub struct Loader<'q, 's, 't> {
     trampoline: Trampoline<'q, 's, 't>,
     file: SysFd,
     file_header: FileHeader,
+    stack_buffer: RemoteFd,
+    argv: VPtr,
+    envp: VPtr,
 }
 
 #[derive(Debug)]
@@ -68,8 +71,8 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
     pub async fn open(
         stopped_task: &'t mut StoppedTask<'q, 's>,
         file_name: VString,
-        _argv: VPtr,
-        _envp: VPtr,
+        argv: VPtr,
+        envp: VPtr,
     ) -> Result<Loader<'q, 's, 't>, Errno> {
         let file = ipc_call!(
             stopped_task.task,
@@ -82,16 +85,24 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             ToTask::FileReply(result),
             result
         )?;
+
         let mut header_bytes = [0u8; abi::BINPRM_BUF_SIZE];
         pread(&file, 0, &mut header_bytes)?;
         let file_header = FileHeader {
             bytes: header_bytes,
         };
-        let trampoline = Trampoline::new(stopped_task);
+
+        let mut trampoline = Trampoline::new(stopped_task);
+        let mut scratchpad = Scratchpad::new(&mut trampoline).await?;
+        let stack_buffer = scratchpad.memfd_create(b"bandsocks-loader", 0).await?;
+        scratchpad.free().await?;
+
         Ok(Loader {
             trampoline,
             file,
             file_header,
+            stack_buffer,
+            argv, envp,
         })
     }
 
