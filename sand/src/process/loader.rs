@@ -100,7 +100,13 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         let mut scratchpad = Scratchpad::new(&mut self.trampoline).await.unwrap();
         loop {
             scratchpad.write_fd(&fd, b"debug loop\n").await.unwrap();
-            scratchpad.sleep(10, 0).await.unwrap();
+            scratchpad
+                .sleep(&abi::TimeSpec {
+                    tv_sec: 10,
+                    tv_nsec: 0,
+                })
+                .await
+                .unwrap();
         }
     }
 
@@ -116,14 +122,11 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         let result = match scratchpad.send_fd(&self.file).await {
             Err(e) => Err(e),
             Ok(fd) => {
-                Ok(VPtr(0))
-                /*
+                println!("sent fd, {:?}", fd);
                 scratchpad
                     .trampoline
                     .mmap(addr, length, prot, flags, fd, offset)
                     .await
-
-                 */
             }
         };
         scratchpad.free().await?;

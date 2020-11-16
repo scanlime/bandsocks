@@ -137,8 +137,7 @@ impl<'q> Task<'q> {
     }
 
     async fn handle_signal(&mut self, signal: u32) {
-        println!("sig {}", signal);
-        self.cont();
+        panic!("sig {}", signal);
     }
 
     async fn handle_fork(&mut self, child_pid: u32) {

@@ -1,6 +1,6 @@
 use crate::{
     abi,
-    abi::SyscallInfo,
+    abi::{CMsgHdr, IOVec, MsgHdr, SyscallInfo},
     process::{
         maps::{MapsIterator, MemArea, MemAreaName},
         task::StoppedTask,
@@ -9,7 +9,11 @@ use crate::{
     protocol::{Errno, SysFd, VPtr},
     ptrace,
 };
-use core::mem::size_of;
+use core::{
+    mem::{size_of, MaybeUninit},
+    pin::Pin,
+    ptr,
+};
 use sc::{nr, syscall};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -30,7 +34,7 @@ fn find_syscall<'q, 's>(
     vdso: &MemArea,
 ) -> Result<VPtr, ()> {
     const X86_64_SYSCALL: [u8; 2] = [0x0f, 0x05];
-    mem_find(
+    mem_find_bytes(
         stopped_task,
         VPtr(vdso.start),
         vdso.end - vdso.start,
@@ -204,7 +208,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
     }
 }
 
-pub fn mem_read<'q, 's>(
+pub fn mem_read_bytes<'q, 's>(
     stopped_task: &mut StoppedTask<'q, 's>,
     ptr: VPtr,
     bytes: &mut [u8],
@@ -225,6 +229,20 @@ pub fn mem_read<'q, 's>(
     }
 }
 
+/// safety: type must be repr(C) and have no invalid bit patterns
+pub unsafe fn mem_read_value<T: Clone>(
+    stopped_task: &mut StoppedTask,
+    remote: VPtr,
+) -> Result<T, ()> {
+    let len = size_of::<T>();
+    let mut storage = MaybeUninit::<T>::uninit();
+    let byte_ref =
+        core::slice::from_raw_parts_mut(&mut storage as *mut MaybeUninit<T> as *mut u8, len);
+    mem_read_bytes(stopped_task, remote, byte_ref)?;
+    let value_ref: &mut T = &mut *(byte_ref.as_mut_ptr() as *mut T);
+    Ok(value_ref.clone())
+}
+
 pub fn mem_write_word<'q, 's>(
     stopped_task: &mut StoppedTask<'q, 's>,
     ptr: VPtr,
@@ -232,19 +250,6 @@ pub fn mem_write_word<'q, 's>(
 ) -> Result<(), ()> {
     assert!(0 == (ptr.0 % size_of::<usize>()));
     ptrace::poke(stopped_task.task.task_data.sys_pid, ptr.0, word)
-}
-
-pub fn mem_write_words<'q, 's>(
-    stopped_task: &mut StoppedTask<'q, 's>,
-    mut ptr: VPtr,
-    words: &[usize],
-) -> Result<(), ()> {
-    assert!(0 == (ptr.0 % size_of::<usize>()));
-    for word in words {
-        mem_write_word(stopped_task, ptr, *word)?;
-        ptr = ptr.add(size_of::<usize>());
-    }
-    Ok(())
 }
 
 pub fn mem_write_padded_bytes<'q, 's>(
@@ -262,7 +267,28 @@ pub fn mem_write_padded_bytes<'q, 's>(
     Ok(())
 }
 
-pub fn mem_find<'q, 's>(
+/// safety: type must be repr(C)
+pub unsafe fn mem_write_padded_value<'q, 's, T: Clone>(
+    stopped_task: &mut StoppedTask<'q, 's>,
+    remote: VPtr,
+    local: &T,
+) -> Result<(), ()> {
+    // allocate aligned for T, explicitly zero all bytes, clone the value in, then
+    // use as bytes again
+    let len = size_of::<T>();
+    let mut storage = MaybeUninit::<T>::uninit();
+    let byte_ref =
+        core::slice::from_raw_parts_mut(&mut storage as *mut MaybeUninit<T> as *mut u8, len);
+    for byte in byte_ref.iter_mut() {
+        *byte = 0;
+    }
+    let value_ref: &mut T = &mut *(byte_ref.as_mut_ptr() as *mut T);
+    value_ref.clone_from(local);
+    let byte_ref = core::slice::from_raw_parts(value_ref as *mut T as *mut u8, len);
+    mem_write_padded_bytes(stopped_task, remote, byte_ref)
+}
+
+pub fn mem_find_bytes<'q, 's>(
     stopped_task: &mut StoppedTask<'q, 's>,
     ptr: VPtr,
     len: usize,
@@ -277,7 +303,7 @@ pub fn mem_find<'q, 's>(
         if chunk_size < pattern.len() {
             return Err(());
         }
-        mem_read(stopped_task, ptr.add(chunk_offset), &mut buffer)?;
+        mem_read_bytes(stopped_task, ptr.add(chunk_offset), &mut buffer)?;
         if let Some(match_offset) = twoway::find_bytes(&buffer, pattern) {
             return Ok(ptr.add(chunk_offset).add(match_offset));
         }
@@ -352,13 +378,9 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
         }
     }
 
-    pub async fn sleep(&mut self, secs: usize, nanosecs: usize) -> Result<(), Errno> {
-        mem_write_words(
-            self.trampoline.stopped_task,
-            self.page_ptr,
-            &[secs, nanosecs],
-        )
-        .map_err(|_| Errno(-abi::EFAULT as i32))?;
+    pub async fn sleep(&mut self, duration: &abi::TimeSpec) -> Result<(), Errno> {
+        unsafe { mem_write_padded_value(self.trampoline.stopped_task, self.page_ptr, duration) }
+            .map_err(|_| Errno(-abi::EFAULT as i32))?;
         let result = self
             .trampoline
             .syscall(nr::NANOSLEEP, &[self.page_ptr.0 as isize, 0])
@@ -372,7 +394,102 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
 
     pub async fn send_fd(&mut self, local: &SysFd) -> Result<RemoteFd, Errno> {
         let socket_pair = &self.trampoline.stopped_task.task.task_data.socket_pair;
-        println!("{:?}", socket_pair);
-        Ok(RemoteFd(0))
+        let local_socket_fd = socket_pair.tracer.0;
+        let remote_socket_fd = socket_pair.remote.0;
+
+        #[derive(Debug, Clone)]
+        #[repr(C)]
+        struct CMsg {
+            hdr: CMsgHdr,
+            fd: u32,
+        }
+
+        #[derive(Debug, Clone)]
+        #[repr(C)]
+        struct Layout {
+            hdr: MsgHdr,
+            cmsg: CMsg,
+            iov: IOVec,
+            msg: [u8; 1],
+        };
+
+        const BASE_LAYOUT: Layout = Layout {
+            hdr: MsgHdr {
+                msg_name: ptr::null_mut(),
+                msg_namelen: 0,
+                msg_iov: ptr::null_mut(),
+                msg_iovlen: 1,
+                msg_control: ptr::null_mut(),
+                msg_controllen: size_of::<CMsg>(),
+                msg_flags: 0,
+            },
+            cmsg: CMsg {
+                hdr: CMsgHdr {
+                    cmsg_len: size_of::<CMsg>(),
+                    cmsg_level: abi::SOL_SOCKET,
+                    cmsg_type: abi::SCM_RIGHTS,
+                },
+                fd: -1i32 as u32,
+            },
+            iov: IOVec {
+                base: ptr::null_mut(),
+                len: 1,
+            },
+            msg: [0],
+        };
+
+        let mut local_layout = BASE_LAYOUT.clone();
+        let mut remote_layout = BASE_LAYOUT.clone();
+
+        local_layout.cmsg.fd = local.0;
+        let mut local_pin = Pin::new(&mut local_layout);
+        let local_ptr = &local_pin.as_mut().get_mut().hdr as *const MsgHdr;
+        local_pin.as_mut().get_mut().hdr.msg_iov =
+            &mut local_pin.as_mut().get_mut().iov as *mut IOVec;
+        local_pin.as_mut().get_mut().hdr.msg_control =
+            &mut local_pin.as_mut().get_mut().cmsg as *mut CMsg as *mut usize;
+        local_pin.as_mut().get_mut().iov.base = local_pin.as_mut().get_mut().msg.as_mut_ptr();
+
+        remote_layout.hdr.msg_iov = self.page_ptr.add(offset_of!(Layout, iov)).0 as *mut IOVec;
+        remote_layout.hdr.msg_control = self.page_ptr.add(offset_of!(Layout, cmsg)).0 as *mut usize;
+        remote_layout.iov.base = self.page_ptr.add(offset_of!(Layout, msg)).0 as *mut u8;
+
+        unsafe {
+            mem_write_padded_value(self.trampoline.stopped_task, self.page_ptr, &remote_layout)
+                .map_err(|_| Errno(-abi::EFAULT as i32))?;
+        }
+
+        let local_flags = abi::MSG_DONTWAIT;
+        let remote_flags = 0;
+
+        let local_result =
+            unsafe { syscall!(SENDMSG, local_socket_fd, local_ptr, local_flags) as isize };
+        if local_result != 1 {
+            return Err(Errno(local_result as i32));
+        }
+
+        let remote_result = self
+            .trampoline
+            .syscall(
+                nr::RECVMSG,
+                &[
+                    remote_socket_fd as isize,
+                    self.page_ptr.0 as isize,
+                    remote_flags,
+                ],
+            )
+            .await;
+        if remote_result != 1 {
+            return Err(Errno(remote_result as i32));
+        }
+
+        let remote_cmsg: CMsg = unsafe {
+            mem_read_value(
+                self.trampoline.stopped_task,
+                self.page_ptr.add(offset_of!(Layout, cmsg)),
+            )
+            .map_err(|_| Errno(-abi::EFAULT as i32))?
+        };
+        Ok(RemoteFd(remote_cmsg.fd))
     }
 }

@@ -226,7 +226,7 @@ pub const SEEK_MAX: isize = SEEK_HOLE;
 
 // sendmsg() user_msghdr
 // linux/include/linux/socket.h
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct MsgHdr {
     pub msg_name: *mut usize,
@@ -243,7 +243,7 @@ pub struct MsgHdr {
 pub const MSG_DONTWAIT: usize = 0x40;
 
 // linux/include/linux/socket.h
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 #[repr(C)]
 pub struct CMsgHdr {
     pub cmsg_len: usize,
@@ -336,3 +336,11 @@ pub const SOCK_STREAM: usize = 1;
 /// linux/arch/x86/include/asm/page_types.h
 pub const PAGE_SHIFT: usize = 12;
 pub const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
+
+/// linux/include/uapi/linux/time.h
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TimeSpec {
+    pub tv_sec: u64,
+    pub tv_nsec: u64,
+}
