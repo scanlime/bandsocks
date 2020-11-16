@@ -137,7 +137,9 @@ impl<'q> Task<'q> {
     }
 
     async fn handle_signal(&mut self, signal: u32) {
-        panic!("sig {}", signal);
+        let mut regs: abi::UserRegs = Default::default();
+        ptrace::get_regs(self.task_data.sys_pid, &mut regs);
+        panic!("signal {}, {:x?}", signal, regs);
     }
 
     async fn handle_fork(&mut self, child_pid: u32) {

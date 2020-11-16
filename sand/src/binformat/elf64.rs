@@ -15,7 +15,7 @@ pub async fn load<'q, 's, 't>(
     // experiment
     loader.unmap_all_userspace_mem().await;
     loader
-        .mmap(VPtr(0x10000), 0x1000, abi::PROT_READ, 0, 0)
+        .mmap(VPtr(0x100000), 0x1000, abi::PROT_READ, abi::MAP_PRIVATE, 0)
         .await?;
     loader.debug_loop().await;
     Ok(())
