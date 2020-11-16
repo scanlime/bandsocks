@@ -115,14 +115,15 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
 
     pub async fn syscall(&mut self, nr: usize, args: &[isize]) -> isize {
         let task = &mut self.stopped_task.task;
-        let regs = &mut self.stopped_task.regs;
         let pid = task.task_data.sys_pid;
+        let task_regs = &mut self.stopped_task.regs;
+        let mut local_regs = task_regs.clone();
 
-        SyscallInfo::orig_nr_to_regs(nr as isize, regs);
-        SyscallInfo::args_to_regs(args, regs);
+        SyscallInfo::orig_nr_to_regs(nr as isize, &mut local_regs);
+        SyscallInfo::args_to_regs(args, &mut local_regs);
 
         // Run the syscall until completion, trapping again on the way out
-        ptrace::set_regs(pid, regs);
+        ptrace::set_regs(pid, &local_regs);
         ptrace::trace_syscall(pid);
         assert_eq!(
             task.events.next().await,
@@ -132,10 +133,10 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                 status: abi::PTRACE_SIG_TRACESYSGOOD
             }
         );
-        ptrace::get_regs(pid, regs);
+        ptrace::get_regs(pid, &mut local_regs);
 
         // Save the results from the remote call
-        let result = SyscallInfo::ret_from_regs(regs);
+        let result = SyscallInfo::ret_from_regs(&mut local_regs);
 
         // Now we are trapped on the way out of a syscall but we need to get back to
         // trapping on the way in. This involves a brief trip back to userspace.
@@ -144,12 +145,12 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         // using the VDSO as a trampoline.
         let fake_syscall_nr = sc::nr::OPEN;
         let fake_syscall_arg = 0xffff_ffff_dddd_dddd_u64;
-        regs.ip = self.vdso_syscall.0 as u64;
-        regs.sp = 0;
-        SyscallInfo::nr_to_regs(fake_syscall_nr as isize, regs);
-        SyscallInfo::args_to_regs(&[fake_syscall_arg as isize; 6], regs);
+        local_regs.ip = self.vdso_syscall.0 as u64;
+        local_regs.sp = 0;
+        SyscallInfo::nr_to_regs(fake_syscall_nr as isize, &mut local_regs);
+        SyscallInfo::args_to_regs(&[fake_syscall_arg as isize; 6], &mut local_regs);
 
-        ptrace::set_regs(pid, regs);
+        ptrace::set_regs(pid, &local_regs);
         ptrace::single_step(pid);
         assert_eq!(
             task.events.next().await,
@@ -159,11 +160,12 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                 status: abi::PTRACE_SIG_SECCOMP
             }
         );
-        ptrace::get_regs(pid, regs);
-        let info = SyscallInfo::from_regs(regs);
+        ptrace::get_regs(pid, &mut local_regs);
+        let info = SyscallInfo::from_regs(&local_regs);
         assert_eq!(info.nr, fake_syscall_nr as u64);
         assert_eq!(info.args, [fake_syscall_arg; 6]);
 
+        ptrace::set_regs(pid, &task_regs);
         result
     }
 
@@ -173,7 +175,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         length: usize,
         prot: isize,
         flags: isize,
-        fd: RemoteFd,
+        fd: &RemoteFd,
         offset: usize,
     ) -> Result<VPtr, Errno> {
         let result = self
@@ -200,6 +202,15 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         let result = self
             .syscall(sc::nr::MUNMAP, &[addr.0 as isize, length as isize])
             .await;
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub async fn close(&mut self, fd: &RemoteFd) -> Result<(), Errno> {
+        let result = self.syscall(sc::nr::CLOSE, &[fd.0 as isize]).await;
         if result == 0 {
             Ok(())
         } else {
@@ -338,7 +349,7 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
                 abi::PAGE_SIZE,
                 abi::PROT_READ | abi::PROT_WRITE,
                 abi::MAP_PRIVATE | abi::MAP_ANONYMOUS,
-                RemoteFd(0),
+                &RemoteFd(0),
                 0,
             )
             .await?;

@@ -336,6 +336,23 @@ pub const SOCK_STREAM: usize = 1;
 /// linux/arch/x86/include/asm/page_types.h
 pub const PAGE_SHIFT: usize = 12;
 pub const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
+pub const PAGE_MASK: usize = PAGE_SIZE - 1;
+
+pub fn page_offset(addr: usize) -> usize {
+    addr & PAGE_MASK
+}
+
+pub fn page_round_down(addr: usize) -> usize {
+    addr & !PAGE_MASK
+}
+
+pub fn page_round_up(addr: usize) -> usize {
+    if page_offset(addr) == 0 {
+        addr
+    } else {
+        PAGE_SIZE + page_round_down(addr)
+    }
+}
 
 /// linux/include/uapi/linux/time.h
 #[derive(Debug, Clone)]

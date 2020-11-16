@@ -1,5 +1,7 @@
 use crate::{
-    abi, binformat,
+    abi,
+    abi::UserRegs,
+    binformat,
     nolibc::pread,
     process::{
         remote::{RemoteFd, Scratchpad, Trampoline},
@@ -83,7 +85,11 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
     }
 
     pub async fn unmap_all_userspace_mem(&mut self) {
-        self.trampoline.unmap_all_userspace_mem().await
+        self.trampoline.unmap_all_userspace_mem().await;
+    }
+
+    pub fn userspace_regs(&mut self) -> &mut UserRegs {
+        &mut self.trampoline.stopped_task.regs
     }
 
     pub async fn debug_loop(&mut self) -> ! {
@@ -101,25 +107,35 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         }
     }
 
-    pub async fn mmap(
+    pub async fn map_file(
+        &mut self,
+        addr: VPtr,
+        length: usize,
+        offset: usize,
+        prot: isize,
+    ) -> Result<VPtr, Errno> {
+        let flags = abi::MAP_PRIVATE | abi::MAP_FIXED;
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
+        let sent_fd = scratchpad.send_fd(&self.file).await;
+        scratchpad.free().await?;
+        let sent_fd = sent_fd?;
+        let result = self
+            .trampoline
+            .mmap(addr, length, prot, flags, &sent_fd, offset)
+            .await;
+        self.trampoline.close(&sent_fd).await?;
+        result
+    }
+
+    pub async fn map_anonymous(
         &mut self,
         addr: VPtr,
         length: usize,
         prot: isize,
-        flags: isize,
-        offset: usize,
     ) -> Result<VPtr, Errno> {
-        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
-        let result = match scratchpad.send_fd(&self.file).await {
-            Err(e) => Err(e),
-            Ok(fd) => {
-                scratchpad
-                    .trampoline
-                    .mmap(addr, length, prot, flags, fd, offset)
-                    .await
-            }
-        };
-        scratchpad.free().await?;
-        result
+        let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS | abi::MAP_FIXED;
+        self.trampoline
+            .mmap(addr, length, prot, flags, &RemoteFd(0), 0)
+            .await
     }
 }

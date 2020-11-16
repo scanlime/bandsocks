@@ -1,5 +1,6 @@
 use crate::{
     abi,
+    abi::UserRegs,
     process::loader::{FileHeader, Loader},
     protocol::{Errno, VPtr},
 };
@@ -27,27 +28,82 @@ pub fn detect(fh: &FileHeader) -> bool {
         && ehdr.e_ident[header::EI_VERSION] == header::EV_CURRENT
 }
 
+async fn replace_userspace<'q, 's, 't>(loader: &mut Loader<'q, 's, 't>, sp: u64, ip: u64) {
+    let prev_regs = loader.userspace_regs().clone();
+    loader.userspace_regs().clone_from(&UserRegs {
+        sp,
+        ip,
+        cs: prev_regs.cs,
+        ss: prev_regs.ss,
+        ds: prev_regs.ds,
+        es: prev_regs.es,
+        fs: prev_regs.fs,
+        gs: prev_regs.gs,
+        flags: prev_regs.flags,
+        ..Default::default()
+    });
+
+    loader.unmap_all_userspace_mem().await;
+}
+
+fn phdr_prot(phdr: &ProgramHeader) -> isize {
+    let mut prot = 0;
+    if 0 != (phdr.p_flags & program_header::PF_R) {
+        prot |= abi::PROT_READ
+    }
+    if 0 != (phdr.p_flags & program_header::PF_W) {
+        prot |= abi::PROT_WRITE
+    }
+    if 0 != (phdr.p_flags & program_header::PF_X) {
+        prot |= abi::PROT_EXEC
+    }
+    prot
+}
+
 pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errno> {
     let ehdr = elf64_header(loader.file_header());
     println!("ELF64 {:?}", ehdr);
 
-    loader.unmap_all_userspace_mem().await;
+    // todo: lets have a stack
+    loader
+        .map_anonymous(VPtr(0x10000), 0x10000, abi::PROT_READ | abi::PROT_WRITE)
+        .await?;
+    let sp = 0x1fff0;
+    replace_userspace(&mut loader, sp, ehdr.e_entry).await;
 
     for idx in 0..ehdr.e_phnum {
         let phdr = elf64_program_header(&loader, &ehdr, idx)?;
-        if phdr.p_type == program_header::PT_LOAD {
-            loader
-                .mmap(
-                    VPtr(phdr.p_vaddr as usize),
-                    phdr.p_memsz as usize,
-                    abi::PROT_READ,
-                    abi::MAP_PRIVATE,
-                    phdr.p_offset as usize,
-                )
-                .await?;
+        if phdr.p_type == program_header::PT_LOAD
+            && abi::page_offset(phdr.p_offset as usize) == abi::page_offset(phdr.p_vaddr as usize)
+        {
+            let prot = phdr_prot(&phdr);
+            let page_alignment = abi::page_offset(phdr.p_vaddr as usize);
+
+            if phdr.p_memsz > phdr.p_filesz {
+                loader
+                    .map_anonymous(
+                        VPtr(phdr.p_vaddr as usize - page_alignment),
+                        abi::page_round_up(phdr.p_memsz as usize + page_alignment),
+                        prot,
+                    )
+                    .await?;
+            }
+
+            if phdr.p_filesz > 0 {
+                loader
+                    .map_file(
+                        VPtr(phdr.p_vaddr as usize - page_alignment),
+                        abi::page_round_up(phdr.p_filesz as usize + page_alignment),
+                        phdr.p_offset as usize - page_alignment,
+                        prot,
+                    )
+                    .await?;
+            }
 
             println!(
-                "{:x?}",
+                "{}/{}, {:x?}",
+                idx,
+                ehdr.e_phnum,
                 (
                     phdr.p_type,
                     phdr.p_flags,
@@ -57,7 +113,7 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
                     phdr.p_filesz,
                     phdr.p_memsz,
                     phdr.p_align
-                )
+                ),
             );
         }
     }
