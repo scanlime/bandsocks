@@ -1,4 +1,7 @@
-use crate::{abi, protocol::SysFd};
+use crate::{
+    abi,
+    protocol::{Errno, SysFd},
+};
 use core::{fmt, slice, str};
 use sc::syscall;
 
@@ -43,7 +46,7 @@ impl SysFd {
         }
     }
 
-    pub fn read_exact(&self, bytes: &mut [u8]) -> Result<(), isize> {
+    pub fn read_exact(&self, bytes: &mut [u8]) -> Result<(), Errno> {
         let mut offset = 0;
         while offset < bytes.len() {
             let slice = &mut bytes[offset..];
@@ -51,7 +54,7 @@ impl SysFd {
                 syscall!(READ, self.0, slice.as_mut_ptr() as usize, slice.len()) as isize
             };
             if result <= 0 {
-                return Err(result);
+                return Err(Errno(result as i32));
             } else {
                 offset += result as usize;
             }
@@ -69,14 +72,14 @@ pub fn exit(code: usize) -> ! {
     unreachable!()
 }
 
-pub fn socketpair(domain: usize, type_: usize, protocol: usize) -> Result<(SysFd, SysFd), isize> {
-    let mut pair = [0u32; 2];
+pub fn socketpair(domain: usize, type_: usize, protocol: usize) -> Result<(SysFd, SysFd), Errno> {
+    let mut pair = [0u32; 4];
     let result =
         unsafe { syscall!(SOCKETPAIR, domain, type_, protocol, pair.as_mut_ptr()) as isize };
     if result == 0 {
         Ok((SysFd(pair[0]), SysFd(pair[1])))
     } else {
-        Err(result)
+        Err(Errno(result as i32))
     }
 }
 
@@ -122,7 +125,7 @@ unsafe extern "C" fn sigreturn() {
     unreachable!();
 }
 
-pub fn signal(signum: u32, handler: extern "C" fn(u32)) -> Result<(), isize> {
+pub fn signal(signum: u32, handler: extern "C" fn(u32)) -> Result<(), Errno> {
     let sigaction = abi::SigAction {
         sa_flags: abi::SA_RESTORER,
         sa_handler: handler,
@@ -139,13 +142,23 @@ pub fn signal(signum: u32, handler: extern "C" fn(u32)) -> Result<(), isize> {
         )
     } {
         0 => Ok(()),
-        other => Err(other as isize),
+        other => Err(Errno(other as i32)),
     }
 }
 
-pub fn fcntl(fd: &SysFd, op: usize, arg: usize) -> Result<(), isize> {
+pub fn fcntl(fd: &SysFd, op: usize, arg: usize) -> Result<(), Errno> {
     match unsafe { syscall!(FCNTL, fd.0, op, arg) } {
         0 => Ok(()),
-        other => Err(other as isize),
+        other => Err(Errno(other as i32)),
+    }
+}
+
+pub fn pread(fd: &SysFd, offset: usize, bytes: &mut [u8]) -> Result<usize, Errno> {
+    let result =
+        unsafe { syscall!(PREAD64, fd.0, bytes.as_mut_ptr(), bytes.len(), offset) as isize };
+    if result >= 0 {
+        Ok(result as usize)
+    } else {
+        Err(Errno(result as i32))
     }
 }

@@ -174,7 +174,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         prot: isize,
         flags: isize,
         fd: RemoteFd,
-        offset: isize,
+        offset: usize,
     ) -> Result<VPtr, Errno> {
         let result = self
             .syscall(
@@ -185,7 +185,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                     prot,
                     flags,
                     fd.0 as isize,
-                    offset,
+                    offset as isize,
                 ],
             )
             .await;

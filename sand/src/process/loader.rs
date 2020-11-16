@@ -1,20 +1,24 @@
 use crate::{
     abi, binformat,
-    binformat::Header,
+    nolibc::pread,
     process::{
         remote::{RemoteFd, Scratchpad, Trampoline},
         task::StoppedTask,
     },
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
 };
-use sc::syscall;
 
 pub struct Loader<'q, 's, 't> {
     trampoline: Trampoline<'q, 's, 't>,
     file: SysFd,
-    filename: VString,
-    argv: VPtr,
-    envp: VPtr,
+    file_header: FileHeader,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+#[repr(align(8))]
+pub struct FileHeader {
+    pub bytes: [u8; abi::BINPRM_BUF_SIZE],
 }
 
 impl<'q, 's, 't> Drop for Loader<'q, 's, 't> {
@@ -36,59 +40,46 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             .await
     }
 
+    pub fn file_header(&self) -> &FileHeader {
+        &self.file_header
+    }
+
     pub async fn open(
         stopped_task: &'t mut StoppedTask<'q, 's>,
-        filename: VString,
-        argv: VPtr,
-        envp: VPtr,
+        file_name: VString,
+        _argv: VPtr,
+        _envp: VPtr,
     ) -> Result<Loader<'q, 's, 't>, Errno> {
         let file = ipc_call!(
             stopped_task.task,
             FromTask::FileOpen {
                 dir: None,
-                path: filename,
+                path: file_name,
                 flags: abi::O_RDONLY as i32,
                 mode: 0,
             },
             ToTask::FileReply(result),
             result
         )?;
+        let mut header_bytes = [0u8; abi::BINPRM_BUF_SIZE];
+        pread(&file, 0, &mut header_bytes)?;
+        let file_header = FileHeader {
+            bytes: header_bytes,
+        };
         let trampoline = Trampoline::new(stopped_task);
         Ok(Loader {
             trampoline,
             file,
-            filename,
-            argv,
-            envp,
+            file_header,
         })
     }
 
     pub fn read(&self, offset: usize, bytes: &mut [u8]) -> Result<usize, Errno> {
-        let result = unsafe {
-            syscall!(
-                PREAD64,
-                self.file.0,
-                bytes.as_mut_ptr(),
-                bytes.len(),
-                offset
-            ) as isize
-        };
-        if result >= 0 {
-            Ok(result as usize)
-        } else {
-            Err(Errno(result as i32))
-        }
-    }
-
-    pub fn read_header(&self) -> Result<Header, Errno> {
-        let mut bytes = [0u8; abi::BINPRM_BUF_SIZE];
-        self.read(0, &mut bytes)?;
-        Ok(Header { bytes })
+        pread(&self.file, offset, bytes)
     }
 
     pub async fn exec(self) -> Result<(), Errno> {
-        let header = self.read_header()?;
-        binformat::exec(self, header).await
+        binformat::exec(self).await
     }
 
     pub async fn unmap_all_userspace_mem(&mut self) {
@@ -116,7 +107,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         length: usize,
         prot: isize,
         flags: isize,
-        offset: isize,
+        offset: usize,
     ) -> Result<VPtr, Errno> {
         let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
         let result = match scratchpad.send_fd(&self.file).await {
