@@ -27,6 +27,7 @@ pub struct Trampoline<'q, 's, 't> {
     pub vvar: MemArea,
     pub vsyscall: Option<MemArea>,
     pub vdso_syscall: VPtr,
+    pub task_end: VPtr,
 }
 
 fn find_syscall<'q, 's>(
@@ -47,6 +48,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         let mut vdso = None;
         let mut vvar = None;
         let mut vsyscall = None;
+        let mut task_end = !0usize;
 
         for map in MapsIterator::new(stopped_task) {
             match map.name {
@@ -58,6 +60,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                     assert_eq!(map.dev_major, 0);
                     assert_eq!(map.dev_minor, 0);
                     assert_eq!(vdso, None);
+                    task_end = task_end.min(map.start);
                     vdso = Some(map);
                 }
                 MemAreaName::VVar => {
@@ -68,6 +71,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                     assert_eq!(map.dev_major, 0);
                     assert_eq!(map.dev_minor, 0);
                     assert_eq!(vvar, None);
+                    task_end = task_end.min(map.start);
                     vvar = Some(map);
                 }
                 MemAreaName::VSyscall => {
@@ -78,6 +82,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
                     assert_eq!(map.dev_major, 0);
                     assert_eq!(map.dev_minor, 0);
                     assert_eq!(vsyscall, None);
+                    task_end = task_end.min(map.start);
                     vsyscall = Some(map);
                 }
                 _ => {}
@@ -87,6 +92,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         let vdso = vdso.unwrap();
         let vvar = vvar.unwrap();
         let vdso_syscall = find_syscall(stopped_task, &vdso).unwrap();
+        let task_end = VPtr(task_end);
 
         Trampoline {
             stopped_task,
@@ -94,6 +100,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
             vvar,
             vsyscall,
             vdso_syscall,
+            task_end,
         }
     }
 

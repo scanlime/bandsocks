@@ -9,6 +9,7 @@ use crate::{
     },
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
 };
+use sc::nr;
 
 pub struct Loader<'q, 's, 't> {
     trampoline: Trampoline<'q, 's, 't>,
@@ -21,6 +22,24 @@ pub struct Loader<'q, 's, 't> {
 #[repr(align(8))]
 pub struct FileHeader {
     pub bytes: [u8; abi::BINPRM_BUF_SIZE],
+}
+
+#[derive(Debug, Clone)]
+pub struct MemLayout {
+    pub start_code: VPtr,
+    pub end_code: VPtr,
+    pub start_data: VPtr,
+    pub end_data: VPtr,
+    pub start_stack: VPtr,
+    pub start_brk: VPtr,
+    pub brk: VPtr,
+    pub arg_start: VPtr,
+    pub arg_end: VPtr,
+    pub env_start: VPtr,
+    pub env_end: VPtr,
+    pub auxv_ptr: VPtr,
+    pub auxv_len: usize,
+    pub exe_file: VPtr,
 }
 
 impl<'q, 's, 't> Drop for Loader<'q, 's, 't> {
@@ -92,6 +111,37 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         &mut self.trampoline.stopped_task.regs
     }
 
+    /// Tell the kernel about a new process memory layout. Memory regions must
+    /// already exist and have the correct protection flags.
+    pub async fn set_mem_layout(&mut self, ml: &MemLayout) -> Result<(), Errno> {
+        for args in &[
+            [abi::PR_SET_MM_START_CODE, ml.start_code.0 as isize, 0],
+            [abi::PR_SET_MM_END_CODE, ml.end_code.0 as isize, 0],
+            [abi::PR_SET_MM_START_DATA, ml.start_data.0 as isize, 0],
+            [abi::PR_SET_MM_END_DATA, ml.end_data.0 as isize, 0],
+            [abi::PR_SET_MM_START_STACK, ml.start_stack.0 as isize, 0],
+            [abi::PR_SET_MM_START_BRK, ml.start_brk.0 as isize, 0],
+            [abi::PR_SET_MM_BRK, ml.brk.0 as isize, 0],
+            [abi::PR_SET_MM_ARG_START, ml.arg_start.0 as isize, 0],
+            [abi::PR_SET_MM_ARG_END, ml.arg_end.0 as isize, 0],
+            [abi::PR_SET_MM_ENV_START, ml.env_start.0 as isize, 0],
+            [abi::PR_SET_MM_ENV_END, ml.env_end.0 as isize, 0],
+            [abi::PR_SET_MM_EXE_FILE, ml.exe_file.0 as isize, 0],
+            [
+                abi::PR_SET_MM_AUXV,
+                ml.auxv_ptr.0 as isize,
+                ml.auxv_len as isize,
+            ],
+        ] {
+            let result = self.trampoline.syscall(nr::PRCTL, args).await;
+            if result != 0 {
+                return Err(Errno(result as i32));
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     pub async fn debug_loop(&mut self) -> ! {
         let fd = RemoteFd(1);
         let mut scratchpad = Scratchpad::new(&mut self.trampoline).await.unwrap();
@@ -137,5 +187,14 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         self.trampoline
             .mmap(addr, length, prot, flags, &RemoteFd(0), 0)
             .await
+    }
+
+    pub fn randomize_stack_top(&self) -> VPtr {
+        // todo
+        let random_var = 12345;
+
+        VPtr(abi::page_round_down(
+            self.trampoline.task_end.0 - ((random_var & abi::STACK_RND_MASK) << abi::PAGE_SHIFT),
+        ))
     }
 }

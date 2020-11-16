@@ -1,7 +1,7 @@
 use crate::{
     abi,
     abi::UserRegs,
-    process::loader::{FileHeader, Loader},
+    process::loader::{FileHeader, Loader, MemLayout},
     protocol::{Errno, VPtr},
 };
 use goblin::elf64::{header, header::Header, program_header, program_header::ProgramHeader};
@@ -28,24 +28,6 @@ pub fn detect(fh: &FileHeader) -> bool {
         && ehdr.e_ident[header::EI_VERSION] == header::EV_CURRENT
 }
 
-async fn replace_userspace<'q, 's, 't>(loader: &mut Loader<'q, 's, 't>, sp: u64, ip: u64) {
-    let prev_regs = loader.userspace_regs().clone();
-    loader.userspace_regs().clone_from(&UserRegs {
-        sp,
-        ip,
-        cs: prev_regs.cs,
-        ss: prev_regs.ss,
-        ds: prev_regs.ds,
-        es: prev_regs.es,
-        fs: prev_regs.fs,
-        gs: prev_regs.gs,
-        flags: prev_regs.flags,
-        ..Default::default()
-    });
-
-    loader.unmap_all_userspace_mem().await;
-}
-
 fn phdr_prot(phdr: &ProgramHeader) -> isize {
     let mut prot = 0;
     if 0 != (phdr.p_flags & program_header::PF_R) {
@@ -61,15 +43,37 @@ fn phdr_prot(phdr: &ProgramHeader) -> isize {
 }
 
 pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errno> {
+    // todo: validation before the point of no return
+    loader.unmap_all_userspace_mem().await;
+
     let ehdr = elf64_header(loader.file_header());
     println!("ELF64 {:?}", ehdr);
 
-    // todo: lets have a stack
+    let start_stack = loader.randomize_stack_top();
+
+    println!("stack at {:x?}", start_stack);
+
+    let layout = MemLayout {
+        start_code: VPtr(!0),
+        end_code: VPtr(0),
+        start_data: VPtr(!0),
+        end_data: VPtr(0),
+        start_stack,
+        start_brk: VPtr(0),
+        brk: VPtr(0),
+        arg_start: VPtr(0),
+        arg_end: VPtr(0),
+        env_start: VPtr(0),
+        env_end: VPtr(0),
+        auxv_ptr: VPtr(0),
+        auxv_len: 0,
+        exe_file: VPtr(0),
+    };
+
     loader
-        .map_anonymous(VPtr(0x10000), 0x10000, abi::PROT_READ | abi::PROT_WRITE)
-        .await?;
-    let sp = 0x1fff0;
-    replace_userspace(&mut loader, sp, ehdr.e_entry).await;
+        .map_anonymous(VPtr(0x10000), 0x100000, abi::PROT_READ | abi::PROT_WRITE)
+        .await
+        .expect("stack allocation failed");
 
     for idx in 0..ehdr.e_phnum {
         let phdr = elf64_program_header(&loader, &ehdr, idx)?;
@@ -86,7 +90,8 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
                         abi::page_round_up(phdr.p_memsz as usize + page_alignment),
                         prot,
                     )
-                    .await?;
+                    .await
+                    .expect("loader map_anonymous failed");
             }
 
             if phdr.p_filesz > 0 {
@@ -97,27 +102,31 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
                         phdr.p_offset as usize - page_alignment,
                         prot,
                     )
-                    .await?;
+                    .await
+                    .expect("loader map_file failed");
             }
-
-            println!(
-                "{}/{}, {:x?}",
-                idx,
-                ehdr.e_phnum,
-                (
-                    phdr.p_type,
-                    phdr.p_flags,
-                    phdr.p_offset,
-                    phdr.p_vaddr,
-                    phdr.p_paddr,
-                    phdr.p_filesz,
-                    phdr.p_memsz,
-                    phdr.p_align
-                ),
-            );
         }
     }
 
-    loader.debug_loop().await;
+    let prev_regs = loader.userspace_regs().clone();
+    loader.userspace_regs().clone_from(&UserRegs {
+        sp: layout.start_stack.0 as u64,
+        ip: ehdr.e_entry,
+        cs: prev_regs.cs,
+        ss: prev_regs.ss,
+        ds: prev_regs.ds,
+        es: prev_regs.es,
+        fs: prev_regs.fs,
+        gs: prev_regs.gs,
+        flags: prev_regs.flags,
+        ..Default::default()
+    });
+
+    println!("{:x?}", layout);
+    loader
+        .set_mem_layout(&layout)
+        .await
+        .expect("memory layout rejected");
+
     Ok(())
 }

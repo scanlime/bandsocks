@@ -45,6 +45,9 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::NANOSLEEP,
             // fixme: only allow some operations
             nr::FCNTL,
+            nr::ARCH_PRCTL,
+            nr::PRCTL,
+            nr::IOCTL,
         ],
         &[ret(SECCOMP_RET_ALLOW)],
     );
@@ -58,8 +61,6 @@ pub fn policy_for_tracer() {
     // to do: none of this has been audited yet
     p.if_any_eq(
         &[
-            nr::ARCH_PRCTL,
-            nr::PRCTL,
             nr::WAITID,
             nr::PTRACE,
             nr::GETPID,
