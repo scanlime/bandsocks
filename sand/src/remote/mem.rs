@@ -1,7 +1,7 @@
 use crate::{
     abi, nolibc,
     process::task::StoppedTask,
-    protocol::{Errno, VString, VPtr},
+    protocol::{Errno, VPtr, VString},
     ptrace,
 };
 use core::mem::{size_of, MaybeUninit};
@@ -13,12 +13,8 @@ pub fn fault_or<T>(result: Result<T, ()>) -> Result<T, Errno> {
     }
 }
 
-pub fn read_bytes(
-    stopped_task: &mut StoppedTask,
-    ptr: VPtr,
-    bytes: &mut [u8],
-) -> Result<(), ()> {
-    nolibc::pread_exact(&stopped_task.task.process_handle.mem, bytes, ptr.0)
+pub fn read_bytes(stopped_task: &mut StoppedTask, ptr: VPtr, bytes: &mut [u8]) -> Result<(), ()> {
+    nolibc::pread_exact(&stopped_task.task.process_handle.mem, bytes, ptr.0).map_err(|_errno| ())
 }
 
 /// safety: type must be repr(C) and have no invalid bit patterns
@@ -36,23 +32,27 @@ pub fn read_pointer(stopped_task: &mut StoppedTask, remote: VPtr) -> Result<VPtr
     unsafe { read_value(stopped_task, remote) }
 }
 
-pub fn read_pointer_array(stopped_task: &mut StoppedTask, array: VPtr, idx: usize) -> Result<VPtr, ()> {
+pub fn read_pointer_array(
+    stopped_task: &mut StoppedTask,
+    array: VPtr,
+    idx: usize,
+) -> Result<VPtr, ()> {
     read_pointer(stopped_task, array.add(idx * size_of::<VPtr>()))
 }
 
-pub fn read_string_array(stopped_task: &mut StoppedTask, array: VPtr, idx: usize) -> Result<Option<VString>, ()> {
+pub fn read_string_array(
+    stopped_task: &mut StoppedTask,
+    array: VPtr,
+    idx: usize,
+) -> Result<Option<VString>, ()> {
     match read_pointer_array(stopped_task, array, idx) {
         Err(()) => Err(()),
         Ok(ptr) if ptr == VPtr::null() => Ok(None),
-        Ok(ptr) => Ok(Some(VString(ptr)))
+        Ok(ptr) => Ok(Some(VString(ptr))),
     }
 }
 
-pub fn write_word(
-    stopped_task: &mut StoppedTask,
-    ptr: VPtr,
-    word: usize,
-) -> Result<(), ()> {
+pub fn write_word(stopped_task: &mut StoppedTask, ptr: VPtr, word: usize) -> Result<(), ()> {
     assert!(0 == (ptr.0 % size_of::<usize>()));
     ptrace::poke(stopped_task.task.task_data.sys_pid, ptr.0, word)
 }

@@ -49,16 +49,16 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     let mut stack = loader.stack_begin().await?;
 
     for idx in 0.. {
-        if let Some(arg) = loader.argv_read(idx)? {
-            println!("arg {:?} {:x?}", idx, arg);
+        if let Some(env) = loader.envp_read(idx)? {
+            println!("env {:?} {:x?}", idx, env);
         } else {
             break;
         }
     }
 
     for idx in 0.. {
-        if let Some(env) = loader.envp_read(idx)? {
-            println!("env {:?} {:x?}", idx, env);
+        if let Some(arg) = loader.argv_read(idx)? {
+            println!("arg {:?} {:x?}", idx, arg);
         } else {
             break;
         }

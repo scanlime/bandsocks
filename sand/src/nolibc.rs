@@ -8,7 +8,7 @@ use sc::syscall;
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => (
-        $crate::nolibc::write_stderr(core::format_args!( $($arg)* ))
+        $crate::write_stderr(core::format_args!( $($arg)* ))
     );
 }
 
@@ -90,6 +90,8 @@ pub fn write_stderr(msg: fmt::Arguments) {
     }
 }
 
+/// # Safety
+/// Pointer is to a nul terminated C string
 pub unsafe fn c_strlen(s: *const u8) -> usize {
     let mut count: usize = 0;
     while *s.add(count) != 0 {
@@ -103,10 +105,14 @@ pub fn c_unwrap_nul(s: &[u8]) -> &[u8] {
     &s[0..s.len() - 1]
 }
 
+/// # Safety
+/// Pointer is to a nul terminated C string with static lifetime
 pub unsafe fn c_str_slice(s: *const u8) -> &'static [u8] {
     slice::from_raw_parts(s, 1 + c_strlen(s))
 }
 
+/// Safety
+/// Pointer is to a null terminated array
 pub unsafe fn c_strv_len(strv: *const *const u8) -> usize {
     let mut count: usize = 0;
     while !(*strv.add(count)).is_null() {
@@ -115,6 +121,8 @@ pub unsafe fn c_strv_len(strv: *const *const u8) -> usize {
     count
 }
 
+/// # Safety
+/// Pointer is to a null terminated array with static lifetime
 pub unsafe fn c_strv_slice(strv: *const *const u8) -> &'static [*const u8] {
     slice::from_raw_parts(strv, c_strv_len(strv))
 }
@@ -163,10 +171,11 @@ pub fn pread(fd: &SysFd, bytes: &mut [u8], offset: usize) -> Result<usize, Errno
     }
 }
 
-pub fn pread_exact(fd: &SysFd, bytes: &mut [u8], offset: usize) -> Result<(), ()> {
+pub fn pread_exact(fd: &SysFd, bytes: &mut [u8], offset: usize) -> Result<(), Errno> {
     match pread(fd, bytes, offset) {
         Ok(len) if len == bytes.len() => Ok(()),
-        _ => Err(()),
+        Ok(_) => Err(Errno(-abi::EIO)),
+        Err(e) => Err(e),
     }
 }
 

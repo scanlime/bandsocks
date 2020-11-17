@@ -18,7 +18,7 @@ compile_error!("bandsocks currently only supports x86_64");
 extern crate std;
 
 #[macro_use]
-pub mod nolibc;
+mod nolibc;
 
 mod abi;
 mod binformat;
@@ -31,6 +31,8 @@ mod ptrace;
 mod remote;
 mod seccomp;
 mod tracer;
+
+pub use nolibc::{c_strv_slice, exit, write_stderr, EXIT_IO_ERROR, EXIT_PANIC, EXIT_SUCCESS};
 
 use crate::{ipc::Socket, process::task::task_fn, protocol::SysFd, tracer::Tracer};
 use sc::syscall;

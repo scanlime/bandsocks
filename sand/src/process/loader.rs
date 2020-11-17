@@ -4,7 +4,12 @@ use crate::{
     binformat, nolibc,
     process::{stack::StackBuilder, task::StoppedTask},
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
-    remote::{mem::read_string_array, mem::fault_or, scratchpad::Scratchpad, trampoline::Trampoline, RemoteFd},
+    remote::{
+        mem::{fault_or, read_string_array},
+        scratchpad::Scratchpad,
+        trampoline::Trampoline,
+        RemoteFd,
+    },
 };
 
 pub struct Loader<'q, 's, 't> {
@@ -80,11 +85,19 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
     }
 
     pub fn argv_read(&mut self, idx: usize) -> Result<Option<VString>, Errno> {
-        fault_or(read_string_array(&mut self.trampoline.stopped_task, self.argv, idx))
+        fault_or(read_string_array(
+            &mut self.trampoline.stopped_task,
+            self.argv,
+            idx,
+        ))
     }
 
     pub fn envp_read(&mut self, idx: usize) -> Result<Option<VString>, Errno> {
-        fault_or(read_string_array(&mut self.trampoline.stopped_task, self.envp, idx))
+        fault_or(read_string_array(
+            &mut self.trampoline.stopped_task,
+            self.envp,
+            idx,
+        ))
     }
 
     pub fn read_file(&self, offset: usize, bytes: &mut [u8]) -> Result<usize, Errno> {
