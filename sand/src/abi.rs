@@ -382,3 +382,6 @@ pub const PR_SET_MM_EXE_FILE: isize = 13;
 
 /// linux/arch/x86/include/asm/elf.h (64-bit)
 pub const STACK_RND_MASK: usize = 0x3fffff;
+
+/// by analogy, the brk randomization mask, linux has this hardcoded in linux/arch/x86/kernel/process.c
+pub const BRK_RND_MASK: usize = 0x1fff;

@@ -1,7 +1,10 @@
 use crate::{
     abi,
     abi::UserRegs,
-    process::loader::{FileHeader, Loader, MemLayout},
+    process::{
+        layout::MemLayout,
+        loader::{FileHeader, Loader},
+    },
     protocol::{Errno, VPtr},
 };
 use goblin::elf64::{header, header::Header, program_header, program_header::ProgramHeader};
@@ -47,34 +50,13 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     println!("ELF64 {:?}", ehdr);
 
     let mut stack = loader.stack_begin().await?;
-    println!("stack at {:x?}", stack);
-
-    let layout = MemLayout {
-        start_code: VPtr(!0),
-        end_code: VPtr(0),
-        start_data: VPtr(!0),
-        end_data: VPtr(0),
-        start_stack: stack.stack_top(),
-        start_brk: VPtr(0),
-        brk: VPtr(0),
-        arg_start: VPtr(0),
-        arg_end: VPtr(0),
-        env_start: VPtr(0),
-        env_end: VPtr(0),
-        auxv_ptr: VPtr(0),
-        auxv_len: 0,
-        exe_file: VPtr(0),
-    };
+    let mut layout = MemLayout::new(stack.stack_top());
 
     loader
         .stack_remote_bytes(&mut stack, loader.argv, 16)
-        .await
-        .expect("stack remote bytes");
+        .await?;
     stack.align(16);
-    loader
-        .stack_bytes(&mut stack, &[1, 2, 3])
-        .await
-        .expect("stack bytes");
+    loader.stack_bytes(&mut stack, &[1, 2, 3]).await?;
     stack.align(16);
 
     let prev_regs = loader.userspace_regs().clone();
@@ -91,8 +73,7 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
         ..Default::default()
     });
 
-    println!("stack at {:x?}", stack);
-
+    println!("stack, {:x?}", stack);
     loader.unmap_all_userspace_mem().await;
     loader.stack_finish(stack).await?;
 
@@ -103,34 +84,35 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
         {
             let prot = phdr_prot(&phdr);
             let page_alignment = abi::page_offset(phdr.p_vaddr as usize);
+            let start_ptr = VPtr(phdr.p_vaddr as usize - page_alignment);
+            let file_size_aligned = abi::page_round_up(phdr.p_filesz as usize + page_alignment);
+            let file_offset_aligned = phdr.p_offset as usize - page_alignment;
+            let mem_size_aligned = abi::page_round_up(phdr.p_memsz as usize + page_alignment);
 
             if phdr.p_memsz > phdr.p_filesz {
                 loader
-                    .map_anonymous(
-                        VPtr(phdr.p_vaddr as usize - page_alignment),
-                        abi::page_round_up(phdr.p_memsz as usize + page_alignment),
-                        prot,
-                    )
+                    .map_anonymous(start_ptr, mem_size_aligned, prot)
                     .await
                     .expect("loader map_anonymous failed");
             }
 
             if phdr.p_filesz > 0 {
                 loader
-                    .map_file(
-                        VPtr(phdr.p_vaddr as usize - page_alignment),
-                        abi::page_round_up(phdr.p_filesz as usize + page_alignment),
-                        phdr.p_offset as usize - page_alignment,
-                        prot,
-                    )
+                    .map_file(start_ptr, file_size_aligned, file_offset_aligned, prot)
                     .await
                     .expect("loader map_file failed");
             }
+
+            if 0 != (prot & abi::PROT_EXEC) {
+                layout.include_code(start_ptr, file_size_aligned);
+            }
+            layout.include_data(start_ptr, file_size_aligned);
+            layout.include_memory(start_ptr, mem_size_aligned);
         }
     }
 
+    layout.randomize_brk();
     println!("{:x?}", layout);
-    loader.debug_loop().await;
     loader
         .set_mem_layout(&layout)
         .await

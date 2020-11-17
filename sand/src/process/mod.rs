@@ -11,6 +11,7 @@ macro_rules! ipc_call {
     }};
 }
 
+pub mod layout;
 pub mod loader;
 pub mod maps;
 pub mod remote;
