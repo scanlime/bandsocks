@@ -102,7 +102,8 @@ pub fn find_bytes(
     len: usize,
     pattern: &[u8],
 ) -> Result<VPtr, ()> {
-    let mut buffer = [0u8; 4096];
+    type BufSize = U256;
+    let mut buffer = [0u8; BufSize::USIZE];
     assert!(pattern.len() <= buffer.len());
 
     let mut chunk_offset = 0;
