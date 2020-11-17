@@ -72,25 +72,87 @@ impl MemLayout {
 
     pub async fn install(&self, trampoline: &mut Trampoline<'_, '_, '_>) -> Result<(), Errno> {
         for args in &[
-            [abi::PR_SET_MM_START_CODE, self.start_code.0 as isize, 0],
-            [abi::PR_SET_MM_END_CODE, self.end_code.0 as isize, 0],
-            [abi::PR_SET_MM_START_DATA, self.start_data.0 as isize, 0],
-            [abi::PR_SET_MM_END_DATA, self.end_data.0 as isize, 0],
-            [abi::PR_SET_MM_START_STACK, self.start_stack.0 as isize, 0],
-            [abi::PR_SET_MM_START_BRK, self.start_brk.0 as isize, 0],
-            [abi::PR_SET_MM_BRK, self.brk.0 as isize, 0],
-            [abi::PR_SET_MM_ARG_START, self.arg_start.0 as isize, 0],
-            [abi::PR_SET_MM_ARG_END, self.arg_end.0 as isize, 0],
-            [abi::PR_SET_MM_ENV_START, self.env_start.0 as isize, 0],
-            [abi::PR_SET_MM_ENV_END, self.env_end.0 as isize, 0],
-            [abi::PR_SET_MM_EXE_FILE, self.exe_file.0 as isize, 0],
             [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_START_CODE,
+                self.start_code.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_END_CODE,
+                self.end_code.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_START_DATA,
+                self.start_data.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_END_DATA,
+                self.end_data.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_START_STACK,
+                self.start_stack.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_START_BRK,
+                self.start_brk.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_BRK,
+                self.brk.0 as isize,
+                0isize,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_ARG_START,
+                self.arg_start.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_ARG_END,
+                self.arg_end.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_ENV_START,
+                self.env_start.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_ENV_END,
+                self.env_end.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
+                abi::PR_SET_MM_EXE_FILE,
+                self.exe_file.0 as isize,
+                0,
+            ],
+            [
+                abi::PR_SET_MM,
                 abi::PR_SET_MM_AUXV,
                 self.auxv_ptr.0 as isize,
                 self.auxv_len as isize,
             ],
         ] {
             let result = trampoline.syscall(nr::PRCTL, args).await;
+            println!("prctl arg {:x?} {}", args, result);
             if result != 0 {
                 return Err(Errno(result as i32));
             }
