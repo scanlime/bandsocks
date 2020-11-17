@@ -163,6 +163,13 @@ pub fn pread(fd: &SysFd, bytes: &mut [u8], offset: usize) -> Result<usize, Errno
     }
 }
 
+pub fn pread_exact(fd: &SysFd, bytes: &mut [u8], offset: usize) -> Result<(), ()> {
+    match pread(fd, bytes, offset) {
+        Ok(len) if len == bytes.len() => Ok(()),
+        _ => Err(()),
+    }
+}
+
 pub fn getrandom(bytes: &mut [u8], flags: isize) -> Result<usize, Errno> {
     let result = unsafe { syscall!(GETRANDOM, bytes.as_mut_ptr(), bytes.len(), flags) as isize };
     if result >= 0 {

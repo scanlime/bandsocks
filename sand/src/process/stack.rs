@@ -1,7 +1,7 @@
 use crate::{
     abi, nolibc,
-    process::remote::{mem_write_padded_bytes, RemoteFd, Scratchpad, Trampoline},
     protocol::{Errno, VPtr},
+    remote::{mem::write_padded_bytes, RemoteFd, scratchpad::Scratchpad, trampoline::Trampoline},
 };
 
 const BUILDER_SIZE_LIMIT: usize = 8 * 1024 * 1024;
@@ -123,7 +123,7 @@ impl StackBuilder {
         scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
         bytes: &[u8],
     ) -> Result<VPtr, Errno> {
-        mem_write_padded_bytes(
+        write_padded_bytes(
             scratchpad.trampoline.stopped_task,
             scratchpad.page_ptr,
             bytes,

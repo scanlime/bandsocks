@@ -13,7 +13,6 @@ macro_rules! ipc_call {
 
 pub mod loader;
 pub mod maps;
-pub mod remote;
 pub mod stack;
 pub mod syscall;
 pub mod table;
@@ -89,7 +88,7 @@ impl<'q, 's> Future for EventFuture<'q, 's> {
 }
 
 impl<'q, 's> EventSource<'q> {
-    fn next(&'s mut self) -> EventFuture<'q, 's> {
+    pub fn next(&'s mut self) -> EventFuture<'q, 's> {
         EventFuture { source: self }
     }
 }

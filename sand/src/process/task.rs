@@ -2,9 +2,10 @@ use crate::{
     abi,
     abi::{SyscallInfo, UserRegs},
     nolibc::{fcntl, socketpair},
-    process::{remote::RemoteFd, syscall::SyscallEmulator, Event, EventSource, MessageSender},
+    process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
     protocol::{FromTask, ProcessHandle, SysFd, SysPid, ToTask, VPid, VPtr},
     ptrace,
+    remote::RemoteFd,
 };
 use core::fmt::{self, Debug, Formatter};
 

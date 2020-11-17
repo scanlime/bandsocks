@@ -2,20 +2,17 @@ use crate::{
     abi,
     abi::UserRegs,
     binformat, nolibc,
-    process::{
-        remote::{RemoteFd, Scratchpad, Trampoline},
-        stack::StackBuilder,
-        task::StoppedTask,
-    },
+    process::{stack::StackBuilder, task::StoppedTask},
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
+    remote::{RemoteFd, scratchpad::Scratchpad, trampoline::Trampoline},
 };
 
 pub struct Loader<'q, 's, 't> {
     trampoline: Trampoline<'q, 's, 't>,
     file: SysFd,
     file_header: FileHeader,
-    pub argv: VPtr,
-    pub envp: VPtr,
+    argv: VPtr,
+    envp: VPtr,
 }
 
 #[derive(Debug)]

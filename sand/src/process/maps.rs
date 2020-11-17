@@ -43,9 +43,13 @@ impl MemArea {
     }
 }
 
+// This buffer does not need to be large, for performance it should typically
+// hold a couple map entries though.
+type MapsBufferSize = U512;
+
 pub struct MapsIterator<'q, 's, 't> {
     stopped_task: PhantomData<&'t mut StoppedTask<'q, 's>>,
-    stream: ByteReader<U512>,
+    stream: ByteReader<MapsBufferSize>,
 }
 
 impl<'q, 's, 't> MapsIterator<'q, 's, 't> {
@@ -134,7 +138,7 @@ mod test {
     #[test]
     fn self_maps() {
         let f = File::open("/proc/thread-self/maps").unwrap();
-        let r = ByteReader::<U4096>::from_sysfd(SysFd(f.as_raw_fd() as u32));
+        let r = ByteReader::<MapsBufferSize>::from_sysfd(SysFd(f.as_raw_fd() as u32));
         let iter = MapsIterator {
             stopped_task: PhantomData,
             stream: r,

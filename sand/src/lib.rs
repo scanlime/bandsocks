@@ -28,6 +28,7 @@ mod parser;
 mod process;
 mod protocol;
 mod ptrace;
+mod remote;
 mod seccomp;
 mod tracer;
 

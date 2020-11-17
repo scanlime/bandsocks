@@ -48,9 +48,9 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
 
     let mut stack = loader.stack_begin().await?;
 
-    loader
-        .stack_remote_bytes(&mut stack, loader.argv, 16)
-        .await?;
+    // loader
+    //     .stack_remote_bytes(&mut stack, loader.argv, 16)
+    //     .await?;
     stack.align(16);
     loader.stack_bytes(&mut stack, &[1, 2, 3]).await?;
     stack.align(16);
