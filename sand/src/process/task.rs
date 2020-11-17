@@ -5,9 +5,11 @@ use crate::{
     process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
     protocol::{FromTask, ProcessHandle, SysFd, SysPid, ToTask, VPid, VPtr},
     ptrace,
-    remote::RemoteFd,
+    remote::{mem::print_stack_dump, RemoteFd},
 };
-use core::fmt::{self, Debug, Formatter};
+use core::{
+    fmt::{self, Debug, Formatter},
+};
 
 #[derive(Debug, Clone)]
 pub struct TaskSocketPair {
@@ -145,10 +147,16 @@ impl<'q> Task<'q> {
         ptrace::cont(self.task_data.sys_pid);
     }
 
+    fn as_stopped_task<'s>(&'s mut self, regs: &'s mut UserRegs) -> StoppedTask<'q, 's> {
+        ptrace::get_regs(self.task_data.sys_pid, regs);
+        StoppedTask { task: self, regs }
+    }
+
     async fn handle_signal(&mut self, signal: u32) {
-        let mut regs: abi::UserRegs = Default::default();
-        ptrace::get_regs(self.task_data.sys_pid, &mut regs);
-        panic!("signal {}, {:x?}", signal, regs);
+        let mut regs: UserRegs = Default::default();
+        let mut stopped_task = self.as_stopped_task(&mut regs);
+        print_stack_dump(&mut stopped_task);
+        panic!("signal {}, {:x?}", signal, stopped_task.regs);
     }
 
     async fn handle_fork(&mut self, child_pid: u32) {
@@ -156,15 +164,12 @@ impl<'q> Task<'q> {
     }
 
     async fn handle_seccomp_trap(&mut self) {
-        let mut regs: abi::UserRegs = Default::default();
-        ptrace::get_regs(self.task_data.sys_pid, &mut regs);
-        let mut stopped_task = StoppedTask {
-            task: self,
-            regs: &mut regs,
-        };
+        let sys_pid = self.task_data.sys_pid;
+        let mut regs: UserRegs = Default::default();
+        let mut stopped_task = self.as_stopped_task(&mut regs);
         SyscallEmulator::new(&mut stopped_task).dispatch().await;
-        SyscallInfo::orig_nr_to_regs(abi::SYSCALL_BLOCKED, &mut regs);
-        ptrace::set_regs(self.task_data.sys_pid, &regs);
+        SyscallInfo::orig_nr_to_regs(abi::SYSCALL_BLOCKED, &mut stopped_task.regs);
+        ptrace::set_regs(sys_pid, &stopped_task.regs);
         self.cont();
     }
 }

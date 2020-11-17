@@ -30,6 +30,10 @@ pub unsafe fn read_value<T: Clone>(stopped_task: &mut StoppedTask, remote: VPtr)
     Ok(value_ref.clone())
 }
 
+pub fn read_word(stopped_task: &mut StoppedTask, remote: VPtr) -> Result<usize, ()> {
+    unsafe { read_value(stopped_task, remote) }
+}
+
 pub fn read_pointer(stopped_task: &mut StoppedTask, remote: VPtr) -> Result<VPtr, ()> {
     unsafe { read_value(stopped_task, remote) }
 }
@@ -142,4 +146,22 @@ pub fn vstring_len(stopped_task: &mut StoppedTask, ptr: VString) -> Result<usize
         len += 1;
     }
     Err(())
+}
+
+#[allow(dead_code)]
+pub fn print_stack_dump(stopped_task: &mut StoppedTask) {
+    let mut sp = VPtr(stopped_task.regs.sp as usize);
+    println!("stack dump:");
+    while let Ok(word) = read_word(stopped_task, sp) {
+        print!("{:x?} = {:16x}  ", sp, word,);
+        for byte in &word.to_ne_bytes() {
+            if byte.is_ascii_graphic() || *byte == b' ' {
+                print!("{}", *byte as char);
+            } else {
+                print!(".");
+            }
+        }
+        println!();
+        sp = sp.add(size_of::<usize>());
+    }
 }
