@@ -5,6 +5,7 @@ use crate::{
     nolibc::pread,
     process::{
         remote::{RemoteFd, Scratchpad, Trampoline},
+        stack::StackBuilder,
         task::StoppedTask,
     },
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
@@ -15,9 +16,8 @@ pub struct Loader<'q, 's, 't> {
     trampoline: Trampoline<'q, 's, 't>,
     file: SysFd,
     file_header: FileHeader,
-    stack_buffer: RemoteFd,
-    argv: VPtr,
-    envp: VPtr,
+    pub argv: VPtr,
+    pub envp: VPtr,
 }
 
 #[derive(Debug)]
@@ -87,27 +87,23 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         )?;
 
         let mut header_bytes = [0u8; abi::BINPRM_BUF_SIZE];
-        pread(&file, 0, &mut header_bytes)?;
+        pread(&file, &mut header_bytes, 0)?;
         let file_header = FileHeader {
             bytes: header_bytes,
         };
 
-        let mut trampoline = Trampoline::new(stopped_task);
-        let mut scratchpad = Scratchpad::new(&mut trampoline).await?;
-        let stack_buffer = scratchpad.memfd_create(b"bandsocks-loader", 0).await?;
-        scratchpad.free().await?;
-
+        let trampoline = Trampoline::new(stopped_task);
         Ok(Loader {
             trampoline,
             file,
             file_header,
-            stack_buffer,
-            argv, envp,
+            argv,
+            envp,
         })
     }
 
     pub fn read(&self, offset: usize, bytes: &mut [u8]) -> Result<usize, Errno> {
-        pread(&self.file, offset, bytes)
+        pread(&self.file, bytes, offset)
     }
 
     pub async fn exec(self) -> Result<(), Errno> {
@@ -200,12 +196,36 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             .await
     }
 
-    pub fn randomize_stack_top(&self) -> VPtr {
-        // todo
-        let random_var = 12345;
+    pub async fn stack_begin(&mut self) -> Result<StackBuilder, Errno> {
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
+        let result = StackBuilder::new(&mut scratchpad).await;
+        scratchpad.free().await?;
+        result
+    }
 
-        VPtr(abi::page_round_down(
-            self.trampoline.task_end.0 - ((random_var & abi::STACK_RND_MASK) << abi::PAGE_SHIFT),
-        ))
+    pub async fn stack_remote_bytes(
+        &mut self,
+        stack_builder: &mut StackBuilder,
+        addr: VPtr,
+        length: usize,
+    ) -> Result<VPtr, Errno> {
+        stack_builder
+            .push_remote_bytes(&mut self.trampoline, addr, length)
+            .await
+    }
+
+    pub async fn stack_bytes(
+        &mut self,
+        stack_builder: &mut StackBuilder,
+        bytes: &[u8],
+    ) -> Result<VPtr, Errno> {
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
+        let result = stack_builder.push_bytes(&mut scratchpad, bytes).await;
+        scratchpad.free().await?;
+        result
+    }
+
+    pub async fn stack_finish(&mut self, stack_builder: StackBuilder) -> Result<(), Errno> {
+        stack_builder.finish(&mut self.trampoline).await
     }
 }

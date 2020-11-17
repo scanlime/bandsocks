@@ -57,6 +57,7 @@ pub const PTRACE_SYSCALL_INFO_SECCOMP: u8 = 3;
 pub const MAP_PRIVATE: isize = 0x02;
 pub const MAP_ANONYMOUS: isize = 0x20;
 pub const MAP_FIXED: isize = 0x10;
+pub const MAP_GROWSDOWN: isize = 0x100;
 
 // linux/include/uapi/asm-generic/mman-common.h
 pub const PROT_READ: isize = 1;
@@ -193,6 +194,7 @@ pub const SI_MAX_SIZE: usize = 128;
 // errno
 // linux/include/uapi/asm-generic/errno-base.h
 pub const EINTR: isize = 4;
+pub const E2BIG: isize = 7;
 pub const ENOEXEC: isize = 8;
 pub const ECHILD: isize = 10;
 pub const EAGAIN: isize = 11;

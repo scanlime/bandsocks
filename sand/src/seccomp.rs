@@ -43,6 +43,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::MPROTECT,
             nr::MUNMAP,
             nr::NANOSLEEP,
+            nr::GETRANDOM,
             nr::MEMFD_CREATE,
             // fixme: only allow some operations
             nr::FCNTL,

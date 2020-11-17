@@ -14,6 +14,7 @@ macro_rules! ipc_call {
 pub mod loader;
 pub mod maps;
 pub mod remote;
+pub mod stack;
 pub mod syscall;
 pub mod table;
 pub mod task;

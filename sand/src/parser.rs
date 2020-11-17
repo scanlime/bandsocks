@@ -1,6 +1,5 @@
-use crate::protocol::SysFd;
+use crate::{nolibc::pread, protocol::SysFd};
 use heapless::{ArrayLength, Vec};
-use sc::syscall;
 
 pub struct ByteReader<T: ArrayLength<u8>> {
     file: Option<SysFd>,
@@ -45,18 +44,15 @@ impl<T: ArrayLength<u8>> Stream for ByteReader<T> {
             if self.buf_position == self.buf.len() {
                 self.buf_position = 0;
                 unsafe {
-                    let len = syscall!(
-                        PREAD64,
-                        file.0,
-                        self.buf.as_mut_ptr(),
-                        self.buf.capacity(),
-                        self.file_position
-                    ) as isize;
-                    if len < 0 {
-                        return Some(Err(()));
+                    let buffer =
+                        core::slice::from_raw_parts_mut(self.buf.as_mut_ptr(), self.buf.capacity());
+                    match pread(file, buffer, self.file_position) {
+                        Err(_) => return Some(Err(())),
+                        Ok(len) => {
+                            assert!(len as usize <= self.buf.capacity());
+                            self.buf.set_len(len as usize);
+                        }
                     }
-                    assert!(len as usize <= self.buf.capacity());
-                    self.buf.set_len(len as usize);
                 }
                 self.file_position += self.buf.len();
                 if self.buf.is_empty() {

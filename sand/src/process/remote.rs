@@ -224,6 +224,46 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
             Err(Errno(result as i32))
         }
     }
+
+    pub async fn pread(
+        &mut self,
+        fd: &RemoteFd,
+        addr: VPtr,
+        length: usize,
+        offset: usize,
+    ) -> Result<usize, Errno> {
+        let result = self
+            .syscall(
+                sc::nr::PREAD64,
+                &[fd.0 as isize, addr.0 as isize, length as isize, offset as isize],
+            )
+            .await;
+        if result >= 0 {
+            Ok(result as usize)
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub async fn pwrite(
+        &mut self,
+        fd: &RemoteFd,
+        addr: VPtr,
+        length: usize,
+        offset: usize,
+    ) -> Result<usize, Errno> {
+        let result = self
+            .syscall(
+                sc::nr::PWRITE64,
+                &[fd.0 as isize, addr.0 as isize, length as isize, offset as isize],
+            )
+            .await;
+        if result >= 0 {
+            Ok(result as usize)
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
 }
 
 pub fn mem_read_bytes<'q, 's>(
@@ -332,11 +372,11 @@ pub fn mem_find_bytes<'q, 's>(
 }
 
 #[derive(Debug)]
-pub struct RemoteMemoryGuard;
+pub struct CantDropScratchpad;
 
-impl Drop for RemoteMemoryGuard {
+impl Drop for CantDropScratchpad {
     fn drop(&mut self) {
-        panic!("can't drop live remote memory")
+        panic!("leaking scratchpad")
     }
 }
 
@@ -344,7 +384,7 @@ impl Drop for RemoteMemoryGuard {
 pub struct Scratchpad<'q, 's, 't, 'r> {
     pub trampoline: &'r mut Trampoline<'q, 's, 't>,
     pub page_ptr: VPtr,
-    mem: RemoteMemoryGuard,
+    guard: CantDropScratchpad,
 }
 
 impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
@@ -364,12 +404,12 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
         Ok(Scratchpad {
             trampoline,
             page_ptr,
-            mem: RemoteMemoryGuard,
+            guard: CantDropScratchpad,
         })
     }
 
     pub async fn free(self) -> Result<(), Errno> {
-        core::mem::forget(self.mem);
+        core::mem::forget(self.guard);
         self.trampoline.munmap(self.page_ptr, abi::PAGE_SIZE).await
     }
 

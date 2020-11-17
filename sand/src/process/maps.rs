@@ -45,7 +45,7 @@ impl MemArea {
 
 pub struct MapsIterator<'q, 's, 't> {
     stopped_task: PhantomData<&'t mut StoppedTask<'q, 's>>,
-    stream: ByteReader<U4096>,
+    stream: ByteReader<U512>,
 }
 
 impl<'q, 's, 't> MapsIterator<'q, 's, 't> {

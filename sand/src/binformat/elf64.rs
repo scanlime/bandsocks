@@ -43,22 +43,18 @@ fn phdr_prot(phdr: &ProgramHeader) -> isize {
 }
 
 pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errno> {
-    // todo: validation before the point of no return
-    loader.unmap_all_userspace_mem().await;
-
     let ehdr = elf64_header(loader.file_header());
     println!("ELF64 {:?}", ehdr);
 
-    let start_stack = loader.randomize_stack_top();
-
-    println!("stack at {:x?}", start_stack);
+    let mut stack = loader.stack_begin().await?;
+    println!("stack at {:x?}", stack);
 
     let layout = MemLayout {
         start_code: VPtr(!0),
         end_code: VPtr(0),
         start_data: VPtr(!0),
         end_data: VPtr(0),
-        start_stack,
+        start_stack: stack.stack_top(),
         start_brk: VPtr(0),
         brk: VPtr(0),
         arg_start: VPtr(0),
@@ -71,9 +67,34 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     };
 
     loader
-        .map_anonymous(VPtr(0x10000), 0x100000, abi::PROT_READ | abi::PROT_WRITE)
+        .stack_remote_bytes(&mut stack, loader.argv, 16)
         .await
-        .expect("stack allocation failed");
+        .expect("stack remote bytes");
+    stack.align(16);
+    loader
+        .stack_bytes(&mut stack, &[1, 2, 3])
+        .await
+        .expect("stack bytes");
+    stack.align(16);
+
+    let prev_regs = loader.userspace_regs().clone();
+    loader.userspace_regs().clone_from(&UserRegs {
+        sp: stack.stack_bottom().0 as u64,
+        ip: ehdr.e_entry,
+        cs: prev_regs.cs,
+        ss: prev_regs.ss,
+        ds: prev_regs.ds,
+        es: prev_regs.es,
+        fs: prev_regs.fs,
+        gs: prev_regs.gs,
+        flags: prev_regs.flags,
+        ..Default::default()
+    });
+
+    println!("stack at {:x?}", stack);
+
+    loader.unmap_all_userspace_mem().await;
+    loader.stack_finish(stack).await?;
 
     for idx in 0..ehdr.e_phnum {
         let phdr = elf64_program_header(&loader, &ehdr, idx)?;
@@ -108,21 +129,8 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
         }
     }
 
-    let prev_regs = loader.userspace_regs().clone();
-    loader.userspace_regs().clone_from(&UserRegs {
-        sp: layout.start_stack.0 as u64,
-        ip: ehdr.e_entry,
-        cs: prev_regs.cs,
-        ss: prev_regs.ss,
-        ds: prev_regs.ds,
-        es: prev_regs.es,
-        fs: prev_regs.fs,
-        gs: prev_regs.gs,
-        flags: prev_regs.flags,
-        ..Default::default()
-    });
-
     println!("{:x?}", layout);
+    loader.debug_loop().await;
     loader
         .set_mem_layout(&layout)
         .await

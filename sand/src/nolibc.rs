@@ -153,7 +153,7 @@ pub fn fcntl(fd: &SysFd, op: usize, arg: usize) -> Result<(), Errno> {
     }
 }
 
-pub fn pread(fd: &SysFd, offset: usize, bytes: &mut [u8]) -> Result<usize, Errno> {
+pub fn pread(fd: &SysFd, bytes: &mut [u8], offset: usize) -> Result<usize, Errno> {
     let result =
         unsafe { syscall!(PREAD64, fd.0, bytes.as_mut_ptr(), bytes.len(), offset) as isize };
     if result >= 0 {
@@ -161,4 +161,20 @@ pub fn pread(fd: &SysFd, offset: usize, bytes: &mut [u8]) -> Result<usize, Errno
     } else {
         Err(Errno(result as i32))
     }
+}
+
+pub fn getrandom(bytes: &mut [u8], flags: isize) -> Result<usize, Errno> {
+    let result =
+        unsafe { syscall!(GETRANDOM, bytes.as_mut_ptr(), bytes.len(), flags) as isize };
+    if result >= 0 {
+        Ok(result as usize)
+    } else {
+        Err(Errno(result as i32))
+    }
+}
+
+pub fn getrandom_usize() -> usize {
+    let mut bytes = 0usize.to_ne_bytes();
+    getrandom(&mut bytes, 0).expect("getrandom");
+    usize::from_ne_bytes(bytes)
 }
