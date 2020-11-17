@@ -1,6 +1,6 @@
 use crate::{
     abi, nolibc,
-    parser::Stream, parser::ByteReader,
+    parser::{ByteReader, Stream},
     process::task::StoppedTask,
     protocol::{Errno, VPtr, VString},
     ptrace,
@@ -124,7 +124,7 @@ pub fn find_bytes(
 pub fn vstring_len(stopped_task: &mut StoppedTask, ptr: VString) -> Result<usize, ()> {
     // Use small read buffers that don't cross page boundaries
     type BufSize = U128;
-    let addr = ptr.0.0;
+    let addr = ptr.0 .0;
     let alignment = addr % BufSize::USIZE;
     let mem = stopped_task.task.process_handle.mem.clone();
     let mut buf = ByteReader::<BufSize>::from_sysfd_at(mem, addr - alignment);

@@ -15,7 +15,7 @@ pub async fn chdir(
     path: VString,
 ) -> Result<(), Errno> {
     let path = user_string(process, path)?;
-    log::info!("chdir({:?}) {:?}", path, process);
+    log::info!("chdir({:?})", path);
     Ok(())
 }
 
@@ -27,7 +27,7 @@ pub async fn file_access(
     mode: i32,
 ) -> Result<(), Errno> {
     let path = user_string(process, path)?;
-    log::info!("access({:?}, {:?}, {:?}) {:?}", dir, path, mode, process);
+    log::info!("access({:?}, {:?}, {:?})", dir, path, mode);
     Err(Errno(-libc::ENOENT))
 }
 
@@ -41,14 +41,7 @@ pub async fn file_open(
 ) -> Result<VFile, Errno> {
     let path_str = user_string(process, path)?;
     let path = Path::new(&path_str);
-    log::info!(
-        "open({:?}, {:?}, {:?}, {:?}) {:?}",
-        dir,
-        path,
-        flags,
-        mode,
-        process
-    );
+    log::info!("open({:?}, {:?}, {:?}, {:?})", dir, path, flags, mode,);
     match filesystem.open(&path) {
         Err(e) => Err(Errno(-e.to_errno())),
         Ok(vfile) => {

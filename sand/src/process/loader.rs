@@ -128,6 +128,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         let mut mm = &mut self.trampoline.stopped_task.task.task_data.mm;
         mm.brk = brk;
         mm.brk_start = brk;
+        println!("initial brk {:x?}", brk);
     }
 
     #[allow(dead_code)]
