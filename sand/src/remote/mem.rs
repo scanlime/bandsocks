@@ -1,7 +1,7 @@
 use crate::{
     abi, nolibc,
     process::task::StoppedTask,
-    protocol::{Errno, VPtr},
+    protocol::{Errno, VString, VPtr},
     ptrace,
 };
 use core::mem::{size_of, MaybeUninit};
@@ -13,8 +13,8 @@ pub fn fault_or<T>(result: Result<T, ()>) -> Result<T, Errno> {
     }
 }
 
-pub fn read_bytes<'q, 's>(
-    stopped_task: &mut StoppedTask<'q, 's>,
+pub fn read_bytes(
+    stopped_task: &mut StoppedTask,
     ptr: VPtr,
     bytes: &mut [u8],
 ) -> Result<(), ()> {
@@ -32,8 +32,24 @@ pub unsafe fn read_value<T: Clone>(stopped_task: &mut StoppedTask, remote: VPtr)
     Ok(value_ref.clone())
 }
 
-pub fn write_word<'q, 's>(
-    stopped_task: &mut StoppedTask<'q, 's>,
+pub fn read_pointer(stopped_task: &mut StoppedTask, remote: VPtr) -> Result<VPtr, ()> {
+    unsafe { read_value(stopped_task, remote) }
+}
+
+pub fn read_pointer_array(stopped_task: &mut StoppedTask, array: VPtr, idx: usize) -> Result<VPtr, ()> {
+    read_pointer(stopped_task, array.add(idx * size_of::<VPtr>()))
+}
+
+pub fn read_string_array(stopped_task: &mut StoppedTask, array: VPtr, idx: usize) -> Result<Option<VString>, ()> {
+    match read_pointer_array(stopped_task, array, idx) {
+        Err(()) => Err(()),
+        Ok(ptr) if ptr == VPtr::null() => Ok(None),
+        Ok(ptr) => Ok(Some(VString(ptr)))
+    }
+}
+
+pub fn write_word(
+    stopped_task: &mut StoppedTask,
     ptr: VPtr,
     word: usize,
 ) -> Result<(), ()> {
@@ -41,8 +57,8 @@ pub fn write_word<'q, 's>(
     ptrace::poke(stopped_task.task.task_data.sys_pid, ptr.0, word)
 }
 
-pub fn write_padded_bytes<'q, 's>(
-    stopped_task: &mut StoppedTask<'q, 's>,
+pub fn write_padded_bytes(
+    stopped_task: &mut StoppedTask,
     mut ptr: VPtr,
     bytes: &[u8],
 ) -> Result<(), ()> {
@@ -58,8 +74,8 @@ pub fn write_padded_bytes<'q, 's>(
 }
 
 /// safety: type must be repr(C)
-pub unsafe fn write_padded_value<'q, 's, T: Clone>(
-    stopped_task: &mut StoppedTask<'q, 's>,
+pub unsafe fn write_padded_value<T: Clone>(
+    stopped_task: &mut StoppedTask,
     remote: VPtr,
     local: &T,
 ) -> Result<(), ()> {
@@ -78,8 +94,8 @@ pub unsafe fn write_padded_value<'q, 's, T: Clone>(
     write_padded_bytes(stopped_task, remote, byte_ref)
 }
 
-pub fn find_bytes<'q, 's>(
-    stopped_task: &mut StoppedTask<'q, 's>,
+pub fn find_bytes(
+    stopped_task: &mut StoppedTask,
     ptr: VPtr,
     len: usize,
     pattern: &[u8],

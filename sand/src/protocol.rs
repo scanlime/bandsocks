@@ -109,12 +109,19 @@ pub struct Errno(pub i32);
 #[derive(
     Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Hash, Hash32, Serialize, Deserialize,
 )]
+#[repr(C)]
 pub struct VPid(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Serialize, Deserialize)]
+#[repr(C)]
 pub struct VPtr(pub usize);
 
 impl VPtr {
+    #[allow(dead_code)]
+    pub fn null() -> VPtr {
+        VPtr(0)
+    }
+
     #[allow(dead_code)]
     pub fn add(&self, count: usize) -> VPtr {
         VPtr(self.0 + count)
@@ -122,6 +129,7 @@ impl VPtr {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+#[repr(C)]
 pub struct VString(pub VPtr);
 
 pub mod buffer {

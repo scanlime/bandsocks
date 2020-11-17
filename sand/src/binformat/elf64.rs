@@ -13,7 +13,7 @@ fn elf64_header(fh: &FileHeader) -> Header {
 fn elf64_program_header(loader: &Loader, ehdr: &Header, idx: u16) -> Result<ProgramHeader, Errno> {
     let mut header = Default::default();
     let bytes = unsafe { plain::as_mut_bytes(&mut header) };
-    loader.read(
+    loader.read_file(
         ehdr.e_phoff as usize + ehdr.e_phentsize as usize * idx as usize,
         bytes,
     )?;
@@ -47,6 +47,22 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     println!("ELF64 {:?}", ehdr);
 
     let mut stack = loader.stack_begin().await?;
+
+    for idx in 0.. {
+        if let Some(arg) = loader.argv_read(idx)? {
+            println!("arg {:?} {:x?}", idx, arg);
+        } else {
+            break;
+        }
+    }
+
+    for idx in 0.. {
+        if let Some(env) = loader.envp_read(idx)? {
+            println!("env {:?} {:x?}", idx, env);
+        } else {
+            break;
+        }
+    }
 
     // loader
     //     .stack_remote_bytes(&mut stack, loader.argv, 16)
