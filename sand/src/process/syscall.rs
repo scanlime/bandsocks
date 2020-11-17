@@ -50,6 +50,14 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         let arg_string = |idx| VString(arg_ptr(idx));
 
         let result = match self.call.nr as usize {
+            nr::BRK => {
+                let arg_brk = arg_ptr(0);
+                let mm = &mut self.stopped_task.task.task_data.mm;
+                let old_brk = mm.brk;
+                println!("brk {:x?} -> {:x?}", old_brk, arg_brk);
+                old_brk.0 as isize
+            }
+
             nr::EXECVE => {
                 let filename = arg_string(0);
                 let argv = arg_ptr(1);

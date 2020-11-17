@@ -3,7 +3,6 @@ use crate::{
     abi::UserRegs,
     binformat, nolibc,
     process::{
-        layout::MemLayout,
         remote::{RemoteFd, Scratchpad, Trampoline},
         stack::StackBuilder,
         task::StoppedTask,
@@ -99,8 +98,14 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         &mut self.trampoline.stopped_task.regs
     }
 
-    pub async fn set_mem_layout(&mut self, ml: &MemLayout) -> Result<(), Errno> {
-        ml.install(&mut self.trampoline).await
+    pub fn randomize_brk(&mut self, brk_base: VPtr) {
+        let random_offset = nolibc::getrandom_usize() & abi::BRK_RND_MASK;
+        let brk = VPtr(abi::page_round_up(
+            brk_base.0 + (random_offset << abi::PAGE_SHIFT),
+        ));
+        let mut mm = &mut self.trampoline.stopped_task.task.task_data.mm;
+        mm.brk = brk;
+        mm.brk_start = brk;
     }
 
     #[allow(dead_code)]

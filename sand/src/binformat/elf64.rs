@@ -1,10 +1,7 @@
 use crate::{
     abi,
     abi::UserRegs,
-    process::{
-        layout::MemLayout,
-        loader::{FileHeader, Loader},
-    },
+    process::loader::{FileHeader, Loader},
     protocol::{Errno, VPtr},
 };
 use goblin::elf64::{header, header::Header, program_header, program_header::ProgramHeader};
@@ -50,7 +47,6 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     println!("ELF64 {:?}", ehdr);
 
     let mut stack = loader.stack_begin().await?;
-    let mut layout = MemLayout::new(stack.stack_top());
 
     loader
         .stack_remote_bytes(&mut stack, loader.argv, 16)
@@ -76,6 +72,8 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     println!("stack, {:x?}", stack);
     loader.unmap_all_userspace_mem().await;
     loader.stack_finish(stack).await?;
+
+    let mut brk = VPtr(0);
 
     for idx in 0..ehdr.e_phnum {
         let phdr = elf64_program_header(&loader, &ehdr, idx)?;
@@ -103,20 +101,10 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
                     .expect("loader map_file failed");
             }
 
-            if 0 != (prot & abi::PROT_EXEC) {
-                layout.include_code(start_ptr, file_size_aligned);
-            }
-            layout.include_data(start_ptr, file_size_aligned);
-            layout.include_memory(start_ptr, mem_size_aligned);
+            brk = brk.max(start_ptr.add(mem_size_aligned));
         }
     }
 
-    layout.randomize_brk();
-    println!("{:x?}", layout);
-    loader
-        .set_mem_layout(&layout)
-        .await
-        .expect("memory layout rejected");
-
+    loader.randomize_brk(brk);
     Ok(())
 }

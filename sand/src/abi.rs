@@ -364,24 +364,9 @@ pub struct TimeSpec {
     pub tv_nsec: u64,
 }
 
-/// linux/include/uapi/linux/prctl.h
-pub const PR_SET_MM: isize = 35;
-pub const PR_SET_MM_START_CODE: isize = 1;
-pub const PR_SET_MM_END_CODE: isize = 2;
-pub const PR_SET_MM_START_DATA: isize = 3;
-pub const PR_SET_MM_END_DATA: isize = 4;
-pub const PR_SET_MM_START_STACK: isize = 5;
-pub const PR_SET_MM_START_BRK: isize = 6;
-pub const PR_SET_MM_BRK: isize = 7;
-pub const PR_SET_MM_ARG_START: isize = 8;
-pub const PR_SET_MM_ARG_END: isize = 9;
-pub const PR_SET_MM_ENV_START: isize = 10;
-pub const PR_SET_MM_ENV_END: isize = 11;
-pub const PR_SET_MM_AUXV: isize = 12;
-pub const PR_SET_MM_EXE_FILE: isize = 13;
-
 /// linux/arch/x86/include/asm/elf.h (64-bit)
 pub const STACK_RND_MASK: usize = 0x3fffff;
 
-/// by analogy, the brk randomization mask, linux has this hardcoded in linux/arch/x86/kernel/process.c
+/// by analogy, the brk randomization mask, linux has this hardcoded in
+/// linux/arch/x86/kernel/process.c
 pub const BRK_RND_MASK: usize = 0x1fff;

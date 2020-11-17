@@ -36,7 +36,6 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::EXIT_GROUP,
             nr::EXIT,
             nr::FORK,
-            nr::BRK,
             nr::COPY_FILE_RANGE,
             nr::SENDFILE,
             nr::MMAP,

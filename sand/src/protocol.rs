@@ -106,7 +106,9 @@ pub struct Signal(pub u32);
 #[repr(C)]
 pub struct Errno(pub i32);
 
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Hash, Hash32, Serialize, Deserialize)]
+#[derive(
+    Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Hash, Hash32, Serialize, Deserialize,
+)]
 pub struct VPid(pub u32);
 
 #[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Serialize, Deserialize)]

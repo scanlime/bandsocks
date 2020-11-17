@@ -1,6 +1,6 @@
 use crate::{
     process::{
-        task::{TaskData, TaskSocketPair},
+        task::{TaskData, TaskMemManagement, TaskSocketPair},
         Process, TaskFn,
     },
     protocol::{SysPid, VPid},
@@ -71,6 +71,7 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
         sys_pid: SysPid,
         parent: Option<VPid>,
         socket_pair: TaskSocketPair,
+        mm: TaskMemManagement,
     ) -> Option<VPid> {
         let vpid = self.as_mut().allocate_vpid();
         vpid.map(move |vpid| {
@@ -79,6 +80,7 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
                 vpid,
                 parent,
                 socket_pair,
+                mm,
             };
             let project = self.project();
             let index = table_index_for_vpid(vpid).unwrap();

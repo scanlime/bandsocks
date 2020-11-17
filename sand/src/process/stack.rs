@@ -83,10 +83,6 @@ impl StackBuilder {
         Ok(())
     }
 
-    pub fn stack_top(&self) -> VPtr {
-        self.top
-    }
-
     pub fn stack_bottom(&self) -> VPtr {
         self.bottom
     }

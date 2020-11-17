@@ -1,8 +1,12 @@
 use crate::{
     abi,
     ipc::Socket,
-    process::{table::ProcessTable, task::TaskSocketPair, Event, TaskFn},
-    protocol::{MessageFromSand, MessageToSand, SysFd, SysPid, VPid},
+    process::{
+        table::ProcessTable,
+        task::{TaskMemManagement, TaskSocketPair},
+        Event, TaskFn,
+    },
+    protocol::{MessageFromSand, MessageToSand, SysFd, SysPid, VPid, VPtr},
     ptrace,
     ptrace::RawExecArgs,
 };
@@ -45,9 +49,13 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
             result => {
                 let sys_pid = SysPid(result as u32);
                 let parent = None;
+                let mm = TaskMemManagement {
+                    brk: VPtr(0),
+                    brk_start: VPtr(0),
+                };
                 self.project()
                     .process_table
-                    .insert(sys_pid, parent, socket_pair)
+                    .insert(sys_pid, parent, socket_pair, mm)
                     .expect("virtual process limit exceeded");
             }
         }

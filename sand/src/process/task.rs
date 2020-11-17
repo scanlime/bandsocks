@@ -3,7 +3,7 @@ use crate::{
     abi::{SyscallInfo, UserRegs},
     nolibc::{fcntl, socketpair},
     process::{remote::RemoteFd, syscall::SyscallEmulator, Event, EventSource, MessageSender},
-    protocol::{FromTask, ProcessHandle, SysFd, SysPid, ToTask, VPid},
+    protocol::{FromTask, ProcessHandle, SysFd, SysPid, ToTask, VPid, VPtr},
     ptrace,
 };
 use core::fmt::{self, Debug, Formatter};
@@ -15,11 +15,19 @@ pub struct TaskSocketPair {
 }
 
 #[derive(Debug, Clone)]
+pub struct TaskMemManagement {
+    // brk is emulated, since the real kernel's brk_start can't be changed without privileges
+    pub brk: VPtr,
+    pub brk_start: VPtr,
+}
+
+#[derive(Debug, Clone)]
 pub struct TaskData {
     pub vpid: VPid,
     pub sys_pid: SysPid,
     pub parent: Option<VPid>,
     pub socket_pair: TaskSocketPair,
+    pub mm: TaskMemManagement,
 }
 
 pub async fn task_fn(events: EventSource<'_>, msg: MessageSender<'_>, task_data: TaskData) {
