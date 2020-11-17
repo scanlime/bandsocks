@@ -193,14 +193,15 @@ pub const SI_MAX_SIZE: usize = 128;
 
 // errno
 // linux/include/uapi/asm-generic/errno-base.h
-pub const EINTR: isize = 4;
-pub const E2BIG: isize = 7;
-pub const ENOEXEC: isize = 8;
-pub const ECHILD: isize = 10;
-pub const EAGAIN: isize = 11;
-pub const EFAULT: isize = 14;
-pub const EINVAL: isize = 22;
-pub const ECONNRESET: isize = 104;
+pub const EINTR: i32 = 4;
+pub const EIO: i32 = 5;
+pub const E2BIG: i32 = 7;
+pub const ENOEXEC: i32 = 8;
+pub const ECHILD: i32 = 10;
+pub const EAGAIN: i32 = 11;
+pub const EFAULT: i32 = 14;
+pub const EINVAL: i32 = 22;
+pub const ECONNRESET: i32 = 104;
 
 // signo
 // linux/include/uapi/asm-generic/signal.h

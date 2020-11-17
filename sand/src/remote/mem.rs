@@ -1,5 +1,17 @@
-use crate::{nolibc, process::task::StoppedTask, protocol::VPtr, ptrace};
+use crate::{
+    abi, nolibc,
+    process::task::StoppedTask,
+    protocol::{Errno, VPtr},
+    ptrace,
+};
 use core::mem::{size_of, MaybeUninit};
+
+pub fn fault_or<T>(result: Result<T, ()>) -> Result<T, Errno> {
+    match result {
+        Ok(t) => Ok(t),
+        Err(()) => Err(Errno(-abi::EFAULT)),
+    }
+}
 
 pub fn read_bytes<'q, 's>(
     stopped_task: &mut StoppedTask<'q, 's>,

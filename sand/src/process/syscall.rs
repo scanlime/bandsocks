@@ -21,7 +21,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
     async fn return_sysfd(&mut self, sys_fd: SysFd) -> isize {
         // to do, use remote syscall trampoline to pass fd into process
         println!("unimplemented fd passing, {:?}", sys_fd);
-        -abi::EINVAL
+        -abi::EINVAL as isize
     }
 
     async fn return_errno(&mut self, err: Errno) -> isize {

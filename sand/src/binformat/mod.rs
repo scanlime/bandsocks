@@ -9,6 +9,6 @@ pub async fn exec<'q, 's, 't>(loader: Loader<'q, 's, 't>) -> Result<(), Errno> {
     } else if elf64::detect(loader.file_header()) {
         elf64::load(loader).await
     } else {
-        Err(Errno(-abi::ENOEXEC as i32))
+        Err(Errno(-abi::ENOEXEC))
     }
 }

@@ -241,6 +241,20 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         }
     }
 
+    pub async fn pread_exact(
+        &mut self,
+        fd: &RemoteFd,
+        addr: VPtr,
+        length: usize,
+        offset: usize,
+    ) -> Result<(), Errno> {
+        match self.pread(fd, addr, length, offset).await {
+            Ok(actual) if actual == length => Ok(()),
+            Ok(_) => Err(Errno(-abi::EIO)),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn pwrite(
         &mut self,
         fd: &RemoteFd,
@@ -263,6 +277,20 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
             Ok(result as usize)
         } else {
             Err(Errno(result as i32))
+        }
+    }
+
+    pub async fn pwrite_exact(
+        &mut self,
+        fd: &RemoteFd,
+        addr: VPtr,
+        length: usize,
+        offset: usize,
+    ) -> Result<(), Errno> {
+        match self.pwrite(fd, addr, length, offset).await {
+            Ok(actual) if actual == length => Ok(()),
+            Ok(_) => Err(Errno(-abi::EIO)),
+            Err(e) => Err(e),
         }
     }
 }

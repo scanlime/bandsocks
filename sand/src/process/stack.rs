@@ -1,7 +1,12 @@
 use crate::{
     abi, nolibc,
     protocol::{Errno, VPtr},
-    remote::{mem::write_padded_bytes, RemoteFd, scratchpad::Scratchpad, trampoline::Trampoline},
+    remote::{
+        mem::{fault_or, write_padded_bytes},
+        scratchpad::Scratchpad,
+        trampoline::Trampoline,
+        RemoteFd,
+    },
 };
 
 const BUILDER_SIZE_LIMIT: usize = 8 * 1024 * 1024;
@@ -51,6 +56,7 @@ impl StackBuilder {
         let stack_size = self.top.0 - self.bottom.0;
         let stack_mapping_base = VPtr(abi::page_round_down(self.bottom.0 - INITIAL_STACK_FREE));
         let stack_mapping_size = abi::page_round_up(self.top.0 - stack_mapping_base.0);
+        let file_offset = self.bottom.0 - self.lower_limit.0;
 
         let prot = abi::PROT_READ | abi::PROT_WRITE;
         let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS | abi::MAP_FIXED | abi::MAP_GROWSDOWN;
@@ -64,20 +70,9 @@ impl StackBuilder {
                 0,
             )
             .await?;
-
-        match trampoline
-            .pread(
-                &self.memfd,
-                self.bottom,
-                stack_size,
-                self.bottom.0 - self.lower_limit.0,
-            )
-            .await
-        {
-            Err(e) => Err(e),
-            Ok(actual) if actual as usize == stack_size => Ok(()),
-            _ => Err(Errno(-abi::EFAULT as i32)),
-        }?;
+        trampoline
+            .pread_exact(&self.memfd, self.bottom, stack_size, file_offset)
+            .await?;
         trampoline.close(&self.memfd).await?;
         core::mem::forget(self.guard);
         Ok(())
@@ -103,17 +98,12 @@ impl StackBuilder {
     ) -> Result<VPtr, Errno> {
         let ptr = VPtr(self.bottom.0 - length);
         if ptr.0 < self.lower_limit.0 {
-            return Err(Errno(-abi::E2BIG as i32));
+            return Err(Errno(-abi::E2BIG));
         }
         let file_offset = ptr.0 - self.lower_limit.0;
-        match trampoline
-            .pwrite(&self.memfd, addr, length, file_offset)
-            .await
-        {
-            Err(e) => Err(e),
-            Ok(actual) if actual as usize == length => Ok(()),
-            _ => Err(Errno(-abi::EFAULT as i32)),
-        }?;
+        trampoline
+            .pwrite_exact(&self.memfd, addr, length, file_offset)
+            .await?;
         self.bottom = ptr;
         Ok(ptr)
     }
@@ -123,12 +113,11 @@ impl StackBuilder {
         scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
         bytes: &[u8],
     ) -> Result<VPtr, Errno> {
-        write_padded_bytes(
+        fault_or(write_padded_bytes(
             scratchpad.trampoline.stopped_task,
             scratchpad.page_ptr,
             bytes,
-        )
-        .map_err(|_| Errno(-abi::EFAULT as i32))?;
+        ))?;
         self.push_remote_bytes(scratchpad.trampoline, scratchpad.page_ptr, bytes.len())
             .await
     }

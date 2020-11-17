@@ -3,7 +3,7 @@ use crate::{
     abi::{CMsgHdr, IOVec, MsgHdr},
     protocol::{Errno, SysFd, VPtr},
     remote::{
-        mem::{read_value, write_padded_bytes, write_padded_value},
+        mem::{fault_or, read_value, write_padded_bytes, write_padded_value},
         trampoline::Trampoline,
         RemoteFd,
     },
@@ -55,10 +55,13 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
 
     pub async fn write_fd(&mut self, fd: &RemoteFd, bytes: &[u8]) -> Result<usize, Errno> {
         if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
-            return Err(Errno(-abi::EINVAL as i32));
+            return Err(Errno(-abi::EINVAL));
         }
-        write_padded_bytes(self.trampoline.stopped_task, self.page_ptr, bytes)
-            .map_err(|_| Errno(-abi::EFAULT as i32))?;
+        fault_or(write_padded_bytes(
+            self.trampoline.stopped_task,
+            self.page_ptr,
+            bytes,
+        ))?;
         let result = self
             .trampoline
             .syscall(
@@ -78,8 +81,9 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
     }
 
     pub async fn sleep(&mut self, duration: &abi::TimeSpec) -> Result<(), Errno> {
-        unsafe { write_padded_value(self.trampoline.stopped_task, self.page_ptr, duration) }
-            .map_err(|_| Errno(-abi::EFAULT as i32))?;
+        fault_or(unsafe {
+            write_padded_value(self.trampoline.stopped_task, self.page_ptr, duration)
+        })?;
         let result = self
             .trampoline
             .syscall(nr::NANOSLEEP, &[self.page_ptr.0 as isize, 0])
@@ -93,10 +97,13 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
 
     pub async fn memfd_create(&mut self, name: &[u8], flags: isize) -> Result<RemoteFd, Errno> {
         if name.len() > abi::PAGE_SIZE - size_of::<usize>() {
-            return Err(Errno(-abi::EINVAL as i32));
+            return Err(Errno(-abi::EINVAL));
         }
-        write_padded_bytes(self.trampoline.stopped_task, self.page_ptr, name)
-            .map_err(|_| Errno(-abi::EFAULT as i32))?;
+        fault_or(write_padded_bytes(
+            self.trampoline.stopped_task,
+            self.page_ptr,
+            name,
+        ))?;
         let result = self
             .trampoline
             .syscall(
@@ -173,10 +180,9 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
         remote_layout.hdr.msg_control = self.page_ptr.add(offset_of!(Layout, cmsg)).0 as *mut usize;
         remote_layout.iov.base = self.page_ptr.add(offset_of!(Layout, msg)).0 as *mut u8;
 
-        unsafe {
+        fault_or(unsafe {
             write_padded_value(self.trampoline.stopped_task, self.page_ptr, &remote_layout)
-                .map_err(|_| Errno(-abi::EFAULT as i32))?;
-        }
+        })?;
 
         let local_flags = abi::MSG_DONTWAIT;
         let remote_flags = 0;
@@ -202,17 +208,16 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
             return Err(Errno(remote_result as i32));
         }
 
-        let remote_cmsg: CMsg = unsafe {
+        let remote_cmsg: CMsg = fault_or(unsafe {
             read_value(
                 self.trampoline.stopped_task,
                 self.page_ptr.add(offset_of!(Layout, cmsg)),
             )
-            .map_err(|_| Errno(-abi::EFAULT as i32))?
-        };
+        })?;
         if remote_cmsg.hdr == BASE_LAYOUT.cmsg.hdr {
             Ok(RemoteFd(remote_cmsg.fd))
         } else {
-            Err(Errno(-abi::EFAULT as i32))
+            Err(Errno(-abi::EIO))
         }
     }
 }

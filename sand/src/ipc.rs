@@ -99,8 +99,8 @@ impl Socket {
                     self.recv_buffer.as_slice_mut().files[idx] = SysFd(cmsg.files[idx]);
                 }
             }
-            e if e == -abi::EAGAIN => (),
-            e if e == 0 || e == -abi::ECONNRESET => panic!("disconnected from ipc server"),
+            e if e == -abi::EAGAIN as isize => (),
+            e if e == 0 || e == -abi::ECONNRESET as isize => panic!("disconnected from ipc server"),
             e => panic!("ipc recvmsg error, ({})", e),
         }
     }

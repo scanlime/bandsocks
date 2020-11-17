@@ -4,7 +4,7 @@ use crate::{
     binformat, nolibc,
     process::{stack::StackBuilder, task::StoppedTask},
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
-    remote::{RemoteFd, scratchpad::Scratchpad, trampoline::Trampoline},
+    remote::{scratchpad::Scratchpad, trampoline::Trampoline, RemoteFd},
 };
 
 pub struct Loader<'q, 's, 't> {
