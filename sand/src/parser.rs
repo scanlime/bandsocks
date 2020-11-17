@@ -19,9 +19,13 @@ pub trait Stream {
 // increase as expected, it does not support arbitrary seeks.
 impl<T: ArrayLength<u8>> ByteReader<T> {
     pub fn from_sysfd(file: SysFd) -> Self {
+        ByteReader::from_sysfd_at(file, 0)
+    }
+
+    pub fn from_sysfd_at(file: SysFd, file_position: usize) -> Self {
         ByteReader {
             file: Some(file),
-            file_position: 0,
+            file_position,
             buf_position: 0,
             buf: Vec::new(),
         }
@@ -294,6 +298,19 @@ mod test {
         assert_eq!(eof(&mut r), Ok(()));
         assert_eq!(byte(&mut r, b'a'), Err(()));
         assert_eq!(eof(&mut r), Ok(()));
+    }
+
+    #[test]
+    fn strlen() {
+        let mut r = ByteReader::<U128>::from_bytes(b"str\0length");
+        let mut len = 0;
+        while let Some(Ok(byte)) = r.next() {
+            if byte == 0 {
+                assert_eq!(len, 3);
+            }
+            len += 1;
+        }
+        assert_eq!(len, 10);
     }
 
     #[test]

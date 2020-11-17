@@ -1,10 +1,12 @@
 use crate::{
     abi, nolibc,
+    parser::Stream, parser::ByteReader,
     process::task::StoppedTask,
     protocol::{Errno, VPtr, VString},
     ptrace,
 };
 use core::mem::{size_of, MaybeUninit};
+use typenum::*;
 
 pub fn fault_or<T>(result: Result<T, ()>) -> Result<T, Errno> {
     match result {
@@ -116,4 +118,27 @@ pub fn find_bytes(
         // overlap just enough to detect matches across chunk boundaries
         chunk_offset += chunk_size - pattern.len() + 1;
     }
+}
+
+pub fn vstring_len(stopped_task: &mut StoppedTask, ptr: VString) -> Result<usize, ()> {
+    // Use small read buffers that don't cross page boundaries
+    type BufSize = U128;
+    let addr = ptr.0.0;
+    let alignment = addr % BufSize::USIZE;
+    let mem = stopped_task.task.process_handle.mem.clone();
+    let mut buf = ByteReader::<BufSize>::from_sysfd_at(mem, addr - alignment);
+    for _ in 0..alignment {
+        match buf.next() {
+            Some(Ok(_byte)) => (),
+            _ => return Err(()),
+        }
+    }
+    let mut len = 0;
+    while let Some(Ok(byte)) = buf.next() {
+        if byte == 0 {
+            return Ok(len);
+        }
+        len += 1;
+    }
+    Err(())
 }

@@ -50,7 +50,7 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
 
     for idx in 0.. {
         if let Some(env) = loader.envp_read(idx)? {
-            println!("env {:?} {:x?}", idx, env);
+            println!("env {:?} {:x?} {:?}", idx, env, loader.vstring_len(env));
         } else {
             break;
         }
@@ -58,7 +58,7 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
 
     for idx in 0.. {
         if let Some(arg) = loader.argv_read(idx)? {
-            println!("arg {:?} {:x?}", idx, arg);
+            println!("arg {:?} {:x?} {:?}", idx, arg, loader.vstring_len(arg));
         } else {
             break;
         }

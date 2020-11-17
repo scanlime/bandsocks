@@ -5,7 +5,7 @@ use crate::{
     process::{stack::StackBuilder, task::StoppedTask},
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
     remote::{
-        mem::{fault_or, read_string_array},
+        mem::{fault_or, read_string_array, vstring_len},
         scratchpad::Scratchpad,
         trampoline::Trampoline,
         RemoteFd,
@@ -98,6 +98,10 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             self.envp,
             idx,
         ))
+    }
+
+    pub fn vstring_len(&mut self, ptr: VString) -> Result<usize, Errno> {
+        fault_or(vstring_len(&mut self.trampoline.stopped_task, ptr))
     }
 
     pub fn read_file(&self, offset: usize, bytes: &mut [u8]) -> Result<usize, Errno> {
