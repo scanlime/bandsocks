@@ -196,6 +196,16 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         }
     }
 
+    pub async fn mmap_anonymous(
+        &mut self,
+        addr: VPtr,
+        length: usize,
+        prot: isize,
+    ) -> Result<VPtr, Errno> {
+        let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS | abi::MAP_FIXED;
+        self.mmap(addr, length, prot, flags, &RemoteFd(0), 0).await
+    }
+
     pub async fn munmap(&mut self, addr: VPtr, length: usize) -> Result<(), Errno> {
         let result = self
             .syscall(sc::nr::MUNMAP, &[addr.0 as isize, length as isize])

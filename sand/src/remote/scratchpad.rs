@@ -53,6 +53,14 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
         self.trampoline.munmap(self.page_ptr, abi::PAGE_SIZE).await
     }
 
+    #[allow(dead_code)]
+    pub async fn debug_loop(&mut self) -> ! {
+        loop {
+            self.write_fd(&RemoteFd(1), b"debug loop\n").await.unwrap();
+            self.sleep(&abi::TimeSpec::from_secs(10)).await.unwrap();
+        }
+    }
+
     pub async fn write_fd(&mut self, fd: &RemoteFd, bytes: &[u8]) -> Result<usize, Errno> {
         if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
             return Err(Errno(-abi::EINVAL));

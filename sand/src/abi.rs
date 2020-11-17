@@ -365,6 +365,16 @@ pub struct TimeSpec {
     pub tv_nsec: u64,
 }
 
+impl TimeSpec {
+    #[allow(dead_code)]
+    pub fn from_secs(n: u64) -> Self {
+        TimeSpec {
+            tv_sec: n,
+            tv_nsec: 0,
+        }
+    }
+}
+
 /// linux/arch/x86/include/asm/elf.h (64-bit)
 pub const STACK_RND_MASK: usize = 0x3fffff;
 

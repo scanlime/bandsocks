@@ -8,7 +8,6 @@ use crate::{
         mem::{fault_or, read_string_array, vstring_len},
         scratchpad::Scratchpad,
         trampoline::Trampoline,
-        RemoteFd,
     },
 };
 
@@ -131,22 +130,6 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         println!("initial brk {:x?}", brk);
     }
 
-    #[allow(dead_code)]
-    pub async fn debug_loop(&mut self) -> ! {
-        let fd = RemoteFd(1);
-        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await.unwrap();
-        loop {
-            scratchpad.write_fd(&fd, b"debug loop\n").await.unwrap();
-            scratchpad
-                .sleep(&abi::TimeSpec {
-                    tv_sec: 10,
-                    tv_nsec: 0,
-                })
-                .await
-                .unwrap();
-        }
-    }
-
     pub async fn map_file(
         &mut self,
         addr: VPtr,
@@ -173,10 +156,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         length: usize,
         prot: isize,
     ) -> Result<VPtr, Errno> {
-        let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS | abi::MAP_FIXED;
-        self.trampoline
-            .mmap(addr, length, prot, flags, &RemoteFd(0), 0)
-            .await
+        self.trampoline.mmap_anonymous(addr, length, prot).await
     }
 
     pub async fn stack_begin(&mut self) -> Result<StackBuilder, Errno> {

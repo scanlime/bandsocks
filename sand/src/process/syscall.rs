@@ -3,6 +3,7 @@ use crate::{
     abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
+    remote::trampoline::Trampoline,
 };
 use sc::nr;
 
@@ -51,11 +52,23 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
         let result = match self.call.nr as usize {
             nr::BRK => {
-                let arg_brk = arg_ptr(0);
+                // to do: this is a really minimal brk implementation, revisit it.
                 let mm = &mut self.stopped_task.task.task_data.mm;
+                let new_brk = VPtr(abi::page_round_up(arg_ptr(0).max(mm.brk_start).0));
                 let old_brk = mm.brk;
-                println!("brk {:x?} -> {:x?}", old_brk, arg_brk);
-                old_brk.0 as isize
+                if new_brk != old_brk {
+                    mm.brk = new_brk;
+                    println!("brk {:x?} -> {:x?}", old_brk, new_brk);
+                    let mut tr = Trampoline::new(&mut self.stopped_task);
+                    tr.mmap_anonymous(
+                        old_brk,
+                        new_brk.0 - old_brk.0,
+                        abi::PROT_READ | abi::PROT_WRITE,
+                    )
+                    .await
+                    .expect("brk mmap fail");
+                }
+                new_brk.0 as isize
             }
 
             nr::EXECVE => {

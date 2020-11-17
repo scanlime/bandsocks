@@ -126,5 +126,6 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     }
 
     loader.randomize_brk(brk);
+
     Ok(())
 }

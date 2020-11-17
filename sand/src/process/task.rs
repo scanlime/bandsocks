@@ -7,9 +7,7 @@ use crate::{
     ptrace,
     remote::{mem::print_stack_dump, RemoteFd},
 };
-use core::{
-    fmt::{self, Debug, Formatter},
-};
+use core::fmt::{self, Debug, Formatter};
 
 #[derive(Debug, Clone)]
 pub struct TaskSocketPair {
