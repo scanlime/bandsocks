@@ -235,7 +235,12 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         let result = self
             .syscall(
                 sc::nr::PREAD64,
-                &[fd.0 as isize, addr.0 as isize, length as isize, offset as isize],
+                &[
+                    fd.0 as isize,
+                    addr.0 as isize,
+                    length as isize,
+                    offset as isize,
+                ],
             )
             .await;
         if result >= 0 {
@@ -255,7 +260,12 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         let result = self
             .syscall(
                 sc::nr::PWRITE64,
-                &[fd.0 as isize, addr.0 as isize, length as isize, offset as isize],
+                &[
+                    fd.0 as isize,
+                    addr.0 as isize,
+                    length as isize,
+                    offset as isize,
+                ],
             )
             .await;
         if result >= 0 {
