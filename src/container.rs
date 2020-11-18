@@ -235,7 +235,7 @@ impl Container {
             env_count: env.len(),
         };
 
-        log::info!(
+        log::debug!(
             "resolved command filename to {:?} with args={:?}, env={:?}, dir={:?} -> {:?}",
             filename,
             argv,

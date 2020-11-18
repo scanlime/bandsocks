@@ -97,6 +97,7 @@ impl Client {
         let map = match self.storage.mmap(&key).await? {
             Some(map) => map,
             None => {
+                log::info!("downloading manifest for {}...", image);
                 let rc = self.registry_client_for(image).await?;
                 match rc
                     .get_manifest(&image.repository(), &image.version())
@@ -151,7 +152,7 @@ impl Client {
             Some(map) => map,
             None => {
                 let rc = self.registry_client_for(image).await?;
-                log::info!("downloading from {}...", image);
+                log::info!("downloading {} bytes from {}...", link.size, image);
                 let blob_data = rc.get_blob(&image.repository(), &link.digest).await?;
                 log::debug!("{} downloaded, {} bytes", link.digest, link.size);
                 self.storage.insert(&key, &blob_data).await?;

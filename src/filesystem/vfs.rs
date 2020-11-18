@@ -219,7 +219,7 @@ impl<'s> Filesystem {
     }
 
     pub fn open_at(&self, at_dir: Option<&VFile>, path: &Path) -> Result<VFile, VFSError> {
-        log::info!("open, {:?} at_dir={:?}", path, at_dir);
+        log::debug!("open, {:?} at_dir={:?}", path, at_dir);
         let mut limits = Limits::reset();
         let entry = self.resolve_path(&mut limits, self.root, path)?;
         let entry = self.resolve_symlinks(&mut limits, entry)?;

@@ -15,7 +15,7 @@ pub async fn change_working_dir(
     path: VString,
 ) -> Result<(), Errno> {
     let path = user_string(process, path)?;
-    log::info!("change_working_dir({:?})", path);
+    log::debug!("change_working_dir({:?})", path);
     Ok(())
 }
 
@@ -25,7 +25,7 @@ pub async fn get_working_dir(
     buffer: VString,
     buffer_size: usize,
 ) -> Result<usize, Errno> {
-    log::info!("get_working_dir({:x?}, {:x?})", buffer, buffer_size);
+    log::debug!("get_working_dir({:x?}, {:x?})", buffer, buffer_size);
     Ok(0)
 }
 
@@ -37,7 +37,7 @@ pub async fn file_access(
     mode: i32,
 ) -> Result<(), Errno> {
     let path = user_string(process, path)?;
-    log::info!("file_access({:?}, {:?}, {:?})", dir, path, mode);
+    log::debug!("file_access({:?}, {:?}, {:?})", dir, path, mode);
     Err(Errno(-libc::ENOENT))
 }
 
@@ -51,7 +51,7 @@ pub async fn file_open(
 ) -> Result<VFile, Errno> {
     let path_str = user_string(process, path)?;
     let path = Path::new(&path_str);
-    log::info!("file_open({:?}, {:?}, {:?}, {:?})", dir, path, flags, mode,);
+    log::debug!("file_open({:?}, {:?}, {:?}, {:?})", dir, path, flags, mode,);
     match filesystem.open(&path) {
         Err(e) => Err(Errno(-e.to_errno())),
         Ok(vfile) => {
@@ -76,6 +76,6 @@ pub async fn file_stat(
         }
         None => format!("None"),
     };
-    log::info!("file_stat({:?}, {}, {:?})", fd, path, nofollow);
+    log::debug!("file_stat({:?}, {}, {:?})", fd, path, nofollow);
     Ok(FileStat {})
 }

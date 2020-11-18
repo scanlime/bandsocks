@@ -35,7 +35,7 @@ pub struct IPCServer {
 }
 
 async fn send_message(stream: &mut UnixStream, message: &MessageToSand) -> Result<(), IPCError> {
-    log::info!("<{:x?}", message);
+    log::debug!("<{:x?}", message);
 
     let mut buffer = IPCBuffer::new();
     buffer.push_back(message)?;
@@ -103,7 +103,7 @@ impl IPCServer {
     }
 
     async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), IPCError> {
-        log::info!(">{:x?}", message);
+        log::debug!(">{:x?}", message);
         match message {
             MessageFromSand::Task { task, op } => self.handle_task_message(task, op).await,
         }
@@ -247,7 +247,7 @@ impl IPCServer {
             },
 
             FromTask::Exited(exit_code) => {
-                log::info!("task exit, code {}", exit_code);
+                log::warn!("task exit, code {}", exit_code);
                 Ok(())
             }
         }

@@ -64,7 +64,7 @@ impl FileStorage {
     }
 
     pub async fn insert(&self, key: &StorageKey, data: &[u8]) -> Result<(), ImageError> {
-        log::info!("insert {:?}, {} bytes", key, data.len());
+        log::debug!("insert {:?}, {} bytes", key, data.len());
 
         // Prepare directories
         let mut temp_path = self.path.clone();
