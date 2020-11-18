@@ -151,8 +151,9 @@ impl Client {
             Some(map) => map,
             None => {
                 let rc = self.registry_client_for(image).await?;
+                log::info!("downloading from {}...", image);
                 let blob_data = rc.get_blob(&image.repository(), &link.digest).await?;
-                log::info!("{} downloaded, {} bytes", link.digest, link.size);
+                log::debug!("{} downloaded, {} bytes", link.digest, link.size);
                 self.storage.insert(&key, &blob_data).await?;
                 match self.storage.mmap(&key).await? {
                     Some(map) => map,
@@ -191,11 +192,12 @@ impl Client {
     }
 
     async fn decompress_layer(&mut self, data: &[u8]) -> Result<(), ImageError> {
+        log::info!("decompressing {} bytes...", data.len());
         let mut decoder = GzDecoder::new(data);
         let mut output = vec![];
         decoder.read_to_end(&mut output)?;
         let key = StorageKey::from_blob_data(&output);
-        log::info!(
+        log::debug!(
             "decompressed {} bytes into {} bytes, {:?}",
             data.len(),
             output.len(),
