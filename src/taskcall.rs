@@ -9,14 +9,24 @@ fn user_string(process: &mut Process, s: VString) -> Result<String, Errno> {
     process.read_string(s).map_err(|_| Errno(-libc::EFAULT))
 }
 
-pub async fn chdir(
+pub async fn change_working_dir(
     process: &mut Process,
     _filesystem: &Filesystem,
     path: VString,
 ) -> Result<(), Errno> {
     let path = user_string(process, path)?;
-    log::info!("chdir({:?})", path);
+    log::info!("change_working_dir({:?})", path);
     Ok(())
+}
+
+pub async fn get_working_dir(
+    _process: &mut Process,
+    _filesystem: &Filesystem,
+    buffer: VString,
+    buffer_size: usize,
+) -> Result<usize, Errno> {
+    log::info!("get_working_dir({:x?}, {:x?})", buffer, buffer_size);
+    Ok(0)
 }
 
 pub async fn file_access(
@@ -63,8 +73,8 @@ pub async fn file_stat(
             let path_str = user_string(process, path)?;
             let path = Path::new(&path_str);
             format!("{:?}", path)
-        },
-        None => format!("None")
+        }
+        None => format!("None"),
     };
     log::info!("file_stat({:?}, {}, {:?})", fd, path, nofollow);
     Ok(FileStat {})

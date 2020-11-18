@@ -108,7 +108,13 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
             Some(mut process) => {
                 let result = process.as_mut().send_event(event);
                 result.expect("event queue full");
-                assert_eq!(process.as_mut().poll(), Poll::Pending);
+                match process.as_mut().poll() {
+                    Poll::Pending => (),
+                    Poll::Ready(()) => {
+                        // task exited
+                        panic!("task exiting, unhandled")
+                    }
+                }
             }
         }
         loop {

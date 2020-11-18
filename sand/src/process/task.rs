@@ -136,6 +136,12 @@ impl<'q> Task<'q> {
                     status: signal,
                 } if signal < 0x100 => self.handle_signal(signal).await,
 
+                Event::Signal {
+                    sig: abi::SIGCHLD,
+                    code: abi::CLD_EXITED,
+                    status,
+                } => return self.handle_exited(status).await,
+
                 e => panic!("{:?}, unexpected event, {:?}", self.task_data, e),
             }
         }
@@ -159,6 +165,11 @@ impl<'q> Task<'q> {
 
     async fn handle_fork(&mut self, child_pid: u32) {
         panic!("fork not handled yet, pid {}", child_pid);
+    }
+
+    async fn handle_exited(&mut self, exit_code: u32) {
+        self.msg.send(FromTask::Exited(exit_code));
+        panic!("exit not handled yet, code {}", exit_code);
     }
 
     async fn handle_seccomp_trap(&mut self) {

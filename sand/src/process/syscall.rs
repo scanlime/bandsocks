@@ -3,7 +3,7 @@ use crate::{
     abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
     protocol::{Errno, FileStat, FromTask, SysFd, ToTask, VPtr, VString},
-    remote::trampoline::Trampoline,
+    remote::{scratchpad::Scratchpad, trampoline::Trampoline, RemoteFd},
 };
 use sc::nr;
 
@@ -20,9 +20,19 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
     }
 
     async fn return_sysfd(&mut self, sys_fd: SysFd) -> isize {
-        // to do, use remote syscall trampoline to pass fd into process
-        println!("unimplemented fd passing, {:?}", sys_fd);
-        -abi::EINVAL as isize
+        let mut tr = Trampoline::new(self.stopped_task);
+        let result = match Scratchpad::new(&mut tr).await {
+            Err(err) => Err(err),
+            Ok(mut scratchpad) => {
+                let result = scratchpad.send_fd(&sys_fd).await;
+                scratchpad.free().await.expect("leaking scratchpad page");
+                result
+            }
+        };
+        match result {
+            Ok(RemoteFd(fd)) => fd as isize,
+            Err(err) => self.return_errno(err).await,
+        }
     }
 
     async fn return_errno(&mut self, err: Errno) -> isize {
@@ -61,10 +71,20 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         }
     }
 
+    async fn return_size_result(&mut self, result: Result<usize, Errno>) -> isize {
+        match result {
+            Ok(s) => s as isize,
+            Err(err) => self.return_errno(err).await,
+        }
+    }
+
     pub async fn dispatch(&mut self) {
+        println!("SYS_{} {:x?}", self.call.nr, self.call.args);
+
         let args = self.call.args;
         let arg_i32 = |idx| args[idx] as i32;
-        let arg_ptr = |idx| VPtr(args[idx] as usize);
+        let arg_usize = |idx| args[idx] as usize;
+        let arg_ptr = |idx| VPtr(arg_usize(idx));
         let arg_string = |idx| VString(arg_ptr(idx));
 
         let result = match self.call.nr as usize {
@@ -90,6 +110,29 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::GETGID => 0,
             nr::GETEUID => 0,
             nr::GETEGID => 0,
+            nr::GETPGRP => 0,
+            nr::SETPGID => 0,
+
+            // to do
+            nr::UNAME => {
+                println!("uname");
+                0
+            }
+
+            // to do
+            nr::SYSINFO => {
+                println!("sysinfo");
+                0
+            }
+
+            // to do
+            nr::IOCTL => {
+                let fd = arg_i32(0);
+                let cmd = arg_i32(1);
+                let arg = arg_usize(2);
+                println!("ioctl({} {:x?} {:x?})", fd, cmd, arg);
+                0
+            }
 
             nr::STAT => {
                 let result = ipc_call!(
@@ -152,10 +195,20 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_result(result).await
             }
 
+            nr::GETCWD => {
+                let result = ipc_call!(
+                    self.stopped_task.task,
+                    FromTask::GetWorkingDir(arg_string(0), arg_usize(1)),
+                    ToTask::SizeReply(result),
+                    result
+                );
+                self.return_size_result(result).await
+            }
+
             nr::CHDIR => {
                 let result = ipc_call!(
                     self.stopped_task.task,
-                    FromTask::ChDir(arg_string(0)),
+                    FromTask::ChangeWorkingDir(arg_string(0)),
                     ToTask::Reply(result),
                     result
                 );

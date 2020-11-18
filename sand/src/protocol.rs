@@ -56,6 +56,7 @@ pub enum ToTask {
     OpenProcessReply(ProcessHandle),
     FileReply(Result<SysFd, Errno>),
     FileStatReply(Result<FileStat, Errno>),
+    SizeReply(Result<usize, Errno>),
     Reply(Result<(), Errno>),
 }
 
@@ -80,7 +81,9 @@ pub enum FromTask {
         nofollow: bool,
     },
     ProcessKill(VPid, Signal),
-    ChDir(VString),
+    ChangeWorkingDir(VString),
+    GetWorkingDir(VString, usize),
+    Exited(u32),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]

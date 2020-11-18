@@ -43,8 +43,10 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::SENDFILE,
             nr::MMAP,
             nr::TIME,
+            nr::FUTEX,
             nr::MPROTECT,
             nr::MUNMAP,
+            nr::MREMAP,
             nr::NANOSLEEP,
             nr::GETRANDOM,
             nr::MEMFD_CREATE,
@@ -52,7 +54,6 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::FCNTL,
             nr::ARCH_PRCTL,
             nr::PRCTL,
-            nr::IOCTL,
         ],
         &[ret(SECCOMP_RET_ALLOW)],
     );

@@ -117,6 +117,18 @@ impl IPCServer {
         .await
     }
 
+    async fn task_size_reply(
+        &mut self,
+        task: VPid,
+        result: Result<usize, Errno>,
+    ) -> Result<(), IPCError> {
+        self.send_message(&MessageToSand::Task {
+            task,
+            op: ToTask::SizeReply(result),
+        })
+        .await
+    }
+
     async fn task_stat_reply(
         &mut self,
         task: VPid,
@@ -178,10 +190,20 @@ impl IPCServer {
                 }
             }
 
-            FromTask::ChDir(path) => match self.process_table.get_mut(&task) {
+            FromTask::GetWorkingDir(buffer, size) => match self.process_table.get_mut(&task) {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(process) => {
-                    let result = taskcall::chdir(process, &self.filesystem, path).await;
+                    let result =
+                        taskcall::get_working_dir(process, &self.filesystem, buffer, size).await;
+                    self.task_size_reply(task, result).await
+                }
+            },
+
+            FromTask::ChangeWorkingDir(path) => match self.process_table.get_mut(&task) {
+                None => Err(IPCError::WrongProcessState)?,
+                Some(process) => {
+                    let result =
+                        taskcall::change_working_dir(process, &self.filesystem, path).await;
                     self.task_reply(task, result).await
                 }
             },
@@ -223,6 +245,11 @@ impl IPCServer {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(_process) => self.task_reply(task, Ok(())).await,
             },
+
+            FromTask::Exited(exit_code) => {
+                log::info!("task exit, code {}", exit_code);
+                Ok(())
+            }
         }
     }
 }
