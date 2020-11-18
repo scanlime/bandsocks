@@ -61,7 +61,6 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::BRK => {
                 let ptr = arg_ptr(0);
                 let result = do_brk(self.stopped_task, ptr).await;
-                println!("brk({:x?}) -> {:x?}", ptr, result);
                 self.return_vptr_result(result).await
             }
 
@@ -72,6 +71,15 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let result = Loader::execve(self.stopped_task, filename, argv, envp).await;
                 self.return_result(result).await
             }
+
+            nr::GETPID => self.stopped_task.task.task_data.vpid.0 as isize,
+
+            // to do
+            nr::GETPPID => 1,
+            nr::GETUID => 0,
+            nr::GETGID => 0,
+            nr::GETEUID => 0,
+            nr::GETEGID => 0,
 
             nr::ACCESS => {
                 let result = ipc_call!(

@@ -44,39 +44,46 @@ fn phdr_prot(phdr: &ProgramHeader) -> isize {
 
 pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errno> {
     let ehdr = elf64_header(loader.file_header());
-    println!("ELF64 {:?}", ehdr);
-
     let mut stack = loader.stack_begin().await?;
-
-    for idx in 0.. {
-        if let Some(env) = loader.envp_read(idx)? {
-            println!("env {:?} {:x?} {:?}", idx, env, loader.vstring_len(env));
-        } else {
-            break;
-        }
-    }
+    let mut argc = 0;
 
     for idx in 0.. {
         if let Some(arg) = loader.argv_read(idx)? {
-            println!("arg {:?} {:x?} {:?}", idx, arg, loader.vstring_len(arg));
+            let length = 1 + loader.vstring_len(arg)?;
+            let argvec = loader.stack_remote_bytes(&mut stack, arg.0, length).await?;
+            loader.store_vectors(&mut stack, &[argvec.0]).await?;
+            argc += 1;
+        } else {
+            break;
+        }
+    }
+    loader.store_vectors(&mut stack, &[0]).await?;
+
+    for idx in 0.. {
+        if let Some(env) = loader.envp_read(idx)? {
+            let length = 1 + loader.vstring_len(env)?;
+            let envvec = loader.stack_remote_bytes(&mut stack, env.0, length).await?;
+            loader.store_vectors(&mut stack, &[envvec.0]).await?;
         } else {
             break;
         }
     }
 
-    // loader
-    //     .stack_remote_bytes(&mut stack, loader.argv, 16)
-    //     .await?;
+    // todo: aux vectors
+    loader
+        .store_vectors(&mut stack, &[0, 0, 0, 0, 0, 0, 0, 0])
+        .await?;
+
     stack.align(16);
-    loader.store_vectors(&mut stack, &[1,2,3,4,5]).await?;
     loader.stack_stored_vectors(&mut stack).await?;
-    loader.store_vectors(&mut stack, &[9,8,7,6]).await?;
-    loader.stack_stored_vectors(&mut stack).await?;
-    stack.align(16);
+    loader.store_vectors(&mut stack, &[argc]).await?;
+    let sp = loader.stack_stored_vectors(&mut stack).await?;
+    loader.unmap_all_userspace_mem().await;
+    loader.stack_finish(stack).await?;
 
     let prev_regs = loader.userspace_regs().clone();
     loader.userspace_regs().clone_from(&UserRegs {
-        sp: stack.stack_bottom().0 as u64,
+        sp: sp.0 as u64,
         ip: ehdr.e_entry,
         cs: prev_regs.cs,
         ss: prev_regs.ss,
@@ -87,10 +94,6 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
         flags: prev_regs.flags,
         ..Default::default()
     });
-
-    println!("stack, {:x?}", stack);
-    loader.unmap_all_userspace_mem().await;
-    loader.stack_finish(stack).await?;
 
     let mut brk = VPtr(0);
 
