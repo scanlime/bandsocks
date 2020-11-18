@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
-    protocol::{Errno, FileStat, FromTask, SysFd, ToTask, VPtr, VString},
+    protocol::{Errno, FileStat, FromTask, LogLevel, LogMessage, SysFd, ToTask, VPtr, VString},
     remote::{scratchpad::Scratchpad, trampoline::Trampoline, RemoteFd},
 };
 use sc::nr;
@@ -79,8 +79,6 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
     }
 
     pub async fn dispatch(&mut self) {
-        println!("SYS_{} {:x?}", self.call.nr, self.call.args);
-
         let args = self.call.args;
         let arg_i32 = |idx| args[idx] as i32;
         let arg_usize = |idx| args[idx] as usize;
@@ -252,6 +250,17 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             _ => panic!("unexpected syscall trace, {:x?}", self),
         };
         SyscallInfo::ret_to_regs(result, self.stopped_task.regs);
+
+        if self.stopped_task.task.log_enabled(LogLevel::Debug) {
+            self.stopped_task.task.log(
+                LogLevel::Debug,
+                LogMessage::Syscall {
+                    nr: self.call.nr,
+                    args: self.call.args,
+                    ret: result,
+                },
+            )
+        }
     }
 }
 

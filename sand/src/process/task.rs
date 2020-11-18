@@ -3,9 +3,10 @@ use crate::{
     abi::{SyscallInfo, UserRegs},
     nolibc::{fcntl, socketpair},
     process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
-    protocol::{FromTask, ProcessHandle, SysFd, SysPid, ToTask, VPid, VPtr},
+    protocol::{FromTask, LogLevel, LogMessage, ProcessHandle, SysFd, SysPid, ToTask, VPid, VPtr},
     ptrace,
     remote::{mem::print_stack_dump, RemoteFd},
+    tracer::TracerSettings,
 };
 use core::fmt::{self, Debug, Formatter};
 
@@ -29,6 +30,7 @@ pub struct TaskData {
     pub parent: Option<VPid>,
     pub socket_pair: TaskSocketPair,
     pub mm: TaskMemManagement,
+    pub tracer_settings: TracerSettings,
 }
 
 pub async fn task_fn(events: EventSource<'_>, msg: MessageSender<'_>, task_data: TaskData) {
@@ -107,6 +109,16 @@ impl<'q> Task<'q> {
                 "unexpected open_process reply, task={:x?}, received={:x?}",
                 task_data, other
             ),
+        }
+    }
+
+    pub fn log_enabled(&self, level: LogLevel) -> bool {
+        level <= self.task_data.tracer_settings.max_log_level
+    }
+
+    pub fn log(&mut self, level: LogLevel, message: LogMessage) {
+        if self.log_enabled(level) {
+            self.msg.send(FromTask::Log(level, message));
         }
     }
 

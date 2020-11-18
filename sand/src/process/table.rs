@@ -4,6 +4,7 @@ use crate::{
         Process, TaskFn,
     },
     protocol::{SysPid, VPid},
+    tracer::TracerSettings,
 };
 use core::{future::Future, pin::Pin};
 use heapless::FnvIndexMap;
@@ -68,6 +69,7 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
 
     pub fn insert(
         mut self: Pin<&mut Self>,
+        tracer_settings: TracerSettings,
         sys_pid: SysPid,
         parent: Option<VPid>,
         socket_pair: TaskSocketPair,
@@ -76,6 +78,7 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
         let vpid = self.as_mut().allocate_vpid();
         vpid.map(move |vpid| {
             let task_data = TaskData {
+                tracer_settings,
                 sys_pid,
                 vpid,
                 parent,

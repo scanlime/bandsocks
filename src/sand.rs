@@ -24,3 +24,30 @@ pub mod protocol_std {
         }
     }
 }
+
+pub mod log {
+    use super::protocol::{LogLevel, LogMessage, VPid};
+
+    pub fn max_log_level() -> LogLevel {
+        match log::max_level() {
+            log::LevelFilter::Off => LogLevel::Off,
+            log::LevelFilter::Error => LogLevel::Error,
+            log::LevelFilter::Warn => LogLevel::Warn,
+            log::LevelFilter::Info => LogLevel::Info,
+            log::LevelFilter::Debug => LogLevel::Debug,
+            log::LevelFilter::Trace => LogLevel::Trace,
+        }
+    }
+
+    pub fn task_log(task: VPid, level: LogLevel, message: LogMessage) {
+        let level = match level {
+            LogLevel::Off => return,
+            LogLevel::Error => log::Level::Error,
+            LogLevel::Warn => log::Level::Warn,
+            LogLevel::Info => log::Level::Info,
+            LogLevel::Debug => log::Level::Debug,
+            LogLevel::Trace => log::Level::Trace,
+        };
+        log::log!(level, "{:?} {:x?}", task, message);
+    }
+}

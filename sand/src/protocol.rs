@@ -5,8 +5,14 @@
 /// Any message sent from the IPC server to the sand process
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum MessageToSand {
-    Task { task: VPid, op: ToTask },
-    Init { args: SysFd },
+    Task {
+        task: VPid,
+        op: ToTask,
+    },
+    Init {
+        args: SysFd,
+        max_log_level: LogLevel,
+    },
 }
 
 /// Any message sent from the sand process to the IPC server
@@ -15,8 +21,7 @@ pub enum MessageFromSand {
     Task { task: VPid, op: FromTask },
 }
 
-/// Fixed size header for the variable sized startup data in the Init 'args'
-/// pipe
+/// Fixed size header for the variable sized initial args data
 #[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct InitArgsHeader {
@@ -48,6 +53,21 @@ impl InitArgsHeader {
             )
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Deserialize, Serialize)]
+pub enum LogLevel {
+    Off,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+pub enum LogMessage {
+    Syscall { nr: u64, args: [u64; 6], ret: isize },
 }
 
 /// A message delivered to one of the lightweight tasks in the tracer
@@ -84,6 +104,7 @@ pub enum FromTask {
     ChangeWorkingDir(VString),
     GetWorkingDir(VString, usize),
     Exited(u32),
+    Log(LogLevel, LogMessage),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]

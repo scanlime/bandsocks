@@ -6,7 +6,7 @@ use crate::{
         task::{TaskMemManagement, TaskSocketPair},
         Event, TaskFn,
     },
-    protocol::{MessageFromSand, MessageToSand, SysFd, SysPid, VPid, VPtr},
+    protocol::{LogLevel, MessageFromSand, MessageToSand, SysFd, SysPid, VPid, VPtr},
     ptrace,
     ptrace::RawExecArgs,
 };
@@ -18,13 +18,22 @@ use sc::syscall;
 #[pin_project]
 pub struct Tracer<'t, F: Future<Output = ()>> {
     ipc: Socket,
+    settings: TracerSettings,
     #[pin]
     process_table: ProcessTable<'t, F>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TracerSettings {
+    pub max_log_level: LogLevel,
 }
 
 impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     pub fn new(ipc: Socket, task_fn: TaskFn<'t, F>) -> Self {
         Tracer {
+            settings: TracerSettings {
+                max_log_level: LogLevel::Off,
+            },
             process_table: ProcessTable::new(task_fn),
             ipc,
         }
@@ -35,7 +44,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         pin.event_loop();
     }
 
-    fn init_loader(self: Pin<&mut Self>, args_fd: &SysFd) {
+    fn init_loader(mut self: Pin<&mut Self>, args_fd: &SysFd) {
         let mut fd_str = String::<U16>::from("FD=");
         fd_str.push_str(&String::<U16>::from(args_fd.0)).unwrap();
         fd_str.push('\0').unwrap();
@@ -43,6 +52,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         let loader_env = [fd_str.as_ptr(), null()];
         let exec_args = unsafe { RawExecArgs::new(crate::SELF_EXE, &loader_argv, &loader_env) };
         let socket_pair = TaskSocketPair::new_inheritable();
+        let settings = self.as_mut().project().settings.clone();
         match unsafe { syscall!(FORK) } as isize {
             result if result == 0 => unsafe { ptrace::be_the_child_process(&exec_args) },
             result if result < 0 => panic!("fork error"),
@@ -55,7 +65,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
                 };
                 self.project()
                     .process_table
-                    .insert(sys_pid, parent, socket_pair, mm)
+                    .insert(settings, sys_pid, parent, socket_pair, mm)
                     .expect("virtual process limit exceeded");
             }
         }
@@ -76,10 +86,16 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         }
     }
 
-    fn message_event(self: Pin<&mut Self>, message: MessageToSand) {
+    fn message_event(mut self: Pin<&mut Self>, message: MessageToSand) {
         match message {
             MessageToSand::Task { task, op } => self.task_event(task, Event::Message(op)),
-            MessageToSand::Init { args } => self.init_loader(&args),
+            MessageToSand::Init {
+                args,
+                max_log_level,
+            } => {
+                self.as_mut().project().settings.max_log_level = max_log_level;
+                self.init_loader(&args);
+            }
         }
     }
 

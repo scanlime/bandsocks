@@ -58,7 +58,14 @@ impl IPCServer {
 
         // Queue the init message before running the sand process. It will exit early if
         // it starts up idle.
-        send_message(&mut server_socket, &MessageToSand::Init { args: args_fd }).await?;
+        send_message(
+            &mut server_socket,
+            &MessageToSand::Init {
+                args: args_fd,
+                max_log_level: sand::log::max_log_level(),
+            },
+        )
+        .await?;
 
         let mut sand_bin = Cursor::new(sand::PROGRAM_DATA);
         let mut cmd = SealedCommand::new(&mut sand_bin).unwrap();
@@ -169,6 +176,11 @@ impl IPCServer {
 
     async fn handle_task_message(&mut self, task: VPid, op: FromTask) -> Result<(), IPCError> {
         match op {
+            FromTask::Log(level, message) => {
+                sand::log::task_log(task, level, message);
+                Ok(())
+            }
+
             FromTask::OpenProcess(sys_pid) => {
                 if self.process_table.contains_key(&task) {
                     Err(IPCError::WrongProcessState)
