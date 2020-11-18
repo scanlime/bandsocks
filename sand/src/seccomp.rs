@@ -42,6 +42,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::RT_SIGRETURN,
             nr::SENDFILE,
             nr::MMAP,
+            nr::TIME,
             nr::MPROTECT,
             nr::MUNMAP,
             nr::NANOSLEEP,

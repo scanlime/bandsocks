@@ -325,6 +325,9 @@ pub const FASYNC: usize = 0o20000;
 pub const O_NONBLOCK: usize = 0o4000;
 
 /// linux/include/uapi/linux/fcntl.h
+pub const AT_SYMLINK_NOFOLLOW: i32 = 0x100;
+
+/// linux/include/uapi/linux/fcntl.h
 pub const AT_FDCWD: i32 = -100;
 
 /// linux/include/uapi/linux/binfmts.h

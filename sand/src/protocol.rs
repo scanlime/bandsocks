@@ -55,6 +55,7 @@ impl InitArgsHeader {
 pub enum ToTask {
     OpenProcessReply(ProcessHandle),
     FileReply(Result<SysFd, Errno>),
+    FileStatReply(Result<FileStat, Errno>),
     Reply(Result<(), Errno>),
 }
 
@@ -73,15 +74,18 @@ pub enum FromTask {
         flags: i32,
         mode: i32,
     },
+    FileStat {
+        fd: Option<SysFd>,
+        path: Option<VString>,
+        nofollow: bool,
+    },
     ProcessKill(VPid, Signal),
     ChDir(VString),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub struct FileAccess {
-    pub dir: Option<SysFd>,
-    pub path: VString,
-    pub mode: i32,
+pub struct FileStat {
+    // to do
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]

@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
-    protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
+    protocol::{Errno, FileStat, FromTask, SysFd, ToTask, VPtr, VString},
     remote::trampoline::Trampoline,
 };
 use sc::nr;
@@ -44,6 +44,16 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         }
     }
 
+    async fn return_stat_result(
+        &mut self,
+        out_ptr: VPtr,
+        result: Result<FileStat, Errno>,
+    ) -> isize {
+        // to do
+        println!("missing stat to {:?} {:?}", out_ptr, result);
+        0
+    }
+
     async fn return_vptr_result(&mut self, result: Result<VPtr, Errno>) -> isize {
         match result {
             Ok(ptr) => ptr.0 as isize,
@@ -80,6 +90,53 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::GETGID => 0,
             nr::GETEUID => 0,
             nr::GETEGID => 0,
+
+            nr::STAT => {
+                let result = ipc_call!(
+                    self.stopped_task.task,
+                    FromTask::FileStat {
+                        fd: None,
+                        path: Some(arg_string(0)),
+                        nofollow: false
+                    },
+                    ToTask::FileStatReply(result),
+                    result
+                );
+                self.return_stat_result(arg_ptr(1), result).await
+            }
+
+            nr::LSTAT => {
+                let result = ipc_call!(
+                    self.stopped_task.task,
+                    FromTask::FileStat {
+                        fd: None,
+                        path: Some(arg_string(0)),
+                        nofollow: true
+                    },
+                    ToTask::FileStatReply(result),
+                    result
+                );
+                self.return_stat_result(arg_ptr(1), result).await
+            }
+
+            nr::NEWFSTATAT => {
+                let flags = arg_i32(3);
+                let fd = arg_i32(0);
+                if fd != abi::AT_FDCWD {
+                    unimplemented!();
+                }
+                let result = ipc_call!(
+                    self.stopped_task.task,
+                    FromTask::FileStat {
+                        fd: None,
+                        path: Some(arg_string(1)),
+                        nofollow: (flags & abi::AT_SYMLINK_NOFOLLOW) != 0
+                    },
+                    ToTask::FileStatReply(result),
+                    result
+                );
+                self.return_stat_result(arg_ptr(2), result).await
+            }
 
             nr::ACCESS => {
                 let result = ipc_call!(
@@ -121,6 +178,10 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             }
 
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
+                let fd = arg_i32(0);
+                if fd != abi::AT_FDCWD {
+                    unimplemented!();
+                }
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::FileOpen {

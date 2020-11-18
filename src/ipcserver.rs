@@ -7,7 +7,8 @@ use crate::{
     process::{Process, ProcessStatus},
     sand,
     sand::protocol::{
-        buffer::IPCBuffer, Errno, FromTask, MessageFromSand, MessageToSand, SysFd, ToTask, VPid,
+        buffer::IPCBuffer, Errno, FileStat, FromTask, MessageFromSand, MessageToSand, SysFd,
+        ToTask, VPid,
     },
     taskcall,
 };
@@ -116,6 +117,18 @@ impl IPCServer {
         .await
     }
 
+    async fn task_stat_reply(
+        &mut self,
+        task: VPid,
+        result: Result<FileStat, Errno>,
+    ) -> Result<(), IPCError> {
+        self.send_message(&MessageToSand::Task {
+            task,
+            op: ToTask::FileStatReply(result),
+        })
+        .await
+    }
+
     async fn task_file_reply(
         &mut self,
         task: VPid,
@@ -170,6 +183,15 @@ impl IPCServer {
                 Some(process) => {
                     let result = taskcall::chdir(process, &self.filesystem, path).await;
                     self.task_reply(task, result).await
+                }
+            },
+
+            FromTask::FileStat { fd, path, nofollow } => match self.process_table.get_mut(&task) {
+                None => Err(IPCError::WrongProcessState)?,
+                Some(process) => {
+                    let result =
+                        taskcall::file_stat(process, &self.filesystem, fd, path, nofollow).await;
+                    self.task_stat_reply(task, result).await
                 }
             },
 
