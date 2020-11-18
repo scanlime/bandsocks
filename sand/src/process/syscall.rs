@@ -44,6 +44,13 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         }
     }
 
+    async fn return_vptr_result(&mut self, result: Result<VPtr, Errno>) -> isize {
+        match result {
+            Ok(ptr) => ptr.0 as isize,
+            Err(err) => self.return_errno(err).await,
+        }
+    }
+
     pub async fn dispatch(&mut self) {
         let args = self.call.args;
         let arg_i32 = |idx| args[idx] as i32;
@@ -52,23 +59,10 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
         let result = match self.call.nr as usize {
             nr::BRK => {
-                // to do: this is a really minimal brk implementation, revisit it.
-                let mm = &mut self.stopped_task.task.task_data.mm;
-                let new_brk = VPtr(abi::page_round_up(arg_ptr(0).max(mm.brk_start).0));
-                let old_brk = mm.brk;
-                if new_brk > old_brk {
-                    mm.brk = new_brk;
-                    println!("brk {:x?} -> {:x?}", old_brk, new_brk);
-                    let mut tr = Trampoline::new(&mut self.stopped_task);
-                    tr.mmap_anonymous(
-                        old_brk,
-                        new_brk.0 - old_brk.0,
-                        abi::PROT_READ | abi::PROT_WRITE,
-                    )
-                    .await
-                    .expect("brk mmap fail");
-                }
-                new_brk.0 as isize
+                let ptr = arg_ptr(0);
+                let result = do_brk(self.stopped_task, ptr).await;
+                println!("brk({:x?}) -> {:x?}", ptr, result);
+                self.return_vptr_result(result).await
             }
 
             nr::EXECVE => {
@@ -137,4 +131,36 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         };
         SyscallInfo::ret_to_regs(result, self.stopped_task.regs);
     }
+}
+
+async fn do_brk<'q, 's, 't>(
+    stopped_task: &'t mut StoppedTask<'q, 's>,
+    ptr: VPtr,
+) -> Result<VPtr, Errno> {
+    let mm = stopped_task.task.task_data.mm.clone();
+    assert_eq!(0, abi::page_offset(mm.brk.0));
+    assert_eq!(0, abi::page_offset(mm.brk_start.0));
+    let new_brk = VPtr(abi::page_round_up(ptr.max(mm.brk_start).0));
+    if new_brk != mm.brk {
+        let mut tr = Trampoline::new(stopped_task);
+        if new_brk == mm.brk_start {
+            tr.munmap(mm.brk_start, mm.brk.0 - mm.brk_start.0).await?;
+        } else if mm.brk == mm.brk_start {
+            tr.mmap_anonymous(
+                mm.brk_start,
+                new_brk.0 - mm.brk_start.0,
+                abi::PROT_READ | abi::PROT_WRITE,
+            )
+            .await?;
+        } else {
+            tr.mremap(
+                mm.brk_start,
+                mm.brk.0 - mm.brk_start.0,
+                new_brk.0 - mm.brk_start.0,
+            )
+            .await?;
+        }
+        tr.stopped_task.task.task_data.mm.brk = new_brk;
+    }
+    Ok(new_brk)
 }

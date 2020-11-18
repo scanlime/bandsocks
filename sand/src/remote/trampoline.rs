@@ -217,6 +217,25 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         }
     }
 
+    pub async fn mremap(
+        &mut self,
+        addr: VPtr,
+        old_length: usize,
+        new_length: usize,
+    ) -> Result<(), Errno> {
+        let result = self
+            .syscall(
+                sc::nr::MREMAP,
+                &[addr.0 as isize, old_length as isize, new_length as isize, 0],
+            )
+            .await;
+        if result as usize == addr.0 {
+            Ok(())
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
     pub async fn close(&mut self, fd: &RemoteFd) -> Result<(), Errno> {
         let result = self.syscall(sc::nr::CLOSE, &[fd.0 as isize]).await;
         if result == 0 {
