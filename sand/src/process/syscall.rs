@@ -56,7 +56,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let mm = &mut self.stopped_task.task.task_data.mm;
                 let new_brk = VPtr(abi::page_round_up(arg_ptr(0).max(mm.brk_start).0));
                 let old_brk = mm.brk;
-                if new_brk != old_brk {
+                if new_brk > old_brk {
                     mm.brk = new_brk;
                     println!("brk {:x?} -> {:x?}", old_brk, new_brk);
                     let mut tr = Trampoline::new(&mut self.stopped_task);
