@@ -191,4 +191,25 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
     pub async fn stack_finish(&mut self, stack_builder: StackBuilder) -> Result<(), Errno> {
         stack_builder.finish(&mut self.trampoline).await
     }
+
+    pub async fn stack_stored_vectors(
+        &mut self,
+        stack_builder: &mut StackBuilder,
+    ) -> Result<VPtr, Errno> {
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
+        let result = stack_builder.push_stored_vectors(&mut scratchpad).await;
+        scratchpad.free().await?;
+        result
+    }
+
+    pub async fn store_vectors(
+        &mut self,
+        stack_builder: &mut StackBuilder,
+        vectors: &[usize],
+    ) -> Result<(), Errno> {
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
+        let result = stack_builder.store_vectors(&mut scratchpad, vectors).await;
+        scratchpad.free().await?;
+        result
+    }
 }

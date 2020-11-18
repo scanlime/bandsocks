@@ -11,12 +11,26 @@ use crate::{
 use core::{mem::size_of, pin::Pin, ptr};
 use sc::{nr, syscall};
 
-#[derive(Debug)]
-pub struct CantDropScratchpad;
-
-impl Drop for CantDropScratchpad {
+impl<'q, 's, 't, 'r> Drop for Scratchpad<'q, 's, 't, 'r> {
     fn drop(&mut self) {
         panic!("leaking scratchpad")
+    }
+}
+
+impl Drop for TempRemoteFd {
+    fn drop(&mut self) {
+        panic!("leaking remote temp file")
+    }
+}
+
+#[derive(Debug)]
+pub struct TempRemoteFd(pub RemoteFd);
+
+impl TempRemoteFd {
+    pub async fn free(self, trampoline: &mut Trampoline<'_, '_, '_>) -> Result<(), Errno> {
+        trampoline.close(&self.0).await?;
+        core::mem::forget(self);
+        Ok(())
     }
 }
 
@@ -24,7 +38,6 @@ impl Drop for CantDropScratchpad {
 pub struct Scratchpad<'q, 's, 't, 'r> {
     pub trampoline: &'r mut Trampoline<'q, 's, 't>,
     pub page_ptr: VPtr,
-    guard: CantDropScratchpad,
 }
 
 impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
@@ -44,13 +57,15 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
         Ok(Scratchpad {
             trampoline,
             page_ptr,
-            guard: CantDropScratchpad,
         })
     }
 
     pub async fn free(self) -> Result<(), Errno> {
-        core::mem::forget(self.guard);
-        self.trampoline.munmap(self.page_ptr, abi::PAGE_SIZE).await
+        self.trampoline
+            .munmap(self.page_ptr, abi::PAGE_SIZE)
+            .await?;
+        core::mem::forget(self);
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -58,6 +73,58 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
         loop {
             self.write_fd(&RemoteFd(1), b"debug loop\n").await.unwrap();
             self.sleep(&abi::TimeSpec::from_secs(10)).await.unwrap();
+        }
+    }
+
+    pub async fn fd_copy_via_buffer(
+        &mut self,
+        src_fd: &RemoteFd,
+        mut src_offset: usize,
+        dest_fd: &RemoteFd,
+        mut dest_offset: usize,
+        mut byte_count: usize,
+    ) -> Result<usize, Errno> {
+        let mut transferred = 0;
+        while byte_count > 0 {
+            let part_size = byte_count.min(abi::PAGE_SIZE);
+            let read_len = self
+                .trampoline
+                .pread(src_fd, self.page_ptr, part_size, src_offset)
+                .await?;
+            if read_len > 0 {
+                let write_len = self
+                    .trampoline
+                    .pwrite(dest_fd, self.page_ptr, read_len, dest_offset)
+                    .await?;
+                transferred += write_len;
+                if write_len == part_size {
+                    byte_count -= part_size;
+                    src_offset += part_size;
+                    dest_offset += part_size;
+                    continue;
+                }
+            }
+            break;
+        }
+        Ok(transferred)
+    }
+
+    pub async fn fd_copy_exact(
+        &mut self,
+        src_fd: &RemoteFd,
+        src_offset: usize,
+        dest_fd: &RemoteFd,
+        dest_offset: usize,
+        byte_count: usize,
+    ) -> Result<(), Errno> {
+        if self
+            .fd_copy_via_buffer(src_fd, src_offset, dest_fd, dest_offset, byte_count)
+            .await?
+            == byte_count
+        {
+            Ok(())
+        } else {
+            Err(Errno(-abi::EIO))
         }
     }
 
@@ -101,6 +168,10 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
         } else {
             Err(Errno(result as i32))
         }
+    }
+
+    pub async fn memfd_temp(&mut self) -> Result<TempRemoteFd, Errno> {
+        Ok(TempRemoteFd(self.memfd_create(b"bandsocks-temp", 0).await?))
     }
 
     pub async fn memfd_create(&mut self, name: &[u8], flags: isize) -> Result<RemoteFd, Errno> {

@@ -68,11 +68,10 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     //     .stack_remote_bytes(&mut stack, loader.argv, 16)
     //     .await?;
     stack.align(16);
-    for _ in 0..16 {
-        loader
-            .stack_bytes(&mut stack, &0usize.to_ne_bytes())
-            .await?;
-    }
+    loader.store_vectors(&mut stack, &[1,2,3,4,5]).await?;
+    loader.stack_stored_vectors(&mut stack).await?;
+    loader.store_vectors(&mut stack, &[9,8,7,6]).await?;
+    loader.stack_stored_vectors(&mut stack).await?;
     stack.align(16);
 
     let prev_regs = loader.userspace_regs().clone();

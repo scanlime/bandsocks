@@ -2,32 +2,23 @@ use crate::{
     abi, nolibc,
     protocol::{Errno, VPtr},
     remote::{
-        mem::{fault_or, write_padded_bytes},
-        scratchpad::Scratchpad,
+        mem::{fault_or, write_padded_bytes, write_word},
+        scratchpad::{Scratchpad, TempRemoteFd},
         trampoline::Trampoline,
         RemoteFd,
     },
 };
+use core::mem::size_of;
 
-const BUILDER_SIZE_LIMIT: usize = 8 * 1024 * 1024;
+const BUILDER_SIZE_LIMIT: usize = 32 * 1024 * 1024;
 const INITIAL_STACK_FREE: usize = 128 * 1024;
 
 #[derive(Debug)]
-pub struct CantDropStackBuilder;
-
-impl Drop for CantDropStackBuilder {
-    fn drop(&mut self) {
-        panic!("leaking stackbuilder")
-    }
-}
-
-#[derive(Debug)]
 pub struct StackBuilder {
-    memfd: RemoteFd,
+    memfd: TempRemoteFd,
     top: VPtr,
     bottom: VPtr,
-    lower_limit: VPtr,
-    guard: CantDropStackBuilder,
+    num_stored_vectors: usize,
 }
 
 fn randomize_stack_top(limit: VPtr) -> VPtr {
@@ -39,25 +30,25 @@ fn randomize_stack_top(limit: VPtr) -> VPtr {
 
 impl StackBuilder {
     pub async fn new(scratchpad: &mut Scratchpad<'_, '_, '_, '_>) -> Result<Self, Errno> {
-        let memfd = scratchpad.memfd_create(b"bandsocks-loader", 0).await?;
+        // this is a tmpfs sparse file that holds the stack we're building, in two
+        // sections: growing downward from BUILDER_SIZE_LIMIT is the stack
+        // itself, and growing up from there is a temporary location to store
+        // vectors that will go to the bottom of the stack later.
         let top = randomize_stack_top(scratchpad.trampoline.task_end);
-        let bottom = top;
-        let lower_limit = VPtr(top.0 - BUILDER_SIZE_LIMIT);
         Ok(StackBuilder {
-            memfd,
+            memfd: scratchpad.memfd_temp().await?,
             top,
-            bottom,
-            lower_limit,
-            guard: CantDropStackBuilder,
+            bottom: top,
+            num_stored_vectors: 0,
         })
     }
 
     pub async fn finish(self, trampoline: &mut Trampoline<'_, '_, '_>) -> Result<(), Errno> {
+        assert_eq!(self.num_stored_vectors, 0);
         let stack_size = self.top.0 - self.bottom.0;
         let stack_mapping_base = VPtr(abi::page_round_down(self.bottom.0 - INITIAL_STACK_FREE));
         let stack_mapping_size = abi::page_round_up(self.top.0 - stack_mapping_base.0);
-        let file_offset = self.bottom.0 - self.lower_limit.0;
-
+        let file_offset = BUILDER_SIZE_LIMIT - stack_size;
         let prot = abi::PROT_READ | abi::PROT_WRITE;
         let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS | abi::MAP_FIXED | abi::MAP_GROWSDOWN;
         trampoline
@@ -71,10 +62,9 @@ impl StackBuilder {
             )
             .await?;
         trampoline
-            .pread_exact(&self.memfd, self.bottom, stack_size, file_offset)
+            .pread_exact(&self.memfd.0, self.bottom, stack_size, file_offset)
             .await?;
-        trampoline.close(&self.memfd).await?;
-        core::mem::forget(self.guard);
+        self.memfd.free(trampoline).await?;
         Ok(())
     }
 
@@ -97,12 +87,13 @@ impl StackBuilder {
         length: usize,
     ) -> Result<VPtr, Errno> {
         let ptr = VPtr(self.bottom.0 - length);
-        if ptr.0 < self.lower_limit.0 {
+        let stack_size = self.top.0 - ptr.0;
+        if stack_size > BUILDER_SIZE_LIMIT {
             return Err(Errno(-abi::E2BIG));
         }
-        let file_offset = ptr.0 - self.lower_limit.0;
+        let file_offset = BUILDER_SIZE_LIMIT - stack_size;
         trampoline
-            .pwrite_exact(&self.memfd, addr, length, file_offset)
+            .pwrite_exact(&self.memfd.0, addr, length, file_offset)
             .await?;
         self.bottom = ptr;
         Ok(ptr)
@@ -120,5 +111,57 @@ impl StackBuilder {
         ))?;
         self.push_remote_bytes(scratchpad.trampoline, scratchpad.page_ptr, bytes.len())
             .await
+    }
+
+    pub async fn push_stored_vectors(
+        &mut self,
+        scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
+    ) -> Result<VPtr, Errno> {
+        let length = self.num_stored_vectors * size_of::<usize>();
+        let ptr = VPtr(self.bottom.0 - length);
+        let stack_size = self.top.0 - ptr.0;
+        if stack_size > BUILDER_SIZE_LIMIT {
+            return Err(Errno(-abi::E2BIG));
+        }
+        let file_offset = BUILDER_SIZE_LIMIT - stack_size;
+        scratchpad
+            .fd_copy_exact(
+                &self.memfd.0,
+                BUILDER_SIZE_LIMIT,
+                &self.memfd.0,
+                file_offset,
+                length,
+            )
+            .await?;
+        self.bottom = ptr;
+        self.num_stored_vectors = 0;
+        Ok(ptr)
+    }
+
+    /// store a small number of usize vectors, for later adding via
+    /// push_stored_vectors(). this individual buffer must fit in a page,
+    /// but there is no limit (other than tmpfs size) for the total size
+    /// of vectors we store before pushing.
+    pub async fn store_vectors(
+        &mut self,
+        scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
+        vectors: &[usize],
+    ) -> Result<(), Errno> {
+        let length = vectors.len() * size_of::<usize>();
+        assert!(length <= abi::PAGE_SIZE);
+        for (i, word) in vectors.iter().enumerate() {
+            fault_or(write_word(
+                scratchpad.trampoline.stopped_task,
+                scratchpad.page_ptr.add(i * size_of::<usize>()),
+                *word,
+            ))?;
+        }
+        let file_offset = BUILDER_SIZE_LIMIT + self.num_stored_vectors * size_of::<usize>();
+        scratchpad
+            .trampoline
+            .pwrite_exact(&self.memfd.0, scratchpad.page_ptr, length, file_offset)
+            .await?;
+        self.num_stored_vectors += vectors.len();
+        Ok(())
     }
 }
