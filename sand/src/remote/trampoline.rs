@@ -6,7 +6,7 @@ use crate::{
         task::StoppedTask,
         Event,
     },
-    protocol::{Errno, VPtr},
+    protocol::{Errno, LogLevel, LogMessage, LogSyscall, VPtr},
     ptrace,
     remote::{mem::find_bytes, RemoteFd},
 };
@@ -119,6 +119,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
 
         SyscallInfo::orig_nr_to_regs(nr as isize, &mut local_regs);
         SyscallInfo::args_to_regs(args, &mut local_regs);
+        let call = SyscallInfo::from_regs(&local_regs);
 
         // Run the syscall until completion, trapping again on the way out
         ptrace::set_regs(pid, &local_regs);
@@ -134,7 +135,15 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         ptrace::get_regs(pid, &mut local_regs);
 
         // Save the results from the remote call
-        let result = SyscallInfo::ret_from_regs(&mut local_regs);
+        let result = SyscallInfo::ret_from_regs(&local_regs);
+
+        let log_level = LogLevel::Debug;
+        if task.log_enabled(log_level) {
+            task.log(
+                log_level,
+                LogMessage::Remote(LogSyscall(call.nr, call.args, result)),
+            )
+        }
 
         // Now we are trapped on the way out of a syscall but we need to get back to
         // trapping on the way in. This involves a brief trip back to userspace.

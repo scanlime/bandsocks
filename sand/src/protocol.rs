@@ -67,7 +67,17 @@ pub enum LogLevel {
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum LogMessage {
-    Syscall { nr: u64, args: [u64; 6], ret: isize },
+    Emulated(LogSyscall),
+    Remote(LogSyscall),
+}
+
+#[derive(Clone, Eq, PartialEq, Deserialize, Serialize)]
+pub struct LogSyscall(pub u64, pub [u64; 6], pub isize);
+
+impl core::fmt::Debug for LogSyscall {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "SYS_{} {:x?} -> {:?} {:x?}", self.0, self.1, self.2, self.2)
+    }
 }
 
 /// A message delivered to one of the lightweight tasks in the tracer

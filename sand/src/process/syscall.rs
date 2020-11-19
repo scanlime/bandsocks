@@ -2,7 +2,9 @@ use crate::{
     abi,
     abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
-    protocol::{Errno, FileStat, FromTask, LogLevel, LogMessage, SysFd, ToTask, VPtr, VString},
+    protocol::{
+        Errno, FileStat, FromTask, LogLevel, LogMessage, LogSyscall, SysFd, ToTask, VPtr, VString,
+    },
     remote::{scratchpad::Scratchpad, trampoline::Trampoline, RemoteFd},
 };
 use sc::nr;
@@ -286,11 +288,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         if self.stopped_task.task.log_enabled(log_level) {
             self.stopped_task.task.log(
                 log_level,
-                LogMessage::Syscall {
-                    nr: self.call.nr,
-                    args: self.call.args,
-                    ret: result,
-                },
+                LogMessage::Emulated(LogSyscall(self.call.nr, self.call.args, result)),
             )
         }
     }
