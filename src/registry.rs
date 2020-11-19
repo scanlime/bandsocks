@@ -116,7 +116,7 @@ impl Client {
             }
         };
         let slice = &map[..];
-        log::debug!("raw json manifest, {}", String::from_utf8_lossy(slice));
+        log::trace!("raw json manifest, {}", String::from_utf8_lossy(slice));
         Ok(serde_json::from_slice(slice)?)
     }
 
@@ -180,7 +180,7 @@ impl Client {
         if link.media_type == media_types::RUNTIME_CONFIG {
             let mapref = self.pull_blob(image, link).await?;
             let slice = &mapref[..];
-            log::debug!(
+            log::trace!(
                 "raw json runtime config, {}",
                 String::from_utf8_lossy(slice)
             );

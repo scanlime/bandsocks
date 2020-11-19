@@ -62,7 +62,7 @@ impl IPCServer {
             &mut server_socket,
             &MessageToSand::Init {
                 args: args_fd,
-                max_log_level: sand::log::max_log_level(),
+                max_log_level: sand::max_log_level(),
             },
         )
         .await?;
@@ -91,7 +91,10 @@ impl IPCServer {
                 buffer.reset();
                 unsafe { buffer.set_len(buffer.byte_capacity(), 0) };
                 match self.stream.read(buffer.as_slice_mut().bytes).await? {
-                    len if len > 0 => unsafe { buffer.set_len(len, 0) },
+                    len if len > 0 => unsafe {
+                        log::trace!("ipc read, {} bytes", len);
+                        buffer.set_len(len, 0)
+                    },
                     _ => {
                         log::warn!("ipc server is exiting");
                         break Ok(());
@@ -177,7 +180,7 @@ impl IPCServer {
     async fn handle_task_message(&mut self, task: VPid, op: FromTask) -> Result<(), IPCError> {
         match op {
             FromTask::Log(level, message) => {
-                sand::log::task_log(task, level, message);
+                sand::task_log(task, level, message);
                 Ok(())
             }
 

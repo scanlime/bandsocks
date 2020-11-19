@@ -56,11 +56,10 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
     async fn return_stat_result(
         &mut self,
-        out_ptr: VPtr,
-        result: Result<FileStat, Errno>,
+        _out_ptr: VPtr,
+        _result: Result<FileStat, Errno>,
     ) -> isize {
         // to do
-        println!("missing stat to {:?} {:?}", out_ptr, result);
         0
     }
 
@@ -113,22 +112,19 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
             // to do
             nr::UNAME => {
-                println!("uname");
                 0
             }
 
             // to do
             nr::SYSINFO => {
-                println!("sysinfo");
                 0
             }
 
             // to do
             nr::IOCTL => {
-                let fd = arg_i32(0);
-                let cmd = arg_i32(1);
-                let arg = arg_usize(2);
-                println!("ioctl({} {:x?} {:x?})", fd, cmd, arg);
+                let _fd = arg_i32(0);
+                let _cmd = arg_i32(1);
+                let _arg = arg_usize(2);
                 0
             }
 

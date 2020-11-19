@@ -183,8 +183,8 @@ pub mod buffer {
     }
 
     pub type Result<T> = core::result::Result<T, Error>;
-    pub type BytesMax = U128;
-    pub type FilesMax = U16;
+    pub type BytesMax = U4096;
+    pub type FilesMax = U128;
 
     #[derive(Default)]
     pub struct IPCBuffer {

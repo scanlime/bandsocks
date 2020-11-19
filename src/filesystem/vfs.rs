@@ -141,10 +141,8 @@ impl<'s> Filesystem {
         parent: INodeNum,
         part: &OsStr,
     ) -> Result<DirEntryRef, VFSError> {
-        log::trace!("resolving part {:?} in parent {}", part, parent);
         limits.take_path_segment()?;
         if part == "/" {
-            log::trace!("absolute path segment");
             Ok(DirEntryRef {
                 parent: self.root,
                 child: self.root,
@@ -153,7 +151,6 @@ impl<'s> Filesystem {
             match &self.get_inode(parent)?.data {
                 Node::Directory(map) => match map.get(part) {
                     None => {
-                        log::trace!("not found");
                         Err(VFSError::NotFound)
                     }
                     Some(child) => {
@@ -161,7 +158,6 @@ impl<'s> Filesystem {
                             parent,
                             child: *child,
                         };
-                        log::trace!("resolved to {:?}", entry);
                         Ok(entry)
                     }
                 },
@@ -182,8 +178,6 @@ impl<'s> Filesystem {
         parent: INodeNum,
         path: &Path,
     ) -> Result<DirEntryRef, VFSError> {
-        log::trace!("resolving path {:?} in {}", path, parent);
-
         // resolve symlinks in-between steps but not before the first step
         // (workdir must be a directory and not a symlink) or after the
         // last step (the result itself might be a link).
@@ -197,7 +191,6 @@ impl<'s> Filesystem {
                 entry = self.resolve_path_segment(&mut limits, entry.child, part)?;
             }
 
-            log::trace!("path {:?} resolved to {:?}", path, entry);
             Ok(entry)
         } else {
             Ok(DirEntryRef {
@@ -219,7 +212,7 @@ impl<'s> Filesystem {
     }
 
     pub fn open_at(&self, at_dir: Option<&VFile>, path: &Path) -> Result<VFile, VFSError> {
-        log::debug!("open, {:?} at_dir={:?}", path, at_dir);
+        log::debug!("open({:?}, {:?})", at_dir, path);
         let mut limits = Limits::reset();
         let entry = self.resolve_path(&mut limits, self.root, path)?;
         let entry = self.resolve_symlinks(&mut limits, entry)?;
@@ -349,7 +342,7 @@ impl<'f> VFSWriter<'f> {
         let previous = match &mut self.get_inode_mut(parent)?.data {
             Node::Directory(map) => map.insert(child_name.to_os_string(), child_value),
             other => {
-                log::trace!("failed to add a child to a non-directory node, {:?}", other);
+                log::warn!("failed to add a child to a non-directory node, {:?}", other);
                 Err(VFSError::DirectoryExpected)?
             }
         };
@@ -398,7 +391,7 @@ impl<'f> VFSWriter<'f> {
             inode.stat = stat;
             Ok(())
         } else {
-            log::trace!(
+            log::warn!(
                 "failed to write metadata {:?}, expected a directory node but found {:?}",
                 stat,
                 inode.data
@@ -524,8 +517,6 @@ impl<'f> VFSWriter<'f> {
         parent: INodeNum,
         part: &OsStr,
     ) -> Result<DirEntryRef, VFSError> {
-        log::trace!("resolve/create part {:?} in parent {}", part, parent);
-
         let result = self.fs.resolve_path_segment(&mut limits, parent, part);
         match result {
             Ok(entry) => Ok(entry),

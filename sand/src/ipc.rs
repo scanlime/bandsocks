@@ -22,7 +22,6 @@ pub struct Socket {
     recv_buffer: IPCBuffer,
 }
 
-#[derive(Default)]
 #[repr(C)]
 struct CMsgBuffer {
     hdr: CMsgHdr,
@@ -70,7 +69,7 @@ impl Socket {
             base: self.recv_buffer.as_slice_mut().bytes.as_mut_ptr(),
             len: self.recv_buffer.byte_capacity(),
         };
-        let mut cmsg: CMsgBuffer = Default::default();
+        let mut cmsg: CMsgBuffer = unsafe { core::mem::zeroed() };
         let mut msghdr = MsgHdr {
             msg_name: ptr::null_mut(),
             msg_namelen: 0,
@@ -114,7 +113,7 @@ impl Socket {
                 cmsg_level: abi::SOL_SOCKET,
                 cmsg_type: abi::SCM_RIGHTS,
             },
-            files: Default::default(),
+            files: unsafe { core::mem::zeroed() }
         };
         for (idx, file) in buffer.as_slice().files.iter().enumerate() {
             cmsg.files[idx] = file.0;
