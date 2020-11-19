@@ -10,6 +10,13 @@ args:
         takes_value: true
         default_value: info
         help: default log filter, superceded by RUST_LOG environment variable
+    - run_env:
+        short: e
+        long: env
+        multiple: true
+        value_name: ENV[=VALUE]
+        takes_value: true
+        help: set environment variables in the container
     - image_reference:
         index: 1
         required: true

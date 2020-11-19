@@ -2,7 +2,7 @@ use crate::{
     abi, nolibc,
     protocol::{Errno, VPtr},
     remote::{
-        mem::{fault_or, write_word},
+        mem::{fault_or, write_padded_bytes, write_word},
         scratchpad::{Scratchpad, TempRemoteFd},
         trampoline::Trampoline,
         RemoteFd,
@@ -106,6 +106,21 @@ impl StackBuilder {
             .getrandom_exact(scratchpad.page_ptr, length, 0)
             .await?;
         self.push_remote_bytes(scratchpad.trampoline, scratchpad.page_ptr, length)
+            .await
+    }
+
+    pub async fn push_bytes(
+        &mut self,
+        scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
+        bytes: &[u8],
+    ) -> Result<VPtr, Errno> {
+        assert!(bytes.len() < abi::PAGE_SIZE);
+        fault_or(write_padded_bytes(
+            scratchpad.trampoline.stopped_task,
+            scratchpad.page_ptr,
+            bytes,
+        ))?;
+        self.push_remote_bytes(scratchpad.trampoline, scratchpad.page_ptr, bytes.len())
             .await
     }
 

@@ -90,11 +90,12 @@ async fn replace_maps_with_new_stack(
     load_base: VPtr,
     ehdr: &Header,
 ) -> Result<VPtr, Errno> {
-    let elf_hwcap = raw_cpuid::cpuid!(1).edx as usize;
     let mut stack = loader.stack_begin().await?;
     let mut argc = 0;
 
+    let elf_hwcap = raw_cpuid::cpuid!(1).edx as usize;
     let random_data_ptr = loader.stack_random_bytes(&mut stack, 16).await?;
+    let platform_str_ptr = loader.stack_bytes(&mut stack, b"x86_64\0").await?;
 
     let filename_len = 1 + loader.vstring_len(loader.filename())?;
     let filename_ptr = loader
@@ -123,6 +124,8 @@ async fn replace_maps_with_new_stack(
         }
     }
 
+    // ld.so can show you the aux vectors:
+    // cargo run -- -e LD_SHOW_AUXV -- ubuntu /usr/lib/x86_64-linux-gnu/ld-2.31.so
     loader
         .store_vectors(
             &mut stack,
@@ -164,6 +167,8 @@ async fn replace_maps_with_new_stack(
                 0,
                 abi::AT_EXECFN,
                 filename_ptr.0,
+                abi::AT_PLATFORM,
+                platform_str_ptr.0,
                 abi::AT_NULL,
                 abi::AT_NULL,
                 abi::AT_NULL,

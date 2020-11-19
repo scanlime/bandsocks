@@ -200,6 +200,18 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         result
     }
 
+    pub async fn stack_bytes(
+        &mut self,
+        stack_builder: &mut StackBuilder,
+        bytes: &[u8],
+    ) -> Result<VPtr, Errno> {
+        assert!(bytes.len() <= abi::PAGE_SIZE);
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
+        let result = stack_builder.push_bytes(&mut scratchpad, bytes).await;
+        scratchpad.free().await?;
+        result
+    }
+
     pub async fn stack_finish(&mut self, stack_builder: StackBuilder) -> Result<(), Errno> {
         stack_builder.finish(&mut self.trampoline).await
     }
