@@ -245,6 +245,38 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         }
     }
 
+    pub async fn getrandom(
+        &mut self,
+        addr: VPtr,
+        length: usize,
+        flags: isize,
+    ) -> Result<usize, Errno> {
+        let result = self
+            .syscall(
+                sc::nr::GETRANDOM,
+                &[addr.0 as isize, length as isize, flags],
+            )
+            .await;
+        if result >= 0 {
+            Ok(result as usize)
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub async fn getrandom_exact(
+        &mut self,
+        addr: VPtr,
+        length: usize,
+        flags: isize,
+    ) -> Result<(), Errno> {
+        if self.getrandom(addr, length, flags).await? == length {
+            Ok(())
+        } else {
+            Err(Errno(-abi::EIO))
+        }
+    }
+
     pub async fn close(&mut self, fd: &RemoteFd) -> Result<(), Errno> {
         let result = self.syscall(sc::nr::CLOSE, &[fd.0 as isize]).await;
         if result == 0 {

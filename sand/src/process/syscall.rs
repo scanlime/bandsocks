@@ -149,6 +149,11 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 0
             }
 
+            nr::SET_TID_ADDRESS => {
+                log_level = LogLevel::Warn;
+                0
+            }
+
             nr::IOCTL => {
                 log_level = LogLevel::Warn;
                 let _fd = arg_i32(0);
@@ -170,6 +175,11 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                     result
                 );
                 self.return_stat_result(arg_ptr(1), result).await
+            }
+
+            nr::FSTAT => {
+                log_level = LogLevel::Warn;
+                0
             }
 
             nr::LSTAT => {

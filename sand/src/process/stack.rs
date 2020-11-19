@@ -95,6 +95,20 @@ impl StackBuilder {
         Ok(ptr)
     }
 
+    pub async fn push_random_bytes(
+        &mut self,
+        scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
+        length: usize,
+    ) -> Result<VPtr, Errno> {
+        assert!(length < abi::PAGE_SIZE);
+        scratchpad
+            .trampoline
+            .getrandom_exact(scratchpad.page_ptr, length, 0)
+            .await?;
+        self.push_remote_bytes(scratchpad.trampoline, scratchpad.page_ptr, length)
+            .await
+    }
+
     pub async fn push_stored_vectors(
         &mut self,
         scratchpad: &mut Scratchpad<'_, '_, '_, '_>,

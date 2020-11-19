@@ -94,6 +94,8 @@ async fn replace_maps_with_new_stack(
     let mut stack = loader.stack_begin().await?;
     let mut argc = 0;
 
+    let random_data_ptr = loader.stack_random_bytes(&mut stack, 16).await?;
+
     let filename_len = 1 + loader.vstring_len(loader.filename())?;
     let filename_ptr = loader
         .stack_remote_bytes(&mut stack, loader.filename().0, filename_len)
@@ -156,6 +158,8 @@ async fn replace_maps_with_new_stack(
                 0, //to do
                 abi::AT_SECURE,
                 0,
+                abi::AT_RANDOM,
+                random_data_ptr.0,
                 abi::AT_HWCAP2,
                 0,
                 abi::AT_EXECFN,

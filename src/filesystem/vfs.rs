@@ -150,9 +150,7 @@ impl<'s> Filesystem {
         } else {
             match &self.get_inode(parent)?.data {
                 Node::Directory(map) => match map.get(part) {
-                    None => {
-                        Err(VFSError::NotFound)
-                    }
+                    None => Err(VFSError::NotFound),
                     Some(child) => {
                         let entry = DirEntryRef {
                             parent,

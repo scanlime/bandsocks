@@ -14,7 +14,7 @@ use crate::{
 pub struct Loader<'q, 's, 't> {
     trampoline: Trampoline<'q, 's, 't>,
     file: SysFd,
-filename: VString,
+    filename: VString,
     file_header: FileHeader,
     argv: VPtr,
     envp: VPtr,
@@ -184,6 +184,20 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         stack_builder
             .push_remote_bytes(&mut self.trampoline, addr, length)
             .await
+    }
+
+    pub async fn stack_random_bytes(
+        &mut self,
+        stack_builder: &mut StackBuilder,
+        length: usize,
+    ) -> Result<VPtr, Errno> {
+        assert!(length <= abi::PAGE_SIZE);
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
+        let result = stack_builder
+            .push_random_bytes(&mut scratchpad, length)
+            .await;
+        scratchpad.free().await?;
+        result
     }
 
     pub async fn stack_finish(&mut self, stack_builder: StackBuilder) -> Result<(), Errno> {

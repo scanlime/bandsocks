@@ -113,7 +113,7 @@ impl Socket {
                 cmsg_level: abi::SOL_SOCKET,
                 cmsg_type: abi::SCM_RIGHTS,
             },
-            files: unsafe { core::mem::zeroed() }
+            files: unsafe { core::mem::zeroed() },
         };
         for (idx, file) in buffer.as_slice().files.iter().enumerate() {
             cmsg.files[idx] = file.0;
