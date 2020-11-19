@@ -288,7 +288,10 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         if self.stopped_task.task.log_enabled(log_level) {
             self.stopped_task.task.log(
                 log_level,
-                LogMessage::Emulated(LogSyscall(self.call.nr, self.call.args, result)),
+                LogMessage::Emulated(
+                    LogSyscall(self.call.nr, self.call.args, result),
+                    VPtr(self.call.instruction_pointer as usize),
+                ),
             )
         }
     }

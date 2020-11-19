@@ -67,7 +67,7 @@ pub enum LogLevel {
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum LogMessage {
-    Emulated(LogSyscall),
+    Emulated(LogSyscall, VPtr),
     Remote(LogSyscall),
 }
 
@@ -154,9 +154,15 @@ pub struct Errno(pub i32);
 #[repr(C)]
 pub struct VPid(pub u32);
 
-#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct VPtr(pub usize);
+
+impl core::fmt::Debug for VPtr {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "VPtr({:x?})", self.0)
+    }
+}
 
 impl VPtr {
     #[allow(dead_code)]
