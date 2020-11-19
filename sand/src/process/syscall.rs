@@ -139,6 +139,11 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 0
             }
 
+            nr::GETPGID => {
+                log_level = LogLevel::Warn;
+                0
+            }
+
             nr::UNAME => {
                 log_level = LogLevel::Warn;
                 0
