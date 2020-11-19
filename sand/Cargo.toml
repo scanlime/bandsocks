@@ -24,6 +24,7 @@ serde = { version = "1.0", default-features = false, features = ["derive"] }
 smalloca = { version = "0.1.0", default-features = false }
 sc = "0.2.3"
 twoway = { version = "0.2.1", default-features = false }
+raw-cpuid = "8.1.2"
 
 [workspace]
 # Separate workspace, with our own build profiles:

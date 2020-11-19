@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::UserRegs,
     binformat, nolibc,
-    process::{stack::StackBuilder, task::StoppedTask},
+    process::{maps::MemArea, stack::StackBuilder, task::StoppedTask},
     protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
     remote::{
         mem::{fault_or, read_string_array, vstring_len},
@@ -14,6 +14,7 @@ use crate::{
 pub struct Loader<'q, 's, 't> {
     trampoline: Trampoline<'q, 's, 't>,
     file: SysFd,
+filename: VString,
     file_header: FileHeader,
     argv: VPtr,
     envp: VPtr,
@@ -45,13 +46,9 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             .await
     }
 
-    pub fn file_header(&self) -> &FileHeader {
-        &self.file_header
-    }
-
     pub async fn open(
         stopped_task: &'t mut StoppedTask<'q, 's>,
-        file_name: VString,
+        filename: VString,
         argv: VPtr,
         envp: VPtr,
     ) -> Result<Loader<'q, 's, 't>, Errno> {
@@ -59,7 +56,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             stopped_task.task,
             FromTask::FileOpen {
                 dir: None,
-                path: file_name,
+                path: filename,
                 flags: abi::O_RDONLY as i32,
                 mode: 0,
             },
@@ -77,10 +74,19 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         Ok(Loader {
             trampoline,
             file,
+            filename,
             file_header,
             argv,
             envp,
         })
+    }
+
+    pub fn file_header(&self) -> &FileHeader {
+        &self.file_header
+    }
+
+    pub fn filename(&self) -> VString {
+        self.filename
     }
 
     pub fn argv_read(&mut self, idx: usize) -> Result<Option<VString>, Errno> {
@@ -117,6 +123,10 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
 
     pub fn userspace_regs(&mut self) -> &mut UserRegs {
         &mut self.trampoline.stopped_task.regs
+    }
+
+    pub fn vdso(&self) -> &MemArea {
+        &self.trampoline.vdso
     }
 
     pub fn randomize_brk(&mut self, brk_base: VPtr) {
