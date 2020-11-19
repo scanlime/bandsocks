@@ -38,6 +38,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::FORK,
             nr::COPY_FILE_RANGE,
             nr::DUP2,
+            nr::RT_SIGPROCMASK,
             nr::RT_SIGACTION,
             nr::RT_SIGRETURN,
             nr::SENDFILE,
