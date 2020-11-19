@@ -55,7 +55,7 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     Ok(())
 }
 
-fn init_registers(loader: &mut Loader<'_,'_,'_>, stack_ptr: VPtr, entry_ptr: VPtr) {
+fn init_registers(loader: &mut Loader<'_, '_, '_>, stack_ptr: VPtr, entry_ptr: VPtr) {
     let prev_regs = loader.userspace_regs().clone();
     loader.userspace_regs().clone_from(&UserRegs {
         sp: stack_ptr.0 as u64,
@@ -71,7 +71,7 @@ fn init_registers(loader: &mut Loader<'_,'_,'_>, stack_ptr: VPtr, entry_ptr: VPt
     });
 }
 
-async fn replace_maps_with_new_stack(loader: &mut Loader<'_,'_,'_>) -> Result<VPtr, Errno> {
+async fn replace_maps_with_new_stack(loader: &mut Loader<'_, '_, '_>) -> Result<VPtr, Errno> {
     let mut stack = loader.stack_begin().await?;
     let mut argc = 0;
 
@@ -111,15 +111,16 @@ async fn replace_maps_with_new_stack(loader: &mut Loader<'_,'_,'_>) -> Result<VP
     Ok(sp)
 }
 
-async fn load_segments(loader: &mut Loader<'_,'_,'_>) -> Result<VPtr, Errno> {
+async fn load_segments(loader: &mut Loader<'_, '_, '_>) -> Result<VPtr, Errno> {
     let ehdr = elf64_header(loader.file_header());
     let mut brk = VPtr(0);
     let load_base: usize = match ehdr.e_type {
         header::ET_EXEC => 0,
         header::ET_DYN => {
-            0x1111000
-        },
-        _ => unreachable!()
+            // to do: calculate this at a more suitable location, and randomize it
+            0x1_0000_0000
+        }
+        _ => unreachable!(),
     };
 
     for idx in 0..ehdr.e_phnum {
@@ -137,15 +138,12 @@ async fn load_segments(loader: &mut Loader<'_,'_,'_>) -> Result<VPtr, Errno> {
             if phdr.p_memsz > phdr.p_filesz {
                 loader
                     .map_anonymous(start_ptr, mem_size_aligned, prot)
-                    .await
-                    .expect("loader map_anonymous failed");
+                    .await?;
             }
-
             if phdr.p_filesz > 0 {
                 loader
                     .map_file(start_ptr, file_size_aligned, file_offset_aligned, prot)
-                    .await
-                    .expect("loader map_file failed");
+                    .await?;
             }
 
             brk = brk.max(start_ptr.add(mem_size_aligned));
