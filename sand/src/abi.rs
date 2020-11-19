@@ -201,6 +201,7 @@ pub const ECHILD: i32 = 10;
 pub const EAGAIN: i32 = 11;
 pub const EFAULT: i32 = 14;
 pub const EINVAL: i32 = 22;
+pub const ENOSYS: i32 = 38;
 pub const ECONNRESET: i32 = 104;
 
 // signo

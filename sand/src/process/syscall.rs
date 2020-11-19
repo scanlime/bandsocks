@@ -83,6 +83,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         let arg_usize = |idx| args[idx] as usize;
         let arg_ptr = |idx| VPtr(arg_usize(idx));
         let arg_string = |idx| VString(arg_ptr(idx));
+        let mut log_level = LogLevel::Debug;
 
         let result = match self.call.nr as usize {
             nr::BRK => {
@@ -111,14 +112,10 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::SETPGID => 0,
 
             // to do
-            nr::UNAME => {
-                0
-            }
+            nr::UNAME => 0,
 
             // to do
-            nr::SYSINFO => {
-                0
-            }
+            nr::SYSINFO => 0,
 
             // to do
             nr::IOCTL => {
@@ -243,13 +240,16 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_file_result(result).await
             }
 
-            _ => panic!("unexpected syscall trace, {:x?}", self),
+            _ => {
+                log_level = LogLevel::Error;
+                self.return_result(Err(Errno(-abi::ENOSYS))).await
+            }
         };
         SyscallInfo::ret_to_regs(result, self.stopped_task.regs);
 
-        if self.stopped_task.task.log_enabled(LogLevel::Debug) {
+        if self.stopped_task.task.log_enabled(log_level) {
             self.stopped_task.task.log(
-                LogLevel::Debug,
+                log_level,
                 LogMessage::Syscall {
                     nr: self.call.nr,
                     args: self.call.args,

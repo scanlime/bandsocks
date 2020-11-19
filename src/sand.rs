@@ -44,5 +44,5 @@ pub fn task_log(task: VPid, level: LogLevel, message: LogMessage) {
         LogLevel::Debug => log::Level::Debug,
         LogLevel::Trace => log::Level::Trace,
     };
-    log::log!(level, "{:?} {:x?}", task, message);
+    log::log!(level, "{:?} {:?}", task, message);
 }
