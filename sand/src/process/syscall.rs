@@ -102,23 +102,53 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
             nr::GETPID => self.stopped_task.task.task_data.vpid.0 as isize,
 
-            // to do
-            nr::GETPPID => 1,
-            nr::GETUID => 0,
-            nr::GETGID => 0,
-            nr::GETEUID => 0,
-            nr::GETEGID => 0,
-            nr::GETPGRP => 0,
-            nr::SETPGID => 0,
+            nr::GETPPID => {
+                log_level = LogLevel::Warn;
+                1
+            }
 
-            // to do
-            nr::UNAME => 0,
+            nr::GETUID => {
+                log_level = LogLevel::Warn;
+                0
+            }
 
-            // to do
-            nr::SYSINFO => 0,
+            nr::GETGID => {
+                log_level = LogLevel::Warn;
+                0
+            }
 
-            // to do
+            nr::GETEUID => {
+                log_level = LogLevel::Warn;
+                0
+            }
+
+            nr::GETEGID => {
+                log_level = LogLevel::Warn;
+                0
+            }
+
+            nr::GETPGRP => {
+                log_level = LogLevel::Warn;
+                0
+            }
+
+            nr::SETPGID => {
+                log_level = LogLevel::Warn;
+                0
+            }
+
+            nr::UNAME => {
+                log_level = LogLevel::Warn;
+                0
+            }
+
+            nr::SYSINFO => {
+                log_level = LogLevel::Warn;
+                0
+            }
+
             nr::IOCTL => {
+                log_level = LogLevel::Warn;
                 let _fd = arg_i32(0);
                 let _cmd = arg_i32(1);
                 let _arg = arg_usize(2);
@@ -126,6 +156,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             }
 
             nr::STAT => {
+                log_level = LogLevel::Warn;
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::FileStat {
@@ -140,6 +171,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             }
 
             nr::LSTAT => {
+                log_level = LogLevel::Warn;
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::FileStat {
@@ -154,6 +186,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             }
 
             nr::NEWFSTATAT => {
+                log_level = LogLevel::Warn;
                 let flags = arg_i32(3);
                 let fd = arg_i32(0);
                 if fd != abi::AT_FDCWD {
@@ -173,6 +206,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             }
 
             nr::ACCESS => {
+                log_level = LogLevel::Warn;
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::FileAccess {
@@ -187,6 +221,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             }
 
             nr::GETCWD => {
+                log_level = LogLevel::Warn;
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::GetWorkingDir(arg_string(0), arg_usize(1)),
@@ -197,6 +232,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             }
 
             nr::CHDIR => {
+                log_level = LogLevel::Warn;
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::ChangeWorkingDir(arg_string(0)),
@@ -224,7 +260,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
                 let fd = arg_i32(0);
                 if fd != abi::AT_FDCWD {
-                    unimplemented!();
+                    log_level = LogLevel::Error;
                 }
                 let result = ipc_call!(
                     self.stopped_task.task,
