@@ -76,7 +76,11 @@ pub struct LogSyscall(pub u64, pub [u64; 6], pub isize);
 
 impl core::fmt::Debug for LogSyscall {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "SYS_{} {:x?} -> {:?} {:x?}", self.0, self.1, self.2, self.2)
+        write!(
+            f,
+            "SYS_{:?} {:x?} -> {:?} ({:x?})",
+            self.0, self.1, self.2, self.2
+        )
     }
 }
 

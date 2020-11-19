@@ -22,10 +22,16 @@ fn elf64_program_header(loader: &Loader, ehdr: &Header, idx: u16) -> Result<Prog
 
 pub fn detect(fh: &FileHeader) -> bool {
     let ehdr = elf64_header(fh);
-    &ehdr.e_ident[..header::SELFMAG] == header::ELFMAG
-        && ehdr.e_ident[header::EI_CLASS] == header::ELFCLASS64
-        && ehdr.e_ident[header::EI_DATA] == header::ELFDATA2LSB
-        && ehdr.e_ident[header::EI_VERSION] == header::EV_CURRENT
+    let magic = &ehdr.e_ident[..header::SELFMAG];
+    let e_type = ehdr.e_type;
+    let ei_class = ehdr.e_ident[header::EI_CLASS];
+    let ei_data = ehdr.e_ident[header::EI_DATA];
+    let ei_version = ehdr.e_ident[header::EI_VERSION];
+    magic == header::ELFMAG
+        && (e_type == header::ET_EXEC || e_type == header::ET_DYN)
+        && ei_class == header::ELFCLASS64
+        && ei_data == header::ELFDATA2LSB
+        && ei_version == header::EV_CURRENT
 }
 
 fn phdr_prot(phdr: &ProgramHeader) -> isize {
@@ -43,7 +49,29 @@ fn phdr_prot(phdr: &ProgramHeader) -> isize {
 }
 
 pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errno> {
-    let ehdr = elf64_header(loader.file_header());
+    let stack_ptr = replace_maps_with_new_stack(&mut loader).await?;
+    let entry_ptr = load_segments(&mut loader).await?;
+    init_registers(&mut loader, stack_ptr, entry_ptr);
+    Ok(())
+}
+
+fn init_registers(loader: &mut Loader<'_,'_,'_>, stack_ptr: VPtr, entry_ptr: VPtr) {
+    let prev_regs = loader.userspace_regs().clone();
+    loader.userspace_regs().clone_from(&UserRegs {
+        sp: stack_ptr.0 as u64,
+        ip: entry_ptr.0 as u64,
+        cs: prev_regs.cs,
+        ss: prev_regs.ss,
+        ds: prev_regs.ds,
+        es: prev_regs.es,
+        fs: prev_regs.fs,
+        gs: prev_regs.gs,
+        flags: prev_regs.flags,
+        ..Default::default()
+    });
+}
+
+async fn replace_maps_with_new_stack(loader: &mut Loader<'_,'_,'_>) -> Result<VPtr, Errno> {
     let mut stack = loader.stack_begin().await?;
     let mut argc = 0;
 
@@ -80,22 +108,19 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
     let sp = loader.stack_stored_vectors(&mut stack).await?;
     loader.unmap_all_userspace_mem().await;
     loader.stack_finish(stack).await?;
+    Ok(sp)
+}
 
-    let prev_regs = loader.userspace_regs().clone();
-    loader.userspace_regs().clone_from(&UserRegs {
-        sp: sp.0 as u64,
-        ip: ehdr.e_entry,
-        cs: prev_regs.cs,
-        ss: prev_regs.ss,
-        ds: prev_regs.ds,
-        es: prev_regs.es,
-        fs: prev_regs.fs,
-        gs: prev_regs.gs,
-        flags: prev_regs.flags,
-        ..Default::default()
-    });
-
+async fn load_segments(loader: &mut Loader<'_,'_,'_>) -> Result<VPtr, Errno> {
+    let ehdr = elf64_header(loader.file_header());
     let mut brk = VPtr(0);
+    let load_base: usize = match ehdr.e_type {
+        header::ET_EXEC => 0,
+        header::ET_DYN => {
+            0x1111000
+        },
+        _ => unreachable!()
+    };
 
     for idx in 0..ehdr.e_phnum {
         let phdr = elf64_program_header(&loader, &ehdr, idx)?;
@@ -104,7 +129,7 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
         {
             let prot = phdr_prot(&phdr);
             let page_alignment = abi::page_offset(phdr.p_vaddr as usize);
-            let start_ptr = VPtr(phdr.p_vaddr as usize - page_alignment);
+            let start_ptr = VPtr(phdr.p_vaddr as usize - page_alignment + load_base);
             let file_size_aligned = abi::page_round_up(phdr.p_filesz as usize + page_alignment);
             let file_offset_aligned = phdr.p_offset as usize - page_alignment;
             let mem_size_aligned = abi::page_round_up(phdr.p_memsz as usize + page_alignment);
@@ -129,5 +154,5 @@ pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errn
 
     loader.randomize_brk(brk);
 
-    Ok(())
+    Ok(VPtr(load_base + ehdr.e_entry as usize))
 }
