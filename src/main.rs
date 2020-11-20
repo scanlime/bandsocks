@@ -3,7 +3,6 @@
 use bandsocks::Container;
 use clap::{App, ArgMatches};
 use env_logger::{from_env, Env};
-use std::process::ExitStatus;
 
 #[tokio::main]
 async fn main() {
