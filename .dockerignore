@@ -1,6 +1,7 @@
 *~
 .git
-target/
+target
+sand/target
 Dockerfile
 *.md
 *.sh
