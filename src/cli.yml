@@ -1,15 +1,9 @@
 name: bandsocks
-version: "0.1.0"
+version: "0.2.0"
 author: scanlime
 about: container runtime 🅱️ 🧦
+usage: bandsocks [options] [REGISTRY/]<IMAGE>[:TAG or @DIGEST] [--] [args...]
 args:
-    - log_level:
-        short: l
-        long: log-level
-        value_name: FILTER
-        takes_value: true
-        default_value: info
-        help: default log filter, superceded by RUST_LOG environment variable
     - run_env:
         short: e
         long: env
@@ -22,10 +16,23 @@ args:
         required: true
         value_name: IMAGE
         takes_value: true
-        help: image to run, in [<registry>/]<repository>[:<tag>][@digest] format>
+        help: image to run, as a registry repository name, with optional REGISTRY/ prefix and :TAG or @DIGEST suffix
     - run_args:
         index: 2
         multiple: true
         value_name: ARGS
         takes_value: true
         help: arguments passed to the container's entry point
+    - log_level:
+        short: l
+        long: log-level
+        value_name: FILTER
+        takes_value: true
+        default_value: info
+        help: default log filter, superceded by RUST_LOG environment variable
+    - cache_dir:
+        short: d
+        long: cache
+        value_name: DIR
+        takes_value: true
+        help: specify the cache directory to keep downloaded and decompressed images in

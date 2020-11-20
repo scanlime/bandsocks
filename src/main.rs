@@ -1,8 +1,9 @@
 #[macro_use] extern crate clap;
 
-use bandsocks::Container;
+use bandsocks::{registry::Client, Container};
 use clap::{App, ArgMatches};
 use env_logger::{from_env, Env};
+use std::path::Path;
 
 #[tokio::main]
 async fn main() {
@@ -20,13 +21,25 @@ async fn main() {
         .parse()
         .expect("bad image reference");
 
-    let status = Container::pull(&image_reference)
+    let mut client = Client::configure();
+    if let Some(dir) = matches.value_of("cache_dir") {
+        client.cache_dir(Path::new(dir));
+    }
+    let mut client = client.build().unwrap();
+
+    let image = client
+        .pull(&image_reference)
         .await
-        .expect("failed to pull container image")
+        .expect("failed to pull container image");
+
+    let container = Container::new()
+        .image(&image)
         .args(run_args)
         .envs(run_env)
         .spawn()
-        .expect("container failed to start")
+        .expect("container failed to start");
+
+    let status = container
         .wait()
         .await
         .expect("failed waiting for container to stop");

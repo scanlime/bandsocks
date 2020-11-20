@@ -1,8 +1,7 @@
 use bandsocks::{Container, ContainerBuilder};
 use tokio::runtime::Runtime;
 
-const IMAGE: &str =
-    "busybox:uclibc@sha256:f0b02e9d092d905d0d87a8455a1ae3e9bb47b4aa3dc125125ca5cd10d6441c9f";
+const IMAGE: &str = "busybox@sha256:c9249fdf56138f0d929e2080ae98ee9cb2946f71498fc1484288e6a935b5e5bc";
 
 async fn pull() -> ContainerBuilder {
     Container::pull(&IMAGE.parse().unwrap())
@@ -12,6 +11,7 @@ async fn pull() -> ContainerBuilder {
 
 #[test]
 fn busybox_true() {
+    env_logger::init();
     Runtime::new().unwrap().block_on(async {
         let container = pull().await.arg("/bin/true").spawn().unwrap();
         let status = container.wait().await.unwrap();
