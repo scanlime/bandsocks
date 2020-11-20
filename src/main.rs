@@ -3,6 +3,7 @@
 use bandsocks::Container;
 use clap::{App, ArgMatches};
 use env_logger::{from_env, Env};
+use std::process::ExitStatus;
 
 #[tokio::main]
 async fn main() {
@@ -20,7 +21,7 @@ async fn main() {
         .parse()
         .expect("bad image reference");
 
-    Container::pull(&image_reference)
+    let status = Container::pull(&image_reference)
         .await
         .expect("failed to pull container image")
         .args(run_args)
@@ -29,7 +30,11 @@ async fn main() {
         .expect("container failed to start")
         .wait()
         .await
-        .expect("failed waiting for container to stop")
+        .expect("failed waiting for container to stop");
+
+    if let Some(code) = status.code() {
+        std::process::exit(code);
+    }
 }
 
 fn string_values<S: AsRef<str>>(matches: &ArgMatches, name: S) -> Vec<String> {

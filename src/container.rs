@@ -1,3 +1,5 @@
+//! High-level interface for running unprivileged containers
+
 use crate::{
     errors::{ImageError, RuntimeError},
     filesystem::{storage::FileStorage, vfs::Filesystem},
@@ -15,10 +17,13 @@ use std::{
     ffi::{OsStr, OsString},
     os::unix::{ffi::OsStrExt, io::AsRawFd},
     path::{Path, PathBuf},
+    process::ExitStatus,
     sync::Arc,
 };
 use tokio::{io::AsyncWriteExt, task::JoinHandle};
 
+/// Setup for containers, starting at [Container::new()] and ending with
+/// [ContainerBuilder::spawn()]
 #[derive(Default)]
 pub struct ContainerBuilder {
     image: Option<Arc<Image>>,
@@ -35,6 +40,7 @@ enum EnvBuilder {
 }
 
 impl ContainerBuilder {
+    /// Start a new [Container] using the current settings in this builder
     pub fn spawn(&self) -> Result<Container, RuntimeError> {
         // it might be nice to enforce this at compile-time instead... right now it
         // seemed worth allowing for multiple ways to load images without the
@@ -107,11 +113,13 @@ impl ContainerBuilder {
         Ok(Container::startup(filesystem, storage, argv, env, dir)?)
     }
 
+    /// Supply an [Image] with filesystem and configuration data
     pub fn image(&mut self, image: &Arc<Image>) -> &mut Self {
         self.image = Some(image.clone());
         self
     }
 
+    /// Append arguments to the container's command line
     pub fn args<I, S>(&mut self, args: I) -> &mut Self
     where
         I: IntoIterator<Item = S>,
@@ -123,21 +131,25 @@ impl ContainerBuilder {
         self
     }
 
+    /// Append one argument to the container's command line
     pub fn arg<S: AsRef<OsStr>>(&mut self, arg: S) -> &mut Self {
         self.arg_list.push(arg.as_ref().to_os_string());
         self
     }
 
+    /// Override the current directory the entrypoint will run in
     pub fn current_dir<P: AsRef<Path>>(&mut self, dir: P) -> &mut Self {
         self.current_dir = Some(dir.as_ref().as_os_str().to_os_string());
         self
     }
 
+    /// Override the container's entrypoint path
     pub fn entrypoint<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
         self.entrypoint = Some(path.as_ref().as_os_str().to_os_string());
         self
     }
 
+    /// Add or replace one environment variable
     pub fn env<K, V>(&mut self, key: K, val: V) -> &mut Self
     where
         K: AsRef<OsStr>,
@@ -150,6 +162,7 @@ impl ContainerBuilder {
         self
     }
 
+    /// Add or replace many environment variables
     pub fn envs<I, K, V>(&mut self, vars: I) -> &mut Self
     where
         I: IntoIterator<Item = (K, V)>,
@@ -162,35 +175,52 @@ impl ContainerBuilder {
         self
     }
 
+    /// Remove one environment variable entirely, leaving it unset
     pub fn env_remove<K: AsRef<OsStr>>(&mut self, key: K) -> &mut Self {
         self.env_list
             .push(EnvBuilder::Remove(key.as_ref().to_os_string()));
         self
     }
 
+    /// Clear all environment variables, including those from the image
+    /// configuration
     pub fn env_clear(&mut self) -> &mut Self {
         self.env_list.push(EnvBuilder::Clear);
         self
     }
 }
 
+/// A running container, analogous to [std::process::Child]
 #[derive(Debug)]
 pub struct Container {
-    join: JoinHandle<Result<(), RuntimeError>>,
+    join: JoinHandle<Result<ExitStatus, RuntimeError>>,
 }
 
 impl Container {
+    /// Prepare to run a new container. Returns a [ContainerBuilder] for
+    /// configuring the command line, environment, filesystem, and more.
+    /// The builder starts with no associated image.
     pub fn new() -> ContainerBuilder {
         Default::default()
     }
 
-    pub async fn wait(self) -> Result<(), RuntimeError> {
+    /// Wait for the container to finish running, if necessary, and return its
+    /// exit status.
+    pub async fn wait(self) -> Result<ExitStatus, RuntimeError> {
         self.join.await?
     }
 
+    /// Given a reference to a registry image, download and cache the image
+    /// data, and return a [ContainerBuilder] instance ready for any additional
+    /// settings.
+    ///
+    /// This is equivalent to using [Client::pull()] followed by
+    /// [ContainerBuilder::image()], which as an alternative allows using custom
+    /// settings for [Client].
     pub async fn pull(image_reference: &Reference) -> Result<ContainerBuilder, ImageError> {
+        let image = Client::new()?.pull(image_reference).await?;
         let mut builder = Container::new();
-        builder.image(&Client::new()?.pull(image_reference).await?);
+        builder.image(&image);
         Ok(builder)
     }
 
@@ -275,9 +305,9 @@ impl Container {
                 args.write_all(b"\0").await?;
 
                 args.flush().await?;
-                ipc_task.await??;
+                let status = ipc_task.await??;
 
-                Ok(())
+                Ok(status)
             }),
         })
     }

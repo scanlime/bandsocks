@@ -1,3 +1,5 @@
+//! Error types you might see while setting up or running a bandsocks container
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -10,6 +12,9 @@ pub enum ImageError {
 
     #[error("json error: {0}")]
     JSON(#[from] serde_json::Error),
+
+    #[error("asynchronous task failed during image preparation")]
+    TaskJoin(#[from] tokio::task::JoinError),
 
     #[error("tar file format error")]
     TARFileError,
@@ -109,6 +114,9 @@ pub enum IPCError {
 
     #[error("memory access error")]
     MemAccess,
+
+    #[error("connection lost unexpectedly")]
+    Disconnected,
 }
 
 #[derive(Error, Debug)]

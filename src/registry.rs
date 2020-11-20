@@ -1,3 +1,5 @@
+//! Optional lower-level interface to the container registry and cache
+
 use crate::{
     errors::ImageError,
     filesystem::{
@@ -12,25 +14,33 @@ use crate::{
 use directories_next::ProjectDirs;
 use dkregistry::v2::Client as RegistryClient;
 use flate2::read::GzDecoder;
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use memmap::Mmap;
 use std::{
+    io,
     io::Read,
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tokio::task;
 
+/// Builder for configuring custom [Client] instances
 pub struct ClientBuilder {
     cache_dir: Option<PathBuf>,
 }
 
 impl ClientBuilder {
-    #[allow(dead_code)]
+    /// Change the cache directory used for read-only copies of downloaded
+    /// images.
     pub fn cache_dir(&mut self, dir: &Path) -> &mut Self {
         self.cache_dir = Some(dir.to_path_buf());
         self
     }
 
-    fn default_cache_dir() -> Result<PathBuf, ImageError> {
+    /// Determine a default per-user cache directory which will be used if an
+    /// alternate cache directory is not specified. This will typically
+    /// return `$HOME/.cache/bandsocks`
+    pub fn default_cache_dir() -> Result<PathBuf, ImageError> {
         if let Some(proj_dirs) = ProjectDirs::from("org", "scanlime", "bandsocks") {
             Ok(proj_dirs.cache_dir().to_path_buf())
         } else {
@@ -38,6 +48,7 @@ impl ClientBuilder {
         }
     }
 
+    /// Construct a Client using the parameters from this Builder
     pub fn build(self) -> Result<Client, ImageError> {
         let cache_dir = match self.cache_dir {
             Some(dir) => dir,
@@ -45,51 +56,39 @@ impl ClientBuilder {
         };
         Ok(Client {
             storage: FileStorage::new(cache_dir),
-            registry_client: None,
         })
     }
 }
 
+/// Registry clients can download and store data from an image registry
+#[derive(Clone)]
 pub struct Client {
     storage: FileStorage,
-    registry_client: Option<(Reference, RegistryClient)>,
 }
 
 impl Client {
+    /// Construct a new registry client with default options
     pub fn new() -> Result<Client, ImageError> {
         Client::configure().build()
     }
 
+    /// Construct a registry client with custom options, via ClientBuilder
     pub fn configure() -> ClientBuilder {
         ClientBuilder { cache_dir: None }
     }
 
-    async fn registry_client_for<'a>(
-        &'a mut self,
+    async fn registry_client_for(
+        &mut self,
         image: &Reference,
-    ) -> Result<&'a RegistryClient, ImageError> {
-        let is_reusable = match &self.registry_client {
-            None => false,
-            Some((prev_image, _)) => {
-                prev_image.registry() == image.registry()
-                    && prev_image.repository() == image.repository()
-            }
-        };
-
-        if !is_reusable {
-            let client = RegistryClient::configure()
-                .registry(&image.registry())
-                .insecure_registry(false)
-                .username(None)
-                .password(None)
-                .build()?;
-
-            let login_scope = format!("repository:{}:pull", image.repository());
-            let client = client.authenticate(&[&login_scope]).await?;
-            self.registry_client.replace((image.clone(), client));
-        }
-
-        Ok(&self.registry_client.as_ref().unwrap().1)
+    ) -> Result<RegistryClient, ImageError> {
+        let client = RegistryClient::configure()
+            .registry(&image.registry())
+            .insecure_registry(false)
+            .username(None)
+            .password(None)
+            .build()?;
+        let login_scope = format!("repository:{}:pull", image.repository());
+        Ok(client.authenticate(&[&login_scope]).await?)
     }
 
     async fn pull_manifest(&mut self, image: &Reference) -> Result<Manifest, ImageError> {
@@ -97,7 +96,7 @@ impl Client {
         let map = match self.storage.mmap(&key).await? {
             Some(map) => map,
             None => {
-                log::info!("downloading manifest for {}...", image);
+                log::info!("{} downloading manifest...", image);
                 let rc = self.registry_client_for(image).await?;
                 match rc
                     .get_manifest(&image.repository(), &image.version())
@@ -152,7 +151,7 @@ impl Client {
             Some(map) => map,
             None => {
                 let rc = self.registry_client_for(image).await?;
-                log::info!("downloading {} bytes from {}...", link.size, image);
+                log::info!("{} downloading {} bytes ...", image, link.size);
                 let blob_data = rc.get_blob(&image.repository(), &link.digest).await?;
                 log::debug!("{} downloaded, {} bytes", link.digest, link.size);
                 self.storage.insert(&key, &blob_data).await?;
@@ -192,19 +191,52 @@ impl Client {
         }
     }
 
-    async fn decompress_layer(&mut self, data: &[u8]) -> Result<(), ImageError> {
-        log::info!("decompressing {} bytes...", data.len());
-        let mut decoder = GzDecoder::new(data);
-        let mut output = vec![];
-        decoder.read_to_end(&mut output)?;
-        let key = StorageKey::from_blob_data(&output);
-        log::debug!(
-            "decompressed {} bytes into {} bytes, {:?}",
-            data.len(),
-            output.len(),
-            key
-        );
+    async fn decompress_layer(&mut self, data: Mmap) -> Result<(), ImageError> {
+        let result: io::Result<(StorageKey, Vec<u8>)> = task::spawn_blocking(move || {
+            if data.len() > 1024 * 1024 {
+                log::info!("decompressing {} bytes ...", data.len());
+            }
+            let mut decoder = GzDecoder::new(&data[..]);
+            let mut output = vec![];
+            decoder.read_to_end(&mut output)?;
+            let key = StorageKey::from_blob_data(&output);
+            log::debug!(
+                "decompressed {} bytes into {} bytes, {:?}",
+                data.len(),
+                output.len(),
+                key
+            );
+            Ok((key, output))
+        })
+        .await?;
+        let (key, output) = result?;
         self.storage.insert(&key, &output).await?;
+        Ok(())
+    }
+
+    async fn pull_and_decompress_layers(
+        &mut self,
+        image: &Reference,
+        manifest: &Manifest,
+    ) -> Result<(), ImageError> {
+        let mut tasks = FuturesUnordered::new();
+        for link in &manifest.layers {
+            let link = link.clone();
+            let image = image.clone();
+            let mut client = self.clone();
+            tasks.push(task::spawn(async move {
+                if link.media_type == media_types::LAYER_TAR_GZIP {
+                    let tar_gzip = client.pull_blob(&image, &link).await?;
+                    client.decompress_layer(tar_gzip).await
+                } else {
+                    Err(ImageError::UnsupportedLayerType(link.media_type))
+                }
+            }));
+        }
+        for result in tasks.next().await {
+            println!("{:?}", result);
+            result??;
+        }
         Ok(())
     }
 
@@ -223,17 +255,11 @@ impl Client {
             ))?;
         }
         let ids = &config.rootfs.diff_ids;
+
         let content = match self.local_blob_list(ids).await? {
             Some(content) => Ok(content),
             None => {
-                for link in &manifest.layers {
-                    if link.media_type == media_types::LAYER_TAR_GZIP {
-                        let tar_gzip = self.pull_blob(image, link).await?;
-                        self.decompress_layer(&tar_gzip[..]).await?;
-                    } else {
-                        Err(ImageError::UnsupportedLayerType(link.media_type.clone()))?;
-                    }
-                }
+                self.pull_and_decompress_layers(image, &manifest).await?;
                 match self.local_blob_list(ids).await? {
                     Some(content) => Ok(content),
                     None => Err(ImageError::UnexpectedDecompressedLayerContent),

@@ -5,16 +5,17 @@ compile_error!("bandsocks only works on linux or android");
 #[macro_use] extern crate serde;
 #[macro_use] extern crate hash32_derive;
 
-mod container;
-mod errors;
+pub mod container;
+pub mod errors;
+pub mod image;
+pub mod registry;
+
 mod filesystem;
-mod image;
 mod ipcserver;
 mod manifest;
 mod process;
-mod registry;
 mod sand;
 mod taskcall;
 
-pub use crate::{container::Container, image::Image};
+pub use crate::container::Container;
 pub use dkregistry::reference::Reference;

@@ -117,7 +117,7 @@ pub enum FromTask {
     ProcessKill(VPid, Signal),
     ChangeWorkingDir(VString),
     GetWorkingDir(VString, usize),
-    Exited(u32),
+    Exited(i32),
     Log(LogLevel, LogMessage),
 }
 

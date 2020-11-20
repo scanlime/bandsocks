@@ -17,8 +17,12 @@ use pentacle::SealedCommand;
 use std::{
     collections::HashMap,
     io::Cursor,
-    os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
-    process::Child,
+    os::unix::{
+        io::AsRawFd,
+        prelude::RawFd,
+        process::{CommandExt, ExitStatusExt},
+    },
+    process::{Child, ExitStatus},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -84,25 +88,21 @@ impl IPCServer {
         })
     }
 
-    pub fn task(mut self) -> JoinHandle<Result<(), IPCError>> {
+    pub fn task(mut self) -> JoinHandle<Result<ExitStatus, IPCError>> {
         task::spawn(async move {
             let mut buffer = IPCBuffer::new();
             loop {
                 buffer.reset();
                 unsafe { buffer.set_len(buffer.byte_capacity(), 0) };
                 match self.stream.read(buffer.as_slice_mut().bytes).await? {
-                    len if len > 0 => unsafe {
-                        log::trace!("ipc read, {} bytes", len);
-                        buffer.set_len(len, 0)
-                    },
-                    _ => {
-                        log::warn!("ipc server is exiting");
-                        break Ok(());
-                    }
+                    len if len > 0 => unsafe { buffer.set_len(len, 0) },
+                    _ => return Err(IPCError::Disconnected),
                 }
                 while !buffer.is_empty() {
                     let message = buffer.pop_front()?;
-                    self.handle_message(message).await?;
+                    if let Some(exit) = self.handle_message(message).await? {
+                        return Ok(exit);
+                    }
                 }
             }
         })
@@ -112,50 +112,60 @@ impl IPCServer {
         send_message(&mut self.stream, message).await
     }
 
-    async fn handle_message(&mut self, message: MessageFromSand) -> Result<(), IPCError> {
+    async fn handle_message(
+        &mut self,
+        message: MessageFromSand,
+    ) -> Result<Option<ExitStatus>, IPCError> {
         log::debug!(">{:x?}", message);
         match message {
             MessageFromSand::Task { task, op } => self.handle_task_message(task, op).await,
         }
     }
 
-    async fn task_reply(&mut self, task: VPid, result: Result<(), Errno>) -> Result<(), IPCError> {
+    async fn task_reply(
+        &mut self,
+        task: VPid,
+        result: Result<(), Errno>,
+    ) -> Result<Option<ExitStatus>, IPCError> {
         self.send_message(&MessageToSand::Task {
             task,
             op: ToTask::Reply(result),
         })
-        .await
+        .await?;
+        Ok(None)
     }
 
     async fn task_size_reply(
         &mut self,
         task: VPid,
         result: Result<usize, Errno>,
-    ) -> Result<(), IPCError> {
+    ) -> Result<Option<ExitStatus>, IPCError> {
         self.send_message(&MessageToSand::Task {
             task,
             op: ToTask::SizeReply(result),
         })
-        .await
+        .await?;
+        Ok(None)
     }
 
     async fn task_stat_reply(
         &mut self,
         task: VPid,
         result: Result<FileStat, Errno>,
-    ) -> Result<(), IPCError> {
+    ) -> Result<Option<ExitStatus>, IPCError> {
         self.send_message(&MessageToSand::Task {
             task,
             op: ToTask::FileStatReply(result),
         })
-        .await
+        .await?;
+        Ok(None)
     }
 
     async fn task_file_reply(
         &mut self,
         task: VPid,
         result: Result<VFile, Errno>,
-    ) -> Result<(), IPCError> {
+    ) -> Result<Option<ExitStatus>, IPCError> {
         // SysFd does not own the underlying file, which must remain allocated until the
         // outgoing message has been flushed.
         let storage = match result {
@@ -174,14 +184,18 @@ impl IPCServer {
             op: ToTask::FileReply(sys_fd),
         })
         .await?;
-        Ok(())
+        Ok(None)
     }
 
-    async fn handle_task_message(&mut self, task: VPid, op: FromTask) -> Result<(), IPCError> {
+    async fn handle_task_message(
+        &mut self,
+        task: VPid,
+        op: FromTask,
+    ) -> Result<Option<ExitStatus>, IPCError> {
         match op {
             FromTask::Log(level, message) => {
                 sand::task_log(task, level, message);
-                Ok(())
+                Ok(None)
             }
 
             FromTask::OpenProcess(sys_pid) => {
@@ -201,7 +215,8 @@ impl IPCServer {
                         task,
                         op: ToTask::OpenProcessReply(handle),
                     })
-                    .await
+                    .await?;
+                    Ok(None)
                 }
             }
 
@@ -261,10 +276,7 @@ impl IPCServer {
                 Some(_process) => self.task_reply(task, Ok(())).await,
             },
 
-            FromTask::Exited(exit_code) => {
-                log::warn!("task exit, code {}", exit_code);
-                Ok(())
-            }
+            FromTask::Exited(exit_code) => Ok(Some(ExitStatus::from_raw(exit_code))),
         }
     }
 }

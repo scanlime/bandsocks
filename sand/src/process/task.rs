@@ -180,7 +180,7 @@ impl<'q> Task<'q> {
     }
 
     async fn handle_exited(&mut self, exit_code: u32) {
-        self.msg.send(FromTask::Exited(exit_code));
+        self.msg.send(FromTask::Exited(exit_code as i32));
         panic!("exit not handled yet, code {}", exit_code);
     }
 
