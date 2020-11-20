@@ -28,6 +28,9 @@ pub enum ImageError {
     #[error("data just written to the cache is missing")]
     StorageMissingAfterInsert,
 
+    #[error("calculated digest of downloaded content is not what we asked for")]
+    ContentDigestMismatch,
+
     #[error("can't determine where to cache image files")]
     NoDefaultCacheDir,
 

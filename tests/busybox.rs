@@ -1,7 +1,8 @@
 use bandsocks::{Container, ContainerBuilder};
 use tokio::runtime::Runtime;
 
-const IMAGE: &str = "busybox@sha256:c9249fdf56138f0d929e2080ae98ee9cb2946f71498fc1484288e6a935b5e5bc";
+const IMAGE: &str =
+    "busybox@sha256:c9249fdf56138f0d929e2080ae98ee9cb2946f71498fc1484288e6a935b5e5bc";
 
 async fn pull() -> ContainerBuilder {
     Container::pull(&IMAGE.parse().unwrap())

@@ -2,7 +2,7 @@ use bandsocks::{Container, ContainerBuilder};
 use tokio::runtime::Runtime;
 
 const IMAGE: &str =
-    "jrottenberg/ffmpeg:4.3.1-scratch38@sha256:f0b02e9d092d905d0d87a8455a1ae3e9bb47b4aa3dc125125ca5cd10d6441c9f";
+    "jrottenberg/ffmpeg@sha256:fd2d5fb9f4f18aaf0b568f153d9042be115df626d9cbe7920b8b9063ca654b2a";
 
 async fn pull() -> ContainerBuilder {
     Container::pull(&IMAGE.parse().unwrap())
@@ -11,7 +11,8 @@ async fn pull() -> ContainerBuilder {
 }
 
 #[test]
-fn help() {
+fn ffmpeg_help() {
+    env_logger::init();
     Runtime::new().unwrap().block_on(async {
         let container = pull().await.spawn().unwrap();
         let status = container.wait().await.unwrap();

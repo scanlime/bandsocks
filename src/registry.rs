@@ -17,7 +17,6 @@ use flate2::read::GzDecoder;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use memmap::Mmap;
 use std::{
-    io,
     io::Read,
     path::{Path, PathBuf},
     sync::Arc,
@@ -103,6 +102,9 @@ impl Client {
                     .await?
                 {
                     dkregistry::v2::manifest::Manifest::S2(schema) => {
+                        // FIXME: need to verify sha256 of the manifest.
+                        // multiple problems with using dkregistry here at this point. time to
+                        // switch tactics?
                         let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
                         self.storage.insert(&key, &spec_data).await?;
                         match self.storage.mmap(&key).await? {
@@ -153,13 +155,14 @@ impl Client {
                 let rc = self.registry_client_for(image).await?;
                 log::info!("{} downloading {} bytes ...", image, link.size);
                 let blob_data = rc.get_blob(&image.repository(), &link.digest).await?;
+                // Note that the dkregistry library does verify the sha256 digest itself
                 log::debug!("{} downloaded, {} bytes", link.digest, link.size);
                 self.storage.insert(&key, &blob_data).await?;
                 match self.storage.mmap(&key).await? {
                     Some(map) => map,
                     None => return Err(ImageError::StorageMissingAfterInsert),
                 }
-            }
+            } //
         };
         if mmap.len() as u64 == link.size {
             Ok(mmap)
@@ -192,7 +195,8 @@ impl Client {
     }
 
     async fn decompress_layer(&mut self, data: Mmap) -> Result<(), ImageError> {
-        let result: io::Result<(StorageKey, Vec<u8>)> = task::spawn_blocking(move || {
+        let data_len = data.len();
+        let output: Result<(StorageKey, Vec<u8>), ImageError> = task::spawn_blocking(move || {
             if data.len() > 1024 * 1024 {
                 log::info!("decompressing {} bytes ...", data.len());
             }
@@ -200,16 +204,16 @@ impl Client {
             let mut output = vec![];
             decoder.read_to_end(&mut output)?;
             let key = StorageKey::from_blob_data(&output);
-            log::debug!(
-                "decompressed {} bytes into {} bytes, {:?}",
-                data.len(),
-                output.len(),
-                key
-            );
             Ok((key, output))
         })
         .await?;
-        let (key, output) = result?;
+        let (key, output) = output?;
+        log::debug!(
+            "decompressed {} bytes into {} bytes, {:?}",
+            data_len,
+            output.len(),
+            key
+        );
         self.storage.insert(&key, &output).await?;
         Ok(())
     }
