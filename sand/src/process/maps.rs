@@ -129,6 +129,14 @@ impl<'q, 's, 't> Iterator for MapsIterator<'q, 's, 't> {
     }
 }
 
+#[allow(dead_code)]
+pub fn print_maps_dump(stopped_task: &mut StoppedTask) {
+    println!("maps dump:");
+    for area in MapsIterator::new(stopped_task) {
+        println!("{:x?}", area);
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

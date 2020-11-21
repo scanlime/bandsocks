@@ -2,7 +2,7 @@ use crate::{
     abi,
     abi::{SyscallInfo, UserRegs},
     nolibc::{fcntl, socketpair},
-    process::{syscall::SyscallEmulator, Event, EventSource, MessageSender},
+    process::{maps::print_maps_dump, syscall::SyscallEmulator, Event, EventSource, MessageSender},
     protocol::{FromTask, LogLevel, LogMessage, ProcessHandle, SysFd, SysPid, ToTask, VPid, VPtr},
     ptrace,
     remote::{mem::print_stack_dump, RemoteFd},
@@ -169,10 +169,14 @@ impl<'q> Task<'q> {
     }
 
     async fn handle_signal(&mut self, signal: u32) {
+        // to do: have ipc-based debug for fatal signals, and don't exit
+        // on non-fatal ones.
         let mut regs: UserRegs = Default::default();
         let mut stopped_task = self.as_stopped_task(&mut regs);
         print_stack_dump(&mut stopped_task);
-        panic!("signal {}, {:x?}", signal, stopped_task.regs);
+        print_maps_dump(&mut stopped_task);
+        println!("task state:\n{:x?}\n", stopped_task.regs);
+        panic!("*** signal {} inside sandbox ***", signal);
     }
 
     async fn handle_fork(&mut self, child_pid: u32) {
