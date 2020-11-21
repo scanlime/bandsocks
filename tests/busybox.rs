@@ -2,7 +2,7 @@ use bandsocks::{Container, ContainerBuilder};
 use tokio::runtime::Runtime;
 
 const IMAGE: &str =
-    "busybox@sha256:c9249fdf56138f0d929e2080ae98ee9cb2946f71498fc1484288e6a935b5e5bc";
+    "busybox@sha256:e06f93f59fe842fb490ba992bae19fdd5a05373547b52f8184650c2509908114";
 
 async fn pull() -> ContainerBuilder {
     Container::pull(&IMAGE.parse().unwrap())
