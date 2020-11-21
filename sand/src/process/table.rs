@@ -110,4 +110,22 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
             })
             .flatten()
     }
+
+    pub fn remove(self: Pin<&mut Self>, vpid: VPid) -> Option<SysPid> {
+        let project = self.project();
+        let index = table_index_for_vpid(vpid).unwrap();
+        let prev = unsafe {
+            let table = project.table.get_unchecked_mut();
+            let prev = match &table[index] {
+                Some(process) => Some(process.sys_pid.clone()),
+                None => None
+            };
+            table[index] = None;
+            prev
+        };
+        if let Some(sys_pid) = prev {
+            assert_eq!(Some(vpid), project.map_sys_to_v.remove(&sys_pid));
+        }
+        prev
+    }
 }

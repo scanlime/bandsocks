@@ -20,7 +20,7 @@ pub mod task;
 
 use crate::{
     process::task::TaskData,
-    protocol::{FromTask, ToTask},
+    protocol::{FromTask, ToTask, SysPid},
 };
 use core::{
     future::Future,
@@ -36,6 +36,7 @@ pub type TaskFn<'t, F> = fn(EventSource<'t>, MessageSender<'t>, TaskData) -> F;
 
 #[pin_project]
 pub struct Process<'t, F: Future<Output = ()>> {
+    pub sys_pid: SysPid,
     #[pin]
     state: TaskState<'t, F>,
     #[pin]
@@ -102,6 +103,7 @@ impl<'q> MessageSender<'q> {
 impl<'p, 't: 'p, F: Future<Output = ()>> Process<'t, F> {
     pub fn new(task_fn: TaskFn<'t, F>, task_data: TaskData) -> Self {
         Process {
+            sys_pid: task_data.sys_pid,
             state: TaskState::Initial(task_fn, task_data),
             event_queue: EventQueue::new(),
             outbox_queue: OutboxQueue::new(),

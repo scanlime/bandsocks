@@ -19,3 +19,13 @@ fn busybox_true() {
         assert_eq!(status.code(), Some(0));
     })
 }
+
+#[test]
+fn busybox_false() {
+    env_logger::init();
+    Runtime::new().unwrap().block_on(async {
+        let container = pull().await.arg("/bin/false").spawn().unwrap();
+        let status = container.wait().await.unwrap();
+        assert_eq!(status.code(), Some(1));
+    })
+}

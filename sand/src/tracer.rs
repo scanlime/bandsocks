@@ -119,21 +119,16 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     }
 
     fn task_event(mut self: Pin<&mut Self>, task: VPid, event: Event) {
-        let process = self.as_mut().project().process_table.get(task);
-        match process {
+        let result = match self.as_mut().project().process_table.get(task) {
             None => panic!("message for unrecognized task, {:x?}", task),
             Some(mut process) => {
-                let result = process.as_mut().send_event(event);
-                result.expect("event queue full");
-                match process.as_mut().poll() {
-                    Poll::Pending => (),
-                    Poll::Ready(()) => {
-                        // task exited
-                        panic!("task exiting, unhandled")
-                    }
-                }
+                process
+                    .as_mut()
+                    .send_event(event)
+                    .expect("event queue full");
+                process.as_mut().poll()
             }
-        }
+        };
         loop {
             let process = self.as_mut().project().process_table.get(task);
             let outbox = process.unwrap().as_mut().check_outbox();
@@ -143,6 +138,13 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
                     let ipc = self.as_mut().project().ipc;
                     ipc.send(&MessageFromSand::Task { task, op });
                 }
+            }
+        }
+        match result {
+            Poll::Pending => {}
+            Poll::Ready(()) => {
+                // task exited normally, remove it from the process table
+                assert!(self.as_mut().project().process_table.remove(task).is_some());
             }
         }
     }
