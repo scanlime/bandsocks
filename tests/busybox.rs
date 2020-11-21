@@ -28,3 +28,12 @@ fn busybox_false() {
         assert_eq!(status.code(), Some(1));
     })
 }
+
+#[test]
+fn busybox_sleep() {
+    Runtime::new().unwrap().block_on(async {
+        let container = pull().await.arg("sleep").arg("0.5").spawn().unwrap();
+        let status = container.wait().await.unwrap();
+        assert!(status.success());
+    })
+}
