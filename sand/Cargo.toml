@@ -26,6 +26,9 @@ sc = "0.2.3"
 twoway = { version = "0.2.1", default-features = false }
 raw-cpuid = "8.1.2"
 
+[dev-dependencies]
+file_limit = "0.0.2"
+
 [workspace]
 # Separate workspace, with our own build profiles:
 

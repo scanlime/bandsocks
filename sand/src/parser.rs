@@ -1,8 +1,8 @@
 use crate::{nolibc::pread, protocol::SysFd};
 use heapless::{ArrayLength, Vec};
 
-pub struct ByteReader<T: ArrayLength<u8>> {
-    file: Option<SysFd>,
+pub struct ByteReader<'f, T: ArrayLength<u8>> {
+    file: Option<&'f SysFd>,
     file_position: usize,
     buf_position: usize,
     buf: Vec<u8, T>,
@@ -17,12 +17,12 @@ pub trait Stream {
 // They track the file pointer seprately, and re-generate their contents
 // only when we re-read offset zero. The kernel assumes the file offsets
 // increase as expected, it does not support arbitrary seeks.
-impl<T: ArrayLength<u8>> ByteReader<T> {
-    pub fn from_sysfd(file: SysFd) -> Self {
+impl<'f, T: ArrayLength<u8>> ByteReader<'f, T> {
+    pub fn from_sysfd(file: &'f SysFd) -> Self {
         ByteReader::from_sysfd_at(file, 0)
     }
 
-    pub fn from_sysfd_at(file: SysFd, file_position: usize) -> Self {
+    pub fn from_sysfd_at(file: &'f SysFd, file_position: usize) -> Self {
         ByteReader {
             file: Some(file),
             file_position,
@@ -42,7 +42,7 @@ impl<T: ArrayLength<u8>> ByteReader<T> {
     }
 }
 
-impl<T: ArrayLength<u8>> Stream for ByteReader<T> {
+impl<'f, T: ArrayLength<u8>> Stream for ByteReader<'f, T> {
     fn peek(&mut self) -> Option<Result<u8, ()>> {
         if let Some(file) = &self.file {
             if self.buf_position == self.buf.len() {
@@ -360,7 +360,8 @@ mod test {
     #[test]
     fn dev_zero() {
         let f = File::open("/dev/zero").unwrap();
-        let mut r = ByteReader::<U2>::from_sysfd(SysFd(f.as_raw_fd() as u32));
+        let sys_fd = SysFd(f.as_raw_fd() as u32);
+        let mut r = ByteReader::<U2>::from_sysfd(&sys_fd);
         assert_eq!(r.next(), Some(Ok(0)));
         assert_eq!(r.next(), Some(Ok(0)));
         assert_eq!(r.next(), Some(Ok(0)));
@@ -372,7 +373,8 @@ mod test {
     #[test]
     fn dev_null() {
         let f = File::open("/dev/null").unwrap();
-        let mut r = ByteReader::<U16>::from_sysfd(SysFd(f.as_raw_fd() as u32));
+        let sys_fd = SysFd(f.as_raw_fd() as u32);
+        let mut r = ByteReader::<U32>::from_sysfd(&sys_fd);
         assert_eq!(r.next(), None);
         assert_eq!(r.next(), None);
     }
@@ -380,7 +382,8 @@ mod test {
     #[test]
     fn proc_atomicity() {
         let f = File::open("/proc/thread-self/syscall").unwrap();
-        let mut r = ByteReader::<U1>::from_sysfd(SysFd(f.as_raw_fd() as u32));
+        let sys_fd = SysFd(f.as_raw_fd() as u32);
+        let mut r = ByteReader::<U1>::from_sysfd(&sys_fd);
         let syscall_nr = u64_dec(&mut r).unwrap();
         spaces(&mut r).unwrap();
         let arg_1 = u64_0x(&mut r).unwrap();

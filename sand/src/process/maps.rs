@@ -49,12 +49,12 @@ type MapsBufferSize = U512;
 
 pub struct MapsIterator<'q, 's, 't> {
     stopped_task: PhantomData<&'t mut StoppedTask<'q, 's>>,
-    stream: ByteReader<MapsBufferSize>,
+    stream: ByteReader<'t, MapsBufferSize>,
 }
 
 impl<'q, 's, 't> MapsIterator<'q, 's, 't> {
     pub fn new(stopped_task: &'t mut StoppedTask<'q, 's>) -> Self {
-        let stream = ByteReader::from_sysfd(stopped_task.task.process_handle.maps.clone());
+        let stream = ByteReader::from_sysfd(&stopped_task.task.process_handle.maps);
         MapsIterator {
             stopped_task: PhantomData,
             stream,
@@ -138,7 +138,8 @@ mod test {
     #[test]
     fn self_maps() {
         let f = File::open("/proc/thread-self/maps").unwrap();
-        let r = ByteReader::<MapsBufferSize>::from_sysfd(SysFd(f.as_raw_fd() as u32));
+        let sys_fd = SysFd(f.as_raw_fd() as u32);
+        let r = ByteReader::<MapsBufferSize>::from_sysfd(&sys_fd);
         let iter = MapsIterator {
             stopped_task: PhantomData,
             stream: r,

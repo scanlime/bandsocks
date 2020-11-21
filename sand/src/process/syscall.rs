@@ -38,7 +38,9 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
     }
 
     async fn return_errno(&mut self, err: Errno) -> isize {
-        assert!(err.0 < 0);
+        if err.0 >= 0 {
+            panic!("invalid {:?}", err);
+        }
         err.0 as isize
     }
 

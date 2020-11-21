@@ -1,19 +1,47 @@
 #![allow(dead_code)]
 
-// open
 // linux/include/uapi/asm-generic/fcntl.h
+pub const O_ACCMODE: usize = 3;
 pub const O_RDONLY: usize = 0;
-
-// fcntl
-// linux/include/uapi/linux/fcntl.h
+pub const O_WRONLY: usize = 1;
+pub const O_RDWR: usize = 2;
+pub const F_SETFD: usize = 2;
+pub const F_SETFL: usize = 4;
+pub const F_SETOWN: usize = 8;
+pub const F_CLOEXEC: usize = 1;
+pub const FASYNC: usize = 0o20000;
+pub const O_NONBLOCK: usize = 0o4000;
+pub const O_DIRECTORY: usize = 0o200000;
+pub const O_CLOEXEC: usize = 0o2000000;
+pub const AT_SYMLINK_NOFOLLOW: i32 = 0x100;
+pub const AT_FDCWD: i32 = -100;
 pub const F_GET_SEALS: usize = 1034;
-
-// F_GET_SEALS
-// linux/include/uapi/linux/fcntl.h
 pub const F_SEAL_SEAL: usize = 1;
 pub const F_SEAL_SHRINK: usize = 2;
 pub const F_SEAL_GROW: usize = 4;
 pub const F_SEAL_WRITE: usize = 8;
+
+// getdents(2)
+#[derive(Debug)]
+#[repr(C)]
+pub struct LinuxDirentHeader {
+    pub d_ino: u64,
+    pub d_off: i64,
+    pub d_reclen: u16,
+    pub d_type: u8,
+    pub d_name: u8,
+}
+
+// POSIX dirent.h or linux fs_types.h
+pub const DT_UNKNOWN: u8 = 0;
+pub const DT_FIFO: u8 = 1;
+pub const DT_CHR: u8 = 2;
+pub const DT_DIR: u8 = 4;
+pub const DT_BLK: u8 = 6;
+pub const DT_REG: u8 = 8;
+pub const DT_LNK: u8 = 10;
+pub const DT_SOCK: u8 = 12;
+pub const DT_WHT: u8 = 14;
 
 // ptrace
 // linux/include/uapi/linux/ptrace.h
@@ -41,7 +69,7 @@ pub const PTRACE_O_TRACEEXEC: usize = 1 << PTRACE_EVENT_EXEC;
 pub const PTRACE_O_TRACEVFORK_DONE: usize = 1 << PTRACE_EVENT_VFORK_DONE;
 pub const PTRACE_O_TRACESECCOMP: usize = 1 << PTRACE_EVENT_SECCOMP;
 pub const PTRACE_O_EXITKILL: usize = 1 << 20;
-pub const PTRACE_SIG_TRACESYSGOOD: u32 = SIGTRAP | 0x80 as u32;
+pub const PTRACE_SIG_TRACESYSGOOD: u32 = SIGTRAP | 0x80;
 pub const PTRACE_SIG_FORK: u32 = SIGTRAP | (PTRACE_EVENT_FORK << 8) as u32;
 pub const PTRACE_SIG_VFORK: u32 = SIGTRAP | (PTRACE_EVENT_VFORK << 8) as u32;
 pub const PTRACE_SIG_CLONE: u32 = SIGTRAP | (PTRACE_EVENT_CLONE << 8) as u32;
@@ -341,25 +369,6 @@ pub const SA_RESTORER: u32 = 0x04000000;
 pub struct SigSet {
     pub sig: [u64; 1],
 }
-
-/// linux/include/uapi/asm-generic/fcntl.h
-pub const F_SETFD: usize = 2;
-/// linux/include/uapi/asm-generic/fcntl.h
-pub const F_SETFL: usize = 4;
-/// linux/include/uapi/asm-generic/fcntl.h
-pub const F_SETOWN: usize = 8;
-/// linux/include/uapi/asm-generic/fcntl.h
-pub const F_CLOEXEC: usize = 1;
-/// linux/include/uapi/asm-generic/fcntl.h
-pub const FASYNC: usize = 0o20000;
-/// linux/include/uapi/asm-generic/fcntl.h
-pub const O_NONBLOCK: usize = 0o4000;
-
-/// linux/include/uapi/linux/fcntl.h
-pub const AT_SYMLINK_NOFOLLOW: i32 = 0x100;
-
-/// linux/include/uapi/linux/fcntl.h
-pub const AT_FDCWD: i32 = -100;
 
 /// linux/include/uapi/linux/binfmts.h
 pub const BINPRM_BUF_SIZE: usize = 256;

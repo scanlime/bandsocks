@@ -190,7 +190,7 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
                 &[self.page_ptr.0 as isize, flags as isize],
             )
             .await;
-        if result > 0 {
+        if result >= 0 {
             Ok(RemoteFd(result as u32))
         } else {
             Err(Errno(result as i32))

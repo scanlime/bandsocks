@@ -91,6 +91,7 @@ dependencies = [
  "dkregistry",
  "env_logger",
  "fd-queue",
+ "file_limit",
  "flate2",
  "futures-util",
  "hash32",
@@ -356,6 +357,15 @@ dependencies = [
  "socket2",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "file_limit"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "320a289635eb305531029234eda5146344fa9dbbb852b63667ae9d6f1edfe277"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

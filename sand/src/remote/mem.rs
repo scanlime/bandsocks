@@ -130,7 +130,7 @@ pub fn vstring_len(stopped_task: &mut StoppedTask, ptr: VString) -> Result<usize
     type BufSize = U128;
     let addr = ptr.0 .0;
     let alignment = addr % BufSize::USIZE;
-    let mem = stopped_task.task.process_handle.mem.clone();
+    let mem = &stopped_task.task.process_handle.mem;
     let mut buf = ByteReader::<BufSize>::from_sysfd_at(mem, addr - alignment);
     for _ in 0..alignment {
         match buf.next() {

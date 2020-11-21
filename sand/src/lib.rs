@@ -32,12 +32,18 @@ mod remote;
 mod seccomp;
 mod tracer;
 
-pub use nolibc::{c_strv_slice, exit, write_stderr, EXIT_IO_ERROR, EXIT_PANIC, EXIT_SUCCESS};
+pub use nolibc::{
+    c_str_slice, c_strv_slice, c_unwrap_nul, exit, write_stderr, EXIT_IO_ERROR, EXIT_PANIC,
+    EXIT_SUCCESS,
+};
 
-use crate::{ipc::Socket, process::task::task_fn, protocol::SysFd, tracer::Tracer};
-use sc::syscall;
+use crate::{
+    ipc::Socket,
+    protocol::{Errno, SysFd},
+    tracer::Tracer,
+};
+use core::str;
 
-pub const SELF_EXE: &[u8] = b"/proc/self/exe\0";
 pub const STAGE_1_TRACER: &[u8] = b"sand\0";
 pub const STAGE_2_INIT_LOADER: &[u8] = b"sand-exec\0";
 
@@ -47,13 +53,14 @@ enum RunMode {
     InitLoader(SysFd),
 }
 
-pub fn c_main(argv: &[*const u8], envp: &[*const u8]) -> usize {
+pub unsafe fn c_main(argv: &[*const u8], envp: &[*const u8]) -> usize {
     match check_environment_determine_mode(argv, envp) {
         RunMode::Unknown => panic!("where am i"),
 
         RunMode::Tracer(fd) => {
+            close_all_except(&[&nolibc::stderr(), &fd]);
             seccomp::policy_for_tracer();
-            Tracer::new(Socket::from_sys_fd(&fd), task_fn).run();
+            Tracer::new(Socket::from_sys_fd(&fd), process::task::task_fn).run();
         }
 
         RunMode::InitLoader(fd) => {
@@ -61,15 +68,15 @@ pub fn c_main(argv: &[*const u8], envp: &[*const u8]) -> usize {
             init::with_args_from_fd(&fd);
         }
     }
-    nolibc::EXIT_SUCCESS
+    EXIT_SUCCESS
 }
 
-fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> RunMode {
-    let argv0 = unsafe { nolibc::c_str_slice(*argv.first().unwrap()) };
+unsafe fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> RunMode {
+    let argv0 = c_str_slice(*argv.first().unwrap());
     if argv0 == STAGE_1_TRACER
         && argv.len() == 1
         && envp.len() == 1
-        && check_sealed_exe_environment().is_ok()
+        && check_sealed_exe() == Ok(true)
     {
         match parse_envp_as_fd(envp) {
             Some(fd) => RunMode::Tracer(fd),
@@ -85,33 +92,57 @@ fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> R
     }
 }
 
-fn parse_envp_as_fd(envp: &[*const u8]) -> Option<SysFd> {
-    let envp0 = unsafe { nolibc::c_str_slice(*envp.first().unwrap()) };
-    let envp0 = core::str::from_utf8(nolibc::c_unwrap_nul(envp0)).unwrap();
+unsafe fn parse_envp_as_fd(envp: &[*const u8]) -> Option<SysFd> {
+    let envp0 = c_str_slice(*envp.first().unwrap());
+    let envp0 = str::from_utf8(c_unwrap_nul(envp0)).unwrap();
     let mut parts = envp0.splitn(2, '=');
     match (parts.next(), parts.next().map(|val| val.parse::<u32>())) {
-        (Some("FD"), Some(Ok(fd))) if fd > 2 => Some(SysFd(fd)),
+        (Some("FD"), Some(Ok(fd))) => Some(SysFd(fd)),
         _ => None,
     }
 }
 
-fn check_sealed_exe_environment() -> Result<(), ()> {
-    // This is probably not super important, but as part of checking out the runtime
-    // environment during startup it's easy to make sure this seems to be the
-    // sealed binary that we expected the runtime to create for us.
+fn close_all_except(fd_allowed: &[&SysFd]) {
+    let dir_fd = nolibc::open_self_fd().expect("opening proc self fd");
+    let mut fd_count = 0;
 
-    let exe_fd = unsafe { syscall!(OPEN, SELF_EXE.as_ptr(), abi::O_RDONLY, 0) as isize };
-    if exe_fd > 0 {
-        let seals = unsafe { syscall!(FCNTL, exe_fd, abi::F_GET_SEALS) };
-        unsafe { syscall!(CLOSE, exe_fd) };
+    // the directory fd is implicitly included in the allowed list; it's closed
+    // last.
+    let fd_count_expected = 1 + fd_allowed.len();
+    let fd_test = |fd: &SysFd| *fd == dir_fd || fd_allowed.contains(&fd);
 
-        let expected = abi::F_SEAL_SEAL | abi::F_SEAL_SHRINK | abi::F_SEAL_GROW | abi::F_SEAL_WRITE;
-        if seals == expected {
-            Ok(())
+    for result in nolibc::DirIterator::<typenum::U512, _, _>::new(&dir_fd, |dirent| {
+        assert!(dirent.d_type == abi::DT_DIR || dirent.d_type == abi::DT_LNK);
+        if dirent.d_type == abi::DT_LNK {
+            Some(SysFd(
+                str::from_utf8(dirent.d_name)
+                    .expect("proc fd utf8")
+                    .parse()
+                    .expect("proc fd number"),
+            ))
         } else {
-            Err(())
+            assert_eq!(dirent.d_type, abi::DT_DIR);
+            assert!(dirent.d_name == b".." || dirent.d_name == b".");
+            None
         }
-    } else {
-        Err(())
+    }) {
+        let result: Option<SysFd> = result.expect("reading proc fd");
+        if let Some(fd) = result {
+            fd_count += 1;
+            if !fd_test(&fd) {
+                fd.close().expect("closing fd leak");
+            }
+        }
     }
+
+    dir_fd.close().expect("proc self fd leak");
+    assert!(fd_count >= fd_count_expected);
+}
+
+fn check_sealed_exe() -> Result<bool, Errno> {
+    let exe = nolibc::open_self_exe()?;
+    let seals = nolibc::fcntl(&exe, abi::F_GET_SEALS, 0);
+    exe.close().expect("exe fd leak");
+    let expected = abi::F_SEAL_SEAL | abi::F_SEAL_SHRINK | abi::F_SEAL_GROW | abi::F_SEAL_WRITE;
+    Ok(seals? as usize == expected)
 }

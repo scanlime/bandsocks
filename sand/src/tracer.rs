@@ -1,6 +1,7 @@
 use crate::{
     abi,
     ipc::Socket,
+    nolibc::PROC_SELF_EXE,
     process::{
         table::ProcessTable,
         task::{TaskMemManagement, TaskSocketPair},
@@ -50,7 +51,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         fd_str.push('\0').unwrap();
         let loader_argv = [crate::STAGE_2_INIT_LOADER.as_ptr(), null()];
         let loader_env = [fd_str.as_ptr(), null()];
-        let exec_args = unsafe { RawExecArgs::new(crate::SELF_EXE, &loader_argv, &loader_env) };
+        let exec_args = unsafe { RawExecArgs::new(PROC_SELF_EXE, &loader_argv, &loader_env) };
         let socket_pair = TaskSocketPair::new_inheritable();
         let settings = self.as_mut().project().settings.clone();
         match unsafe { syscall!(FORK) } as isize {
