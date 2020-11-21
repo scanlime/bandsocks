@@ -1,4 +1,5 @@
 use crate::{
+    container::ExitStatus,
     errors::IPCError,
     filesystem::{
         storage::FileStorage,
@@ -17,12 +18,8 @@ use pentacle::SealedCommand;
 use std::{
     collections::HashMap,
     io::Cursor,
-    os::unix::{
-        io::AsRawFd,
-        prelude::RawFd,
-        process::{CommandExt, ExitStatusExt},
-    },
-    process::{Child, ExitStatus},
+    os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
+    process::Child,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -276,7 +273,7 @@ impl IPCServer {
                 Some(_process) => self.task_reply(task, Ok(())).await,
             },
 
-            FromTask::Exited(exit_code) => Ok(Some(ExitStatus::from_raw(exit_code))),
+            FromTask::Exited(exit_code) => Ok(Some(ExitStatus { code: exit_code })),
         }
     }
 }

@@ -17,7 +17,6 @@ use std::{
     ffi::{OsStr, OsString},
     os::unix::{ffi::OsStrExt, io::AsRawFd},
     path::{Path, PathBuf},
-    process::ExitStatus,
     sync::Arc,
 };
 use tokio::{io::AsyncWriteExt, task::JoinHandle};
@@ -196,6 +195,22 @@ pub struct Container {
     join: JoinHandle<Result<ExitStatus, RuntimeError>>,
 }
 
+/// Status of an exited container, analogous to [std::process::ExitStatus]
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ExitStatus {
+    pub(crate) code: i32,
+}
+
+impl ExitStatus {
+    pub fn success(&self) -> bool {
+        self.code == 0
+    }
+
+    pub fn code(&self) -> Option<i32> {
+        Some(self.code)
+    }
+}
+
 impl Container {
     /// Prepare to run a new container. Returns a [ContainerBuilder] for
     /// configuring the command line, environment, filesystem, and more.
@@ -306,7 +321,6 @@ impl Container {
 
                 args.flush().await?;
                 let status = ipc_task.await??;
-
                 Ok(status)
             }),
         })
