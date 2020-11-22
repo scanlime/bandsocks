@@ -6,7 +6,7 @@ use crate::{
         storage::{FileStorage, StorageKey},
         tar, vfs,
     },
-    image::{ContentDigest, Image, ImageName},
+    image::{ContentDigest, Image, ImageName, Registry},
     manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
 };
 
@@ -14,6 +14,7 @@ use flate2::read::GzDecoder;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use memmap::Mmap;
 use std::{
+    collections::HashMap,
     env,
     io::Read,
     path::{Path, PathBuf},
@@ -22,16 +23,78 @@ use std::{
 use tokio::task;
 
 /// Builder for configuring custom [Client] instances
+#[derive(Clone)]
 pub struct ClientBuilder {
     cache_dir: Option<PathBuf>,
+    registry: Option<Registry>,
+    logins: HashMap<Registry, (String, String)>,
 }
 
 impl ClientBuilder {
-    /// Change the cache directory used for read-only copies of downloaded
-    /// images.
+    /// Change the cache directory
+    ///
+    /// This stores local data which has been downloaded and/or decompressed.
+    /// Files here are read-only after they are created, and may be shared
+    /// with other trusted processes. The default directory can be determined
+    /// with [Client::default_cache_dir()]
     pub fn cache_dir(&mut self, dir: &Path) -> &mut Self {
         self.cache_dir = Some(dir.to_path_buf());
         self
+    }
+
+    /// Change the default registry server
+    ///
+    /// This registry is used for pulling images that do not specify a server.
+    /// The default value if unset can be determined with
+    /// [Client::default_registry()]
+    pub fn registry(&mut self, registry: &Registry) -> &mut Self {
+        self.registry = Some(registry.clone());
+        self
+    }
+
+    /// Store a username and password for use with a particular registry on this
+    /// client
+    pub fn login(&mut self, registry: Registry, username: String, password: String) -> &mut Self {
+        self.logins.insert(registry, (username, password));
+        self
+    }
+
+    /// Construct a Client using the parameters from this Builder
+    pub fn build(self) -> Result<Client, ImageError> {
+        let cache_dir = match self.cache_dir {
+            Some(dir) => dir,
+            None => Client::default_cache_dir()?,
+        };
+        log::info!("using cache directory {:?}", cache_dir);
+        Ok(Client {
+            storage: FileStorage::new(cache_dir),
+            registry: self.registry.unwrap_or_else(Client::default_registry),
+            logins: self.logins,
+        })
+    }
+}
+
+/// Registry clients can download and store data from an image registry
+#[derive(Clone)]
+pub struct Client {
+    storage: FileStorage,
+    registry: Registry,
+    logins: HashMap<Registry, (String, String)>,
+}
+
+impl Client {
+    /// Construct a new registry client with default options
+    pub fn new() -> Result<Client, ImageError> {
+        Client::configure().build()
+    }
+
+    /// Construct a registry client with custom options, via ClientBuilder
+    pub fn configure() -> ClientBuilder {
+        ClientBuilder {
+            cache_dir: None,
+            registry: None,
+            logins: HashMap::new(),
+        }
     }
 
     /// Determine a default per-user cache directory which will be used if an
@@ -60,51 +123,13 @@ impl ClientBuilder {
         }
     }
 
-    /// Construct a Client using the parameters from this Builder
-    pub fn build(self) -> Result<Client, ImageError> {
-        let cache_dir = match self.cache_dir {
-            Some(dir) => dir,
-            None => ClientBuilder::default_cache_dir()?,
-        };
-        log::info!("using cache directory {:?}", cache_dir);
-        Ok(Client {
-            storage: FileStorage::new(cache_dir),
-        })
+    /// Return the default registry server
+    ///
+    /// This is the server used when nothing else has been specified either in [ImageName] or [ClientBuilder].
+    /// Currently this always returns `registry-1.docker.io`
+    pub fn default_registry() -> Registry {
+        Registry::parse("registry-1.docker.io").unwrap()
     }
-}
-
-/// Registry clients can download and store data from an image registry
-#[derive(Clone)]
-pub struct Client {
-    storage: FileStorage,
-}
-
-impl Client {
-    /// Construct a new registry client with default options
-    pub fn new() -> Result<Client, ImageError> {
-        Client::configure().build()
-    }
-
-    /// Construct a registry client with custom options, via ClientBuilder
-    pub fn configure() -> ClientBuilder {
-        ClientBuilder { cache_dir: None }
-    }
-
-    /*
-        async fn registry_client_for(
-            &mut self,
-            image: &Reference,
-        ) -> Result<RegistryClient, ImageError> {
-            let client = RegistryClient::configure()
-                .registry(&image.registry())
-                .insecure_registry(false)
-                .username(None)
-                .password(None)
-                .build()?;
-            let login_scope = format!("repository:{}:pull", image.repository());
-            Ok(client.authenticate(&[&login_scope]).await?)
-        }
-    */
 
     async fn pull_manifest(&mut self, image: &ImageName) -> Result<Manifest, ImageError> {
         let key = StorageKey::Manifest(image.clone());
@@ -270,6 +295,16 @@ impl Client {
         Ok(())
     }
 
+    /// Resolve an [ImageName] into an [Image] if possible
+    ///
+    /// This will always try to load the image from local cache first without
+    /// accessing the network. If the image is not already available in cache,
+    /// it will be downloaded from the indicated registry server. If a content
+    /// digest is given, it will be verified and the image is only returned
+    /// if it matches the expected content.
+    ///
+    /// The resulting image is mapped into memory and ready for use in any
+    /// number of containers.
     pub async fn pull(&mut self, image: &ImageName) -> Result<Arc<Image>, ImageError> {
         let manifest = self.pull_manifest(image).await?;
         let config = self.pull_runtime_config(image, &manifest.config).await?;

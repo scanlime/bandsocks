@@ -17,7 +17,14 @@ use std::{
     str::FromStr,
 };
 
-/// Internal representation of a loaded container image
+/// Loaded data for a container image
+///
+/// This is the actual configuration and filesystem data associated with a
+/// container image. It is immutable, and multiple running containers can use
+/// one image.
+///
+/// The filesystem stores all metadata in memory, but file contents are
+/// referenced as needed from the configured disk cache.
 #[derive(Debug)]
 pub struct Image {
     pub(crate) name: ImageName,

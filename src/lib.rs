@@ -17,7 +17,4 @@ mod process;
 mod sand;
 mod taskcall;
 
-pub use crate::{
-    container::{Container, ContainerBuilder},
-    image::{Image, ImageName},
-};
+pub use crate::{container::Container, image::ImageName};
