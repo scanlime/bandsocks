@@ -1,9 +1,10 @@
-use crate::{errors::ImageError, Reference};
+use crate::{
+    errors::ImageError,
+    image::{ContentDigest, ImageName},
+};
 use memmap::{Mmap, MmapOptions};
-use regex::Regex;
-use sha2::{Digest, Sha256};
 use std::{
-    hash::{Hash, Hasher},
+    hash::Hash,
     ops::Range,
     path::{Path, PathBuf},
     time::SystemTime,
@@ -94,16 +95,16 @@ impl FileStorage {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum StorageKey {
-    Blob(String),
-    Manifest(Reference),
-    BlobPart(String, Range<usize>),
+    Blob(ContentDigest),
+    Manifest(ImageName),
+    BlobPart(ContentDigest, Range<usize>),
 }
 
 impl StorageKey {
     pub fn from_blob_data(data: &[u8]) -> StorageKey {
-        StorageKey::Blob(format!("sha256:{:x}", Sha256::digest(data)))
+        StorageKey::Blob(ContentDigest::from_content(data))
     }
 
     pub fn range(&self, range: Range<usize>) -> Result<StorageKey, ()> {
@@ -118,70 +119,15 @@ impl StorageKey {
     }
 }
 
-impl Eq for StorageKey {}
-
-impl PartialEq for StorageKey {
-    fn eq(&self, other: &Self) -> bool {
-        match self {
-            StorageKey::Blob(s) => match other {
-                StorageKey::Blob(o) => s == o,
-                _ => false,
-            },
-            StorageKey::BlobPart(s, r) => match other {
-                StorageKey::BlobPart(o, q) => s == o && r == q,
-                _ => false,
-            },
-            StorageKey::Manifest(s) => match other {
-                StorageKey::Manifest(o) => {
-                    s.registry() == o.registry()
-                        && s.repository() == o.repository()
-                        && s.version() == o.version()
-                }
-                _ => false,
-            },
-        }
-    }
-}
-
-impl Hash for StorageKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        match self {
-            StorageKey::Blob(s) => s.hash(state),
-            StorageKey::BlobPart(s, r) => {
-                s.hash(state);
-                r.hash(state);
-            }
-            StorageKey::Manifest(m) => {
-                m.registry().hash(state);
-                m.repository().hash(state);
-                m.version().hash(state);
-            }
-        }
-    }
-}
-
 fn push_temp_path<'a>(buf: &'a mut PathBuf) -> Result<&'a mut PathBuf, ImageError> {
     let pid = std::process::id();
     let ts = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
         Ok(duration) => duration.as_millis(),
         Err(_) => 0,
     };
-    push_checked_path(buf, "tmp")?;
-    push_checked_path(buf, &format!("{}.{}", pid, ts))?;
+    buf.push("tmp");
+    buf.push(format!("{}.{}", pid, ts));
     Ok(buf)
-}
-
-fn push_checked_path<'a>(buf: &'a mut PathBuf, path: &str) -> Result<&'a mut PathBuf, ImageError> {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"^[a-zA-Z0-9]+[a-zA-Z0-9_\.\-]*$").unwrap();
-    }
-    if RE.is_match(path) {
-        buf.push(path);
-        Ok(buf)
-    } else {
-        Err(ImageError::BadStoragePath(path.to_string()))
-    }
 }
 
 impl StorageKey {
@@ -189,26 +135,30 @@ impl StorageKey {
         match self {
             StorageKey::Blob(digest) => {
                 let mut path = base_dir.to_path_buf();
-                push_checked_path(&mut path, "blobs")?;
-                push_checked_path(&mut path, &digest.replace(":", "_"))?;
+                path.push("blobs");
+                path.push(digest.as_str());
                 Ok(path)
             }
             StorageKey::BlobPart(digest, range) => {
                 let mut path = base_dir.to_path_buf();
-                push_checked_path(&mut path, "parts")?;
-                push_checked_path(&mut path, &digest.replace(":", "_"))?;
-                push_checked_path(&mut path, &format!("{:x}_{:x}", range.start, range.end))?;
+                path.push("parts");
+                path.push(digest.as_str());
+                path.push(&format!("{:x}_{:x}", range.start, range.end));
                 Ok(path)
             }
-            StorageKey::Manifest(reference) => {
+            StorageKey::Manifest(image_name) => {
                 let mut path = base_dir.to_path_buf();
-                push_checked_path(&mut path, "manifest")?;
-                push_checked_path(&mut path, &reference.registry())?;
-                push_checked_path(&mut path, &reference.repository().replace("/", "_"))?;
-                push_checked_path(
-                    &mut path,
-                    &reference.version().replace("@", "").replace(":", ""),
-                )?;
+                path.push("manifest");
+                if let Some(registry) = image_name.registry_str() {
+                    path.push(registry);
+                }
+                path.push(&image_name.repository_str());
+                if let Some(tag) = image_name.tag_str() {
+                    path.push(tag);
+                }
+                if let Some(digest) = image_name.digest_str() {
+                    path.push(digest);
+                }
                 Ok(path)
             }
         }

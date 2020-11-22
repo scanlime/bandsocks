@@ -3,11 +3,10 @@
 use crate::{
     errors::{ImageError, RuntimeError},
     filesystem::{storage::FileStorage, vfs::Filesystem},
-    image::Image,
+    image::{Image, ImageName},
     ipcserver::IPCServer,
     registry::Client,
     sand::protocol::{InitArgsHeader, SysFd},
-    Reference,
 };
 use fd_queue::tokio::UnixStream;
 use std::{
@@ -49,7 +48,7 @@ impl ContainerBuilder {
             Some(image) => image.clone(),
         };
 
-        // this is a shallow copy of the image's reference filesystem, which the
+        // this is a shallow copy of the image's immutable filesystem, which the
         // container can modify
         let filesystem = image.filesystem.clone();
         let storage = image.storage.clone();
@@ -225,15 +224,14 @@ impl Container {
         self.join.await?
     }
 
-    /// Given a reference to a registry image, download and cache the image
-    /// data, and return a [ContainerBuilder] instance ready for any additional
-    /// settings.
+    /// Prepare to run a new container, starting with an [ImageName] referencing
+    /// a repository server.
     ///
     /// This is equivalent to using [Client::pull()] followed by
     /// [ContainerBuilder::image()], which as an alternative allows using custom
     /// settings for [Client].
-    pub async fn pull(image_reference: &Reference) -> Result<ContainerBuilder, ImageError> {
-        let image = Client::new()?.pull(image_reference).await?;
+    pub async fn pull(name: &ImageName) -> Result<ContainerBuilder, ImageError> {
+        let image = Client::new()?.pull(name).await?;
         let mut builder = Container::new();
         builder.image(&image);
         Ok(builder)

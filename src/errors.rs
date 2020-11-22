@@ -4,8 +4,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ImageError {
-    #[error("registry error: {0}")]
-    Registry(#[from] dkregistry::errors::Error),
+    #[error("invalid image reference format: {0}")]
+    InvalidReferenceFormat(String),
 
     #[error("storage io error: {0}")]
     Storage(#[from] std::io::Error),
@@ -22,14 +22,11 @@ pub enum ImageError {
     #[error("virtual filesystem error while preparing image: {0}")]
     ImageVFSError(#[from] VFSError),
 
-    #[error("unallowed storage path segment, {0}")]
-    BadStoragePath(String),
-
     #[error("data just written to the cache is missing")]
     StorageMissingAfterInsert,
 
-    #[error("calculated digest of downloaded content is not what we asked for")]
-    ContentDigestMismatch,
+    #[error("calculated digest of downloaded content is not what we asked for, {0} != {1}")]
+    ContentDigestMismatch(String, String),
 
     #[error("can't determine where to cache image files")]
     NoDefaultCacheDir,

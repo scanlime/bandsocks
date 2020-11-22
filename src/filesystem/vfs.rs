@@ -567,13 +567,13 @@ impl fmt::Debug for Filesystem {
                             let child_path = path.join(name);
                             match self.get_inode(*child) {
                                 Ok(child_node) => {
-                                    f.write_fmt(format_args!(
+                                    write!(f,
                                         "{:5}  {:?} {:?}  /{}\n",
                                         *child,
                                         child_node.stat,
                                         child_node.data,
                                         child_path.to_string_lossy()
-                                    ))?;
+                                    )?;
 
                                     if let Node::Directory(_) = &child_node.data {
                                         if !memo.contains(child) {
@@ -582,26 +582,26 @@ impl fmt::Debug for Filesystem {
                                     }
                                 }
                                 other => {
-                                    f.write_fmt(format_args!(
+                                    write!(f,
                                         "<<ERROR>>, failed to read child inode, {:?}",
                                         other
-                                    ))?;
+                                    )?;
                                 }
                             }
                         }
                     }
                     other => {
-                        f.write_fmt(format_args!(
+                        write!(f,
                             "<<ERROR>>, expected directory at inode {}, found: {:?}",
                             dir, other
-                        ))?;
+                        )?;
                     }
                 },
                 other => {
-                    f.write_fmt(format_args!(
+                    write!(f,
                         "<<ERROR>>, failed to read directory inode {}, {:?}",
                         dir, other
-                    ))?;
+                    )?;
                 }
             }
         }
