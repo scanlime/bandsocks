@@ -385,6 +385,11 @@ impl PartialOrd for Registry {
 /// of lowercase alphanumeric segments separated by slashes. Each grouping may
 /// also contain internal separator characters: single periods, single
 /// underscores, double underscores, or any number of dashes.
+///
+/// The first component of the repository path is intended to be a user or
+/// organization. As a special case, repository names with only a single
+/// component (no slashes) are treated as having an implied 'library/' prefix
+/// on the default registry.
 #[derive(Clone)]
 pub struct Repository {
     serialized: String,

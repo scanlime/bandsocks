@@ -21,7 +21,7 @@ async fn main() {
         .parse()
         .expect("bad image reference");
 
-    let mut client = Client::configure();
+    let mut client = Client::builder();
     if let Some(dir) = matches.value_of("cache_dir") {
         client.cache_dir(Path::new(dir));
     }

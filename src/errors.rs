@@ -16,6 +16,9 @@ pub enum ImageError {
     #[error("asynchronous task failed during image preparation")]
     TaskJoin(#[from] tokio::task::JoinError),
 
+    #[error("network request error: {0}")]
+    NetworkRequest(#[from] reqwest::Error),
+
     #[error("tar file format error")]
     TARFileError,
 

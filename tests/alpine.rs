@@ -1,4 +1,4 @@
-use bandsocks::{Container, ContainerBuilder};
+use bandsocks::{container::ContainerBuilder, Container};
 use tokio::runtime::Runtime;
 
 const IMAGE: &str =

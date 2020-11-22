@@ -31,6 +31,15 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
+    /// Start constructing a custom registry client
+    pub fn new() -> Self {
+        ClientBuilder {
+            cache_dir: None,
+            registry: None,
+            logins: HashMap::new(),
+        }
+    }
+
     /// Change the cache directory
     ///
     /// This stores local data which has been downloaded and/or decompressed.
@@ -66,10 +75,15 @@ impl ClientBuilder {
             None => Client::default_cache_dir()?,
         };
         log::info!("using cache directory {:?}", cache_dir);
+
+        static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+        let req = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
+
         Ok(Client {
             storage: FileStorage::new(cache_dir),
             registry: self.registry.unwrap_or_else(Client::default_registry),
             logins: self.logins,
+            req,
         })
     }
 }
@@ -80,21 +94,18 @@ pub struct Client {
     storage: FileStorage,
     registry: Registry,
     logins: HashMap<Registry, (String, String)>,
+    req: reqwest::Client,
 }
 
 impl Client {
     /// Construct a new registry client with default options
     pub fn new() -> Result<Client, ImageError> {
-        Client::configure().build()
+        Client::builder().build()
     }
 
     /// Construct a registry client with custom options, via ClientBuilder
-    pub fn configure() -> ClientBuilder {
-        ClientBuilder {
-            cache_dir: None,
-            registry: None,
-            logins: HashMap::new(),
-        }
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
     }
 
     /// Determine a default per-user cache directory which will be used if an
@@ -125,8 +136,9 @@ impl Client {
 
     /// Return the default registry server
     ///
-    /// This is the server used when nothing else has been specified either in [ImageName] or [ClientBuilder].
-    /// Currently this always returns `registry-1.docker.io`
+    /// This is the server used when nothing else has been specified either in
+    /// [ImageName] or [ClientBuilder]. Currently this always returns
+    /// `registry-1.docker.io`
     pub fn default_registry() -> Registry {
         Registry::parse("registry-1.docker.io").unwrap()
     }
@@ -137,6 +149,19 @@ impl Client {
             Some(map) => map,
             None => {
                 log::info!("{} downloading manifest...", image);
+
+                let registry = image.registry().unwrap_or_else(|| self.registry.clone());
+                let url = format!(
+                    "{}://{}/v2/{}{}/manifests/{}",
+                    registry.protocol(),
+                    registry,
+                    "", // library prefix
+                    image.repository_str(),
+                    image.digest_str().or(image.tag_str()).unwrap_or("latest")
+                );
+
+                log::debug!("URL {}", url);
+
                 unimplemented!();
                 /*
                     let rc = self.registry_client_for(image).await?;
