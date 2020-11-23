@@ -35,9 +35,9 @@ pub struct Image {
 
 impl Image {
     /// Get the digest identifying this image's content and configuration
-    pub fn digest(&self) -> ContentDigest {
+    pub fn content_digest(&self) -> ContentDigest {
         self.name()
-            .digest()
+            .content_digest()
             .expect("loaded images must always have a digest")
     }
 
@@ -80,6 +80,11 @@ impl ImageName {
     }
 
     /// Parse an [ImageName] from its component pieces
+    ///
+    /// This may fail either because of a problem with one of the components,
+    /// or because the resulting path would be parsed in a manner other than
+    /// intended. For example, a registry name could be parsed as the first
+    /// section of the repository path.
     pub fn from_parts(
         registry: Option<&str>,
         repository: &str,
@@ -97,7 +102,18 @@ impl ImageName {
         if let Some(digest) = digest {
             write!(&mut buffer, "@{}", digest)?;
         }
-        ImageName::parse(str::from_utf8(&buffer).unwrap())
+        let combined = str::from_utf8(&buffer).unwrap();
+        let parsed = ImageName::parse(combined)?;
+        if parsed.registry_str().as_deref() == registry
+            && parsed.repository_str() == repository
+            && parsed.tag_str().as_deref() == tag
+            && parsed.content_digest_str().as_deref() == digest
+        {
+            Ok(parsed)
+        } else {
+            // Parsing ambiguity
+            Err(ImageError::InvalidReferenceFormat(combined.to_owned()))
+        }
     }
 
     /// Parse a [prim@str] as an [ImageName]
@@ -144,7 +160,7 @@ impl ImageName {
     }
 
     /// Returns a reference to the optional digest portion of the string.
-    pub fn digest_str(&self) -> Option<&str> {
+    pub fn content_digest_str(&self) -> Option<&str> {
         self.digest_pos
             .as_ref()
             .map(|pos| &self.serialized[pos.clone()])
@@ -168,8 +184,8 @@ impl ImageName {
     }
 
     /// Returns the digest portion as a new object
-    pub fn digest(&self) -> Option<ContentDigest> {
-        self.digest_str()
+    pub fn content_digest(&self) -> Option<ContentDigest> {
+        self.content_digest_str()
             .map(|s| ContentDigest::parse(s).expect("already parsed"))
     }
 
@@ -180,7 +196,7 @@ impl ImageName {
     /// provided one and a [ImageError::ContentDigestMismatch] is returned on
     /// mismatch.
     pub fn with_specific_digest(&self, digest: &ContentDigest) -> Result<Self, ImageError> {
-        match self.digest_str() {
+        match self.content_digest_str() {
             None => Ok(()),
             Some(matching) if matching == digest.as_str() => Ok(()),
             Some(mismatch) => Err(ImageError::ContentDigestMismatch(
@@ -244,10 +260,13 @@ impl PartialOrd for ImageName {
 
 /// Name of a Docker-style image registry server
 ///
-/// This is a domain name with optional port. The scheme is implied: domains
-/// with no dots are HTTP, IP addresses and domains without dots are HTTPS.
+/// This is a domain name, with an optional port. Typically the protocol is
+/// https, but we include the same heuristic Docker uses to improve the
+/// ergonomics of development setups: if a domain has no dots in it, the
+/// protocol switches to unencrypted http.
 ///
 /// For information on running your own registry server for development, see <https://docs.docker.com/registry/deploying/>
+
 #[derive(Clone)]
 pub struct Registry {
     serialized: String,
@@ -298,7 +317,7 @@ impl Registry {
     }
 
     /// The protocol to use, either "http" or "https"
-    pub fn protocol(&self) -> &'static str {
+    pub fn protocol_str(&self) -> &'static str {
         if self.is_https() {
             "https"
         } else {
@@ -385,14 +404,27 @@ impl PartialOrd for Registry {
 /// of lowercase alphanumeric segments separated by slashes. Each grouping may
 /// also contain internal separator characters: single periods, single
 /// underscores, double underscores, or any number of dashes.
-///
-/// The first component of the repository path is intended to be a user or
-/// organization. As a special case, repository names with only a single
-/// component (no slashes) are treated as having an implied 'library/' prefix
-/// on the default registry.
 #[derive(Clone)]
 pub struct Repository {
     serialized: String,
+}
+
+/// Iterator over components of a Repository path
+pub struct RepositoryIter<'a> {
+    remaining: Option<&'a str>,
+}
+
+impl<'a> Iterator for RepositoryIter<'a> {
+    type Item = &'a str;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.remaining.map(|remaining| {
+            let mut parts = remaining.splitn(2, '/');
+            let first = parts.next().unwrap();
+            let second = parts.next();
+            self.remaining = second;
+            first
+        })
+    }
 }
 
 impl Repository {
@@ -403,6 +435,13 @@ impl Repository {
     }
 
     /// Parse a [prim@str] as a [Repository]
+    ///
+    /// ```
+    /// # use bandsocks::image::Repository;
+    /// let repo = Repository::parse("some/path").unwrap();
+    /// let parts: Vec<&str> = repo.iter().collect();
+    /// assert_eq!(parts, vec!["some", "path"])
+    /// ```
     pub fn parse(s: &str) -> Result<Self, ImageError> {
         lazy_static! {
             static ref RE: Regex = Regex::new(&format!("^{}$", Repository::regex_str(),)).unwrap();
@@ -412,6 +451,23 @@ impl Repository {
             true => Ok(Repository {
                 serialized: s.to_owned(),
             }),
+        }
+    }
+
+    /// Produce an iterator over the slash-separated parts of a repository path
+    pub fn iter(&self) -> RepositoryIter {
+        RepositoryIter {
+            remaining: Some(&self.serialized),
+        }
+    }
+
+    /// Join this path to another with a slash, forming a new repository path
+    ///
+    /// Note that it's never legal for a repository path to begin or end
+    /// with a slash, or for any component to start with a dot.
+    pub fn join(&self, other: &Self) -> Self {
+        Repository {
+            serialized: format!("{}/{}", self.serialized, other.serialized),
         }
     }
 
@@ -494,10 +550,12 @@ pub struct Tag {
 }
 
 impl Tag {
+    /// Returns a reference to the existing string representation of a [Tag]
     pub fn as_str(&self) -> &str {
         &self.serialized
     }
 
+    /// Parse a [prim@str] as a [Tag]
     pub fn parse(s: &str) -> Result<Self, ImageError> {
         lazy_static! {
             static ref RE: Regex = Regex::new(&format!("^{}$", Tag::regex_str(),)).unwrap();
@@ -562,7 +620,7 @@ impl PartialOrd for Tag {
 
 /// A digest securely identifies the specific contents of a binary object
 ///
-/// Digests always include the hash format, which is currently always `sha256`
+/// Digests include the hash format, which is currently always `sha256`
 #[derive(Clone)]
 pub struct ContentDigest {
     serialized: String,
@@ -616,18 +674,40 @@ impl PartialOrd for ContentDigest {
 }
 
 impl ContentDigest {
+    /// Returns a reference to the existing string representation of a
+    /// [ContentDigest]
     pub fn as_str(&self) -> &str {
         &self.serialized
     }
 
+    /// Create a new ContentDigest from parts
+    ///
+    /// The format string and hex string are assembled and parsed.
     pub fn from_parts(format_part: &str, hex_part: &str) -> Result<Self, ImageError> {
         ContentDigest::parse(&format!("{}:{}", format_part, hex_part))
     }
 
+    /// Create a new ContentDigest from content data
+    ///
+    /// This hashes the content using the the `sha256` algorithm.
+    ///
+    /// ```
+    /// # use bandsocks::image::ContentDigest;
+    /// let digest = ContentDigest::from_content(b"cat");
+    /// assert_eq!(digest.as_str(), "sha256:77af778b51abd4a3c51c5ddd97204a9c3ae614ebccb75a606c3b6865aed6744e");
+    /// ```
     pub fn from_content(content_bytes: &[u8]) -> Self {
         ContentDigest::parse(&format!("sha256:{:x}", Sha256::digest(content_bytes))).unwrap()
     }
 
+    /// Parse a [prim@str] as a [ContentDigest]
+    ///
+    /// ```
+    /// # use bandsocks::image::ContentDigest;
+    /// let digest = ContentDigest::parse("format:00112233445566778899aabbccddeeff").unwrap();
+    /// assert_eq!(digest.format_str(), "format");
+    /// assert_eq!(digest.hex_str(), "00112233445566778899aabbccddeeff")
+    /// ```
     pub fn parse(s: &str) -> Result<Self, ImageError> {
         lazy_static! {
             static ref RE: Regex =
@@ -641,6 +721,20 @@ impl ContentDigest {
                 hex_pos: captures.name("dig_h").unwrap().range(),
             }),
         }
+    }
+
+    /// Return a reference to the format string portion of this digest.
+    ///
+    /// Currently this is `sha256` for all digests we create or recognize.
+    pub fn format_str(&self) -> &str {
+        &self.serialized[self.format_pos.clone()]
+    }
+
+    /// Return a reference to the hexadecimal string portion of this digest.
+    ///
+    /// This is guaranteed to be a string of at least 32 hex digits.
+    pub fn hex_str(&self) -> &str {
+        &self.serialized[self.hex_pos.clone()]
     }
 
     fn regex_str() -> &'static str {
@@ -694,6 +788,78 @@ mod tests {
         assert!(ImageName::parse("balls:").is_err());
         assert!(ImageName::parse("balls.io:69/ball").is_ok());
         assert!(ImageName::parse("balls.io:/ball").is_err());
+
+        assert!(ImageName::parse("").is_err());
+        assert!(ImageName::parse("blah ").is_err());
+        assert!(ImageName::parse("blah/").is_err());
+        assert!(ImageName::parse(" blah").is_err());
+        assert!(ImageName::parse("/blah").is_err());
+
+        let p = ImageName::parse("blah").unwrap();
+        assert_eq!(p.registry(), None);
+        assert_eq!(p.repository(), "blah".parse().unwrap());
+        assert_eq!(p.tag(), None);
+        assert_eq!(p.content_digest(), None);
+
+        let p = ImageName::parse("localhost").unwrap();
+        assert_eq!(p.registry(), None);
+        assert_eq!(p.repository(), "localhost".parse().unwrap());
+        assert_eq!(p.tag(), None);
+        assert_eq!(p.content_digest(), None);
+
+        let p = ImageName::parse("library").unwrap();
+        assert_eq!(p.registry(), None);
+        assert_eq!(p.repository(), "library".parse().unwrap());
+        assert_eq!(p.tag(), None);
+        assert_eq!(p.content_digest(), None);
+
+        let p = ImageName::parse("foo/bar").unwrap();
+        assert_eq!(p.registry(), None);
+        assert_eq!(p.repository(), "foo/bar".parse().unwrap());
+        assert_eq!(p.tag(), None);
+        assert_eq!(p.content_digest(), None);
+
+        let p = ImageName::parse("blah:tag").unwrap();
+        assert_eq!(p.registry(), None);
+        assert_eq!(p.repository(), "blah".parse().unwrap());
+        assert_eq!(p.tag(), Some("tag".parse().unwrap()));
+        assert_eq!(p.content_digest(), None);
+
+        let p = ImageName::parse("blah@fm:00112233445566778899aabbccddeeff").unwrap();
+        assert_eq!(p.registry(), None);
+        assert_eq!(p.repository(), "blah".parse().unwrap());
+        assert_eq!(p.tag(), None);
+        assert_eq!(
+            p.content_digest(),
+            Some("fm:00112233445566778899aabbccddeeff".parse().unwrap())
+        );
+
+        let p = ImageName::parse("blah:tag@fm:00112233445566778899aabbccddeeff").unwrap();
+        assert_eq!(p.registry(), None);
+        assert_eq!(p.repository(), "blah".parse().unwrap());
+        assert_eq!(p.tag(), Some("tag".parse().unwrap()));
+        assert_eq!(
+            p.content_digest(),
+            Some("fm:00112233445566778899aabbccddeeff".parse().unwrap())
+        );
+
+        let p = ImageName::parse("floop/blah:tag@fm:00112233445566778899aabbccddeeff").unwrap();
+        assert_eq!(p.registry(), None);
+        assert_eq!(p.repository(), "floop/blah".parse().unwrap());
+        assert_eq!(p.tag(), Some("tag".parse().unwrap()));
+        assert_eq!(
+            p.content_digest(),
+            Some("fm:00112233445566778899aabbccddeeff".parse().unwrap())
+        );
+
+        let p = ImageName::parse("oop/boop/blah:tag@fm:00112233445566778899aabbccddeeff").unwrap();
+        assert_eq!(p.registry(), None);
+        assert_eq!(p.repository(), "oop/boop/blah".parse().unwrap());
+        assert_eq!(p.tag(), Some("tag".parse().unwrap()));
+        assert_eq!(
+            p.content_digest(),
+            Some("fm:00112233445566778899aabbccddeeff".parse().unwrap())
+        );
     }
 
     #[test]
@@ -724,5 +890,23 @@ mod tests {
         assert!(ContentDigest::parse("9:0123456789abcdef0123456789abcdef").is_err());
         assert!(ContentDigest::parse(" balls:0123456789abcdef0123456789abcdef").is_err());
         assert!(ContentDigest::parse("balls:0123456789abcdef0123456789abcdef ").is_err());
+    }
+
+    #[test]
+    fn parse_repository_name() {
+        assert!(Repository::parse("").is_err());
+        assert!(Repository::parse("/").is_err());
+        assert!(Repository::parse("blah").is_ok());
+        assert!(Repository::parse("blah.ok").is_ok());
+        assert!(Repository::parse("blah..ok").is_err());
+        assert!(Repository::parse(".ok").is_err());
+        assert!(Repository::parse("blah/blah.ok").is_ok());
+        assert!(Repository::parse("blah/blah..ok").is_err());
+        assert!(Repository::parse("blah/.ok").is_err());
+        assert!(Repository::parse("/blah").is_err());
+        assert!(Repository::parse("blah/").is_err());
+        assert!(Repository::parse("blah//blah").is_err());
+        assert!(Repository::parse("boring/strings").is_ok());
+        assert!(Repository::parse("a").is_ok());
     }
 }

@@ -1,4 +1,4 @@
-//! High-level interface for running unprivileged containers
+//! Sandboxed subprocesses with a virtual filesystem
 
 use crate::{
     errors::{ImageError, RuntimeError},

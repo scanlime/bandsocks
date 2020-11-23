@@ -567,7 +567,8 @@ impl fmt::Debug for Filesystem {
                             let child_path = path.join(name);
                             match self.get_inode(*child) {
                                 Ok(child_node) => {
-                                    write!(f,
+                                    write!(
+                                        f,
                                         "{:5}  {:?} {:?}  /{}\n",
                                         *child,
                                         child_node.stat,
@@ -582,7 +583,8 @@ impl fmt::Debug for Filesystem {
                                     }
                                 }
                                 other => {
-                                    write!(f,
+                                    write!(
+                                        f,
                                         "<<ERROR>>, failed to read child inode, {:?}",
                                         other
                                     )?;
@@ -591,14 +593,16 @@ impl fmt::Debug for Filesystem {
                         }
                     }
                     other => {
-                        write!(f,
+                        write!(
+                            f,
                             "<<ERROR>>, expected directory at inode {}, found: {:?}",
                             dir, other
                         )?;
                     }
                 },
                 other => {
-                    write!(f,
+                    write!(
+                        f,
                         "<<ERROR>>, failed to read directory inode {}, {:?}",
                         dir, other
                     )?;

@@ -1,4 +1,4 @@
-//! Optional lower-level interface to the container registry and cache
+//! Support for downloading container images from a registry server
 
 use crate::{
     errors::ImageError,
@@ -6,7 +6,7 @@ use crate::{
         storage::{FileStorage, StorageKey},
         tar, vfs,
     },
-    image::{ContentDigest, Image, ImageName, Registry},
+    image::{ContentDigest, Image, ImageName, Registry, Repository},
     manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
 };
 
@@ -26,8 +26,58 @@ use tokio::task;
 #[derive(Clone)]
 pub struct ClientBuilder {
     cache_dir: Option<PathBuf>,
-    registry: Option<Registry>,
+    default_registry: Option<DefaultRegistry>,
     logins: HashMap<Registry, (String, String)>,
+}
+
+/// Additional settings for compatibility with a default registry server
+///
+/// If you don't need the additional options, you can convert a plain [Registry]
+/// [Into] a [DefaultRegistry]
+#[derive(Clone, Debug)]
+pub struct DefaultRegistry {
+    /// Connect to the registry under this name
+    pub network_name: Registry,
+    /// This registry is also known under additional names
+    pub also_known_as: Vec<Registry>,
+    /// Use this prefix when accessing an image repository with only a single
+    /// path component
+    pub library_prefix: Option<Repository>,
+}
+
+impl From<Registry> for DefaultRegistry {
+    fn from(network_name: Registry) -> Self {
+        DefaultRegistry {
+            network_name,
+            also_known_as: vec![],
+            library_prefix: None,
+        }
+    }
+}
+
+impl DefaultRegistry {
+    /// Return the built-in defaults
+    pub fn new() -> Self {
+        DefaultRegistry {
+            network_name: "registry-1.docker.io".parse().unwrap(),
+            also_known_as: vec!["docker.io".parse().unwrap()],
+            library_prefix: Some("library".parse().unwrap()),
+        }
+    }
+
+    /// Check whether a particular registry is considered default under these
+    /// settings
+    ///
+    /// Returns true if the given registry is None or if it matches either the
+    /// 'network_name' or any of the 'also_known_as' settings here.
+    pub fn is_default(&self, registry: &Option<Registry>) -> bool {
+        match registry {
+            None => true,
+            Some(registry) => {
+                registry == &self.network_name || self.also_known_as.contains(registry)
+            }
+        }
+    }
 }
 
 impl ClientBuilder {
@@ -35,7 +85,7 @@ impl ClientBuilder {
     pub fn new() -> Self {
         ClientBuilder {
             cache_dir: None,
-            registry: None,
+            default_registry: None,
             logins: HashMap::new(),
         }
     }
@@ -56,8 +106,8 @@ impl ClientBuilder {
     /// This registry is used for pulling images that do not specify a server.
     /// The default value if unset can be determined with
     /// [Client::default_registry()]
-    pub fn registry(&mut self, registry: &Registry) -> &mut Self {
-        self.registry = Some(registry.clone());
+    pub fn registry(&mut self, default_registry: &DefaultRegistry) -> &mut Self {
+        self.default_registry = Some(default_registry.clone());
         self
     }
 
@@ -81,7 +131,9 @@ impl ClientBuilder {
 
         Ok(Client {
             storage: FileStorage::new(cache_dir),
-            registry: self.registry.unwrap_or_else(Client::default_registry),
+            default_registry: self
+                .default_registry
+                .unwrap_or_else(Client::default_registry),
             logins: self.logins,
             req,
         })
@@ -89,10 +141,14 @@ impl ClientBuilder {
 }
 
 /// Registry clients can download and store data from an image registry
+///
+/// Each client includes settings like authentication, default server, and a
+/// cache storage location. One client can be used to download multiple images
+/// from multiple registries.
 #[derive(Clone)]
 pub struct Client {
     storage: FileStorage,
-    registry: Registry,
+    default_registry: DefaultRegistry,
     logins: HashMap<Registry, (String, String)>,
     req: reqwest::Client,
 }
@@ -137,10 +193,9 @@ impl Client {
     /// Return the default registry server
     ///
     /// This is the server used when nothing else has been specified either in
-    /// [ImageName] or [ClientBuilder]. Currently this always returns
-    /// `registry-1.docker.io`
-    pub fn default_registry() -> Registry {
-        Registry::parse("registry-1.docker.io").unwrap()
+    /// [ImageName] or [ClientBuilder].
+    pub fn default_registry() -> DefaultRegistry {
+        DefaultRegistry::new()
     }
 
     async fn pull_manifest(&mut self, image: &ImageName) -> Result<Manifest, ImageError> {
@@ -150,14 +205,34 @@ impl Client {
             None => {
                 log::info!("{} downloading manifest...", image);
 
-                let registry = image.registry().unwrap_or_else(|| self.registry.clone());
+                let image_registry = image.registry();
+                let settings = if self.default_registry.is_default(&image_registry) {
+                    self.default_registry.clone()
+                } else {
+                    image_registry.unwrap().clone().into()
+                };
+
+                let image_repo = image.repository();
+                let complete_repo = if image_repo.iter().nth(1).is_some() {
+                    image_repo
+                } else {
+                    match &settings.library_prefix {
+                        None => image_repo,
+                        Some(prefix) => prefix.join(&image_repo),
+                    }
+                };
+
+                let version_str = image
+                    .content_digest_str()
+                    .or(image.tag_str())
+                    .unwrap_or("latest");
+
                 let url = format!(
-                    "{}://{}/v2/{}{}/manifests/{}",
-                    registry.protocol(),
-                    registry,
-                    "", // library prefix
-                    image.repository_str(),
-                    image.digest_str().or(image.tag_str()).unwrap_or("latest")
+                    "{}://{}/v2/{}/manifests/{}",
+                    settings.network_name.protocol_str(),
+                    settings.network_name,
+                    complete_repo,
+                    version_str
                 );
 
                 log::debug!("URL {}", url);

@@ -156,7 +156,7 @@ impl StorageKey {
                 if let Some(tag) = image_name.tag_str() {
                     path.push(tag);
                 }
-                if let Some(digest) = image_name.digest_str() {
+                if let Some(digest) = image_name.content_digest_str() {
                     path.push(digest);
                 }
                 Ok(path)

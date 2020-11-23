@@ -1,4 +1,4 @@
-//! Error types you might see while setting up or running a bandsocks container
+//! Error types you might see while setting up or running a container
 
 use thiserror::Error;
 
