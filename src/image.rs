@@ -172,8 +172,9 @@ impl ImageName {
                 Tag::regex_str(),
                 ContentDigest::regex_str()
             ))
-            .unwrap();
+                .unwrap();
         }
+        println!("{:?} {:?}", s, HAS_REGISTRY.is_match(s));
         if HAS_REGISTRY.is_match(s) {
             match WITH_REGISTRY.captures(s) {
                 None => Err(ImageError::InvalidReferenceFormat(s.to_owned())),
