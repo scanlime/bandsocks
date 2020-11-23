@@ -23,7 +23,7 @@ async fn main() {
 
     let mut client = Client::builder();
     if let Some(dir) = matches.value_of("cache_dir") {
-        client.cache_dir(Path::new(dir));
+        client = client.cache_dir(Path::new(dir));
     }
     let mut client = client.build().unwrap();
 

@@ -6,84 +6,41 @@ use crate::{
         storage::{FileStorage, StorageKey},
         tar, vfs,
     },
-    image::{ContentDigest, Image, ImageName, Registry, Repository},
+    image::{ContentDigest, Image, ImageName, Registry},
     manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
+    registry::DefaultRegistry,
 };
 
 use flate2::read::GzDecoder;
 use futures_util::{stream::FuturesUnordered, StreamExt};
+use http::header::HeaderValue;
 use memmap::Mmap;
+use reqwest::{header::HeaderMap, Certificate};
 use std::{
     collections::HashMap,
+    convert::TryInto,
     env,
     io::Read,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 use tokio::task;
 
 /// Builder for configuring custom [Client] instances
-#[derive(Clone)]
 pub struct ClientBuilder {
+    req: reqwest::ClientBuilder,
     cache_dir: Option<PathBuf>,
     default_registry: Option<DefaultRegistry>,
     logins: HashMap<Registry, (String, String)>,
 }
 
-/// Additional settings for compatibility with a default registry server
-///
-/// If you don't need the additional options, you can convert a plain [Registry]
-/// [Into] a [DefaultRegistry]
-#[derive(Clone, Debug)]
-pub struct DefaultRegistry {
-    /// Connect to the registry under this name
-    pub network_name: Registry,
-    /// This registry is also known under additional names
-    pub also_known_as: Vec<Registry>,
-    /// Use this prefix when accessing an image repository with only a single
-    /// path component
-    pub library_prefix: Option<Repository>,
-}
-
-impl From<Registry> for DefaultRegistry {
-    fn from(network_name: Registry) -> Self {
-        DefaultRegistry {
-            network_name,
-            also_known_as: vec![],
-            library_prefix: None,
-        }
-    }
-}
-
-impl DefaultRegistry {
-    /// Return the built-in defaults
-    pub fn new() -> Self {
-        DefaultRegistry {
-            network_name: "registry-1.docker.io".parse().unwrap(),
-            also_known_as: vec!["docker.io".parse().unwrap()],
-            library_prefix: Some("library".parse().unwrap()),
-        }
-    }
-
-    /// Check whether a particular registry is considered default under these
-    /// settings
-    ///
-    /// Returns true if the given registry is None or if it matches either the
-    /// 'network_name' or any of the 'also_known_as' settings here.
-    pub fn is_default(&self, registry: &Option<Registry>) -> bool {
-        match registry {
-            None => true,
-            Some(registry) => {
-                registry == &self.network_name || self.also_known_as.contains(registry)
-            }
-        }
-    }
-}
-
 impl ClientBuilder {
     /// Start constructing a custom registry client
     pub fn new() -> Self {
+        let req = reqwest::Client::builder().user_agent(Client::default_user_agent());
         ClientBuilder {
+            req,
             cache_dir: None,
             default_registry: None,
             logins: HashMap::new(),
@@ -96,8 +53,69 @@ impl ClientBuilder {
     /// Files here are read-only after they are created, and may be shared
     /// with other trusted processes. The default directory can be determined
     /// with [Client::default_cache_dir()]
-    pub fn cache_dir(&mut self, dir: &Path) -> &mut Self {
+    pub fn cache_dir(mut self, dir: &Path) -> Self {
         self.cache_dir = Some(dir.to_path_buf());
+        self
+    }
+
+    /// Set a timeout for each network request
+    ///
+    /// This timeout applies from the beginning of a (GET) request until the
+    /// last byte has been received. By default there is no timeout.
+    pub fn request_timeout(mut self, timeout: Duration) -> Self {
+        self.req = self.req.timeout(timeout);
+        self
+    }
+
+    /// Set a timeout for only the initial connect phase of each network request
+    ///
+    /// By default there is no timeout beyond those built into the networking
+    /// stack.
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        self.req = self.req.connect_timeout(timeout);
+        self
+    }
+
+    /// Sets the `User-Agent` header used by this client
+    ///
+    /// By default, the value returened by [Client::default_user_agent()] is
+    /// used, which identifies the version of `bandsocks` acting as a
+    /// client.
+    pub fn user_agent<V>(mut self, value: V) -> Self
+    where
+        V: TryInto<HeaderValue>,
+        V::Error: Into<http::Error>,
+    {
+        self.req = self.req.user_agent(value);
+        self
+    }
+
+    /// Set whether connections emit verbose logs
+    ///
+    /// When this is set, requests will be logged at the `trace` level.
+    pub fn connection_verbose(mut self, verbose: bool) -> Self {
+        self.req = self.req.connection_verbose(verbose);
+        self
+    }
+
+    /// Bind to a specific local IP address
+    pub fn local_address<T>(mut self, addr: T) -> Self
+    where
+        T: Into<Option<std::net::IpAddr>>,
+    {
+        self.req = self.req.local_address(addr);
+        self
+    }
+
+    /// Set the default headers for every HTTP request
+    pub fn default_request_headers(mut self, headers: HeaderMap) -> Self {
+        self.req = self.req.default_headers(headers);
+        self
+    }
+
+    /// Trust an additional root certificate
+    pub fn add_root_certificate(mut self, certificate: Certificate) -> Self {
+        self.req = self.req.add_root_certificate(certificate);
         self
     }
 
@@ -106,14 +124,19 @@ impl ClientBuilder {
     /// This registry is used for pulling images that do not specify a server.
     /// The default value if unset can be determined with
     /// [Client::default_registry()]
-    pub fn registry(&mut self, default_registry: &DefaultRegistry) -> &mut Self {
+    ///
+    /// The parameter is a [DefaultRegistry], which provides a few additional
+    /// options for emulating registry quirks. When those aren't needed,
+    /// a [Registry] can be converted directly into a [DefaultRegistry] by
+    /// calling its `into()`.
+    pub fn registry(mut self, default_registry: &DefaultRegistry) -> Self {
         self.default_registry = Some(default_registry.clone());
         self
     }
 
     /// Store a username and password for use with a particular registry on this
     /// client
-    pub fn login(&mut self, registry: Registry, username: String, password: String) -> &mut Self {
+    pub fn login(mut self, registry: Registry, username: String, password: String) -> Self {
         self.logins.insert(registry, (username, password));
         self
     }
@@ -125,17 +148,13 @@ impl ClientBuilder {
             None => Client::default_cache_dir()?,
         };
         log::info!("using cache directory {:?}", cache_dir);
-
-        static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-        let req = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
-
         Ok(Client {
             storage: FileStorage::new(cache_dir),
             default_registry: self
                 .default_registry
                 .unwrap_or_else(Client::default_registry),
             logins: self.logins,
-            req,
+            req: self.req.build()?,
         })
     }
 }
@@ -162,6 +181,12 @@ impl Client {
     /// Construct a registry client with custom options, via ClientBuilder
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
+    }
+
+    /// Return the default `User-Agent` that we use if no other is set
+    pub fn default_user_agent() -> HeaderValue {
+        static USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+        HeaderValue::from_static(USER_AGENT)
     }
 
     /// Determine a default per-user cache directory which will be used if an
@@ -204,35 +229,14 @@ impl Client {
             Some(map) => map,
             None => {
                 log::info!("{} downloading manifest...", image);
-
-                let image_registry = image.registry();
-                let settings = if self.default_registry.is_default(&image_registry) {
-                    self.default_registry.clone()
-                } else {
-                    image_registry.unwrap().clone().into()
-                };
-
-                let image_repo = image.repository();
-                let complete_repo = if image_repo.iter().nth(1).is_some() {
-                    image_repo
-                } else {
-                    match &settings.library_prefix {
-                        None => image_repo,
-                        Some(prefix) => prefix.join(&image_repo),
-                    }
-                };
-
-                let version_str = image
-                    .content_digest_str()
-                    .or(image.tag_str())
-                    .unwrap_or("latest");
-
+                let (resolved_registry, resolved_repository) =
+                    self.default_registry.resolve_image_name(image);
                 let url = format!(
                     "{}://{}/v2/{}/manifests/{}",
-                    settings.network_name.protocol_str(),
-                    settings.network_name,
-                    complete_repo,
-                    version_str
+                    resolved_registry.protocol_str(),
+                    resolved_registry,
+                    resolved_repository,
+                    image.effective_version_str(),
                 );
 
                 log::debug!("URL {}", url);

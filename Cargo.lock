@@ -68,6 +68,7 @@ dependencies = [
  "hash32",
  "hash32-derive",
  "heapless",
+ "http",
  "lazy_static",
  "libc",
  "log",

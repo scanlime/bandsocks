@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Partial implementation of the manifest v2 schema2 spec.
-/// The dkregistry crate has its own partial version of this spec too, but it's
-/// mostly private. https://docs.docker.com/registry/spec/manifest-v2-2/
+///
+/// Reference: https://docs.docker.com/registry/spec/manifest-v2-2/
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Manifest {
     pub config: Link,
@@ -18,8 +18,9 @@ pub struct Link {
 }
 
 pub mod media_types {
-    pub const RUNTIME_CONFIG: &'static str = "application/vnd.docker.container.image.v1+json";
-    pub const LAYER_TAR_GZIP: &'static str = "application/vnd.docker.image.rootfs.diff.tar.gzip";
+    pub const MANIFEST: &str = "application/vnd.docker.distribution.manifest.v2+json";
+    pub const RUNTIME_CONFIG: &str = "application/vnd.docker.container.image.v1+json";
+    pub const LAYER_TAR_GZIP: &str = "application/vnd.docker.image.rootfs.diff.tar.gzip";
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -48,7 +49,7 @@ pub struct ImageConfig {
     pub entrypoint: Option<Vec<String>>,
 }
 
-pub const FS_TYPE: &'static str = "layers";
+pub const FS_TYPE: &str = "layers";
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Filesystem {
