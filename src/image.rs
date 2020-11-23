@@ -124,6 +124,16 @@ impl ImageName {
         }
     }
 
+    /// Return references to the parsed components within this [ImageName]
+    pub fn as_parts(&self) -> (Option<&str>, &str, Option<&str>, Option<&str>) {
+        (
+            self.registry_str(),
+            self.repository_str(),
+            self.tag_str(),
+            self.content_digest_str(),
+        )
+    }
+
     /// Parse a [prim@str] as an [ImageName]
     pub fn parse(s: &str) -> Result<Self, ImageError> {
         lazy_static! {
@@ -135,31 +145,31 @@ impl ImageName {
                 /* -- -- */ "[a-zA-Z0-9]|",
                 /* -- -- */ "[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]",
                 /* -- */ ")",
-                /* -- */ "(?:", // Aditional domain components
+                /* -- */ "(?:", // Additional domain components
                 /* -- -- */ "\\.",
                 /* -- -- */ "(?:",
                 /* -- -- -- */ "[a-zA-Z0-9]|",
                 /* -- -- -- */ "[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]",
                 /* -- -- */ ")",
                 /* -- */ ")+",
-                /* -- */ "(?:[0-9]+)?", // Optional port number
+                /* -- */ "(?::[0-9]+)?", // Optional port number
                 /*  */ ")",
                 /* */ "|(?:", // another option: no dots, but there's a port number
                 /* -- */ "(?:", // Only domain component
                 /* -- -- */ "[a-zA-Z0-9]|",
                 /* -- -- */ "[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]",
                 /* -- */ ")",
-                /* -- */ "(?:[0-9]+)", // port number
+                /* -- */ "(?::[0-9]+)", // port number
                 /*  */ ")",
                 /* */ "|(?:", // special case for localhost
                 /* -- */ "localhost",
-                /* -- */ "(?:[0-9]+)?", // Optional port number
+                /* -- */ "(?::[0-9]+)?", // Optional port number
                 /*  */ ")",
                 ")", // end of alternatives
                 "/", // done matching at the first slash, which is not optional here
             )).unwrap();
             static ref WITH_REGISTRY: Regex = Regex::new(&format!(
-                "^{}{}(:{})?(@{})?$",
+                "^{}/{}(:{})?(@{})?$",
                 Registry::regex_str(),
                 Repository::regex_str(),
                 Tag::regex_str(),
@@ -174,7 +184,6 @@ impl ImageName {
             ))
                 .unwrap();
         }
-        println!("{:?} {:?}", s, HAS_REGISTRY.is_match(s));
         if HAS_REGISTRY.is_match(s) {
             match WITH_REGISTRY.captures(s) {
                 None => Err(ImageError::InvalidReferenceFormat(s.to_owned())),
@@ -826,8 +835,14 @@ mod tests {
 
     #[test]
     fn image_name_from_parts() {
-        assert!(ImageName::from_parts(None, "busybox", None, None).is_ok());
+        assert_eq!(
+            ImageName::from_parts(None, "busybox", None, None)
+                .unwrap()
+                .as_parts(),
+            (None, "busybox", None, None)
+        );
         assert!(ImageName::from_parts(None, "localhost", None, None).is_ok());
+        assert!(ImageName::from_parts(None, "busybox", None, None).is_ok());
         assert!(ImageName::from_parts(None, "localpost/busybox", None, None).is_ok());
         assert!(ImageName::from_parts(None, "localhost/busybox", None, None).is_err());
         assert!(ImageName::from_parts(None, "library/busybox", None, None).is_ok());
@@ -841,6 +856,10 @@ mod tests {
         assert!(ImageName::parse("balls/").is_err());
         assert!(ImageName::parse("balls/etc").is_ok());
         assert!(ImageName::parse("balls/etc/and/more").is_ok());
+        assert_eq!(
+            ImageName::parse("balls/etc/and/more").unwrap().as_parts(),
+            (None, "balls/etc/and/more", None, None)
+        );
         assert!(ImageName::parse("b-a-l-l-s").is_ok());
         assert!(ImageName::parse("-balls").is_err());
         assert!(ImageName::parse("--balls").is_err());
@@ -851,6 +870,32 @@ mod tests {
         assert!(ImageName::parse("balls.io/image/of/my/balls:0").is_ok());
         assert!(ImageName::parse("balls.io/image/of/my/balls:.").is_err());
         assert!(ImageName::parse("balls.io/image/of/my/balls:0.0").is_ok());
+        assert_eq!(
+            ImageName::parse("balls.io/image/of/my/balls:0.0")
+                .unwrap()
+                .as_parts(),
+            (Some("balls.io"), "image/of/my/balls", Some("0.0"), None)
+        );
+        assert!(ImageName::parse("balls.io/image/of/my/balls:0.0@").is_err());
+        assert!(ImageName::parse("balls.io/image/of/my/balls:0.0@s").is_err());
+        assert!(ImageName::parse("balls.io/image/of/my/balls:0.0@s:aaaab").is_err());
+        assert!(ImageName::parse(
+            "balls.io/image/of/my/balls:0.0@s:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"
+        )
+        .is_ok());
+        assert_eq!(
+            ImageName::parse(
+                "balls.io/image/of/my/balls:0.0@s:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"
+            )
+            .unwrap()
+            .as_parts(),
+            (
+                Some("balls.io"),
+                "image/of/my/balls",
+                Some("0.0"),
+                Some("s:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab")
+            )
+        );
         assert!(ImageName::parse("balls.io/image/of//balls").is_err());
         assert!(ImageName::parse(" balls").is_err());
         assert!(ImageName::parse("balls ").is_err());
