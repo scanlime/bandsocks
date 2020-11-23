@@ -23,7 +23,7 @@ use std::{
 /// container image. It is immutable, and multiple running containers can use
 /// one image.
 ///
-/// The filesystem stores all metadata in memory, but file contents are
+/// The virtual filesystem stores all metadata in memory, but file contents are
 /// referenced as needed from the configured disk cache.
 #[derive(Debug)]
 pub struct Image {
@@ -53,11 +53,19 @@ impl Image {
 /// refers to an image, optionally at a specific version, which can be fetched
 /// from a registry server (possibly the configured default).
 ///
-/// This tries to be format-compatible with Docker as described by the
-/// authoritative reference at <https://github.com/docker/distribution/blob/master/reference/regexp.go>
+/// This tries to be format-compatible with Docker including its quirks.
 ///
 /// A complete image name contains a [Registry], [Repository], [Tag], and
 /// [ContentDigest] in that order. Only the [Repository] component is mandatory.
+///
+/// The [Tag] always begins with a `:` and the [ContentDigest] with an `@`, but
+/// delineating the optional [Registry] and the first section of the
+/// [Repository] requires heuristics. If this first section includes any dot (.)
+/// or colon (:) characters it is assumed to be a repository server. This same
+/// property (see [Registry]) ensures that the parsed registry uses https. The
+/// additional exception is a special case for "localhost", which is always
+/// interpreted as a registry name. Additionally, because it has no dots, it is
+/// interpreted as an unencrypted http registry at localhost.
 ///
 /// When a [ContentDigest] is specified, it securely identifies the specific
 /// contents of an image's layer data and manifest. Remember that a name without
@@ -119,24 +127,75 @@ impl ImageName {
     /// Parse a [prim@str] as an [ImageName]
     pub fn parse(s: &str) -> Result<Self, ImageError> {
         lazy_static! {
-            static ref RE: Regex = Regex::new(&format!(
-                concat!("^", "(?:{}/)?", "{}", "(?:[:]{})?", "(?:[@]{})?", "$",),
+            static ref HAS_REGISTRY: Regex = Regex::new(concat!(
+                "^",
+                "(?:", // alternatives group
+                /* */ "(?:", // one option: a domain with at least one dot
+                /* -- */ "(?:", // First domain component
+                /* -- -- */ "[a-zA-Z0-9]|",
+                /* -- -- */ "[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]",
+                /* -- */ ")",
+                /* -- */ "(?:", // Aditional domain components
+                /* -- -- */ "\\.",
+                /* -- -- */ "(?:",
+                /* -- -- -- */ "[a-zA-Z0-9]|",
+                /* -- -- -- */ "[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]",
+                /* -- -- */ ")",
+                /* -- */ ")+",
+                /* -- */ "(?:[0-9]+)?", // Optional port number
+                /*  */ ")",
+                /* */ "|(?:", // another option: no dots, but there's a port number
+                /* -- */ "(?:", // Only domain component
+                /* -- -- */ "[a-zA-Z0-9]|",
+                /* -- -- */ "[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]",
+                /* -- */ ")",
+                /* -- */ "(?:[0-9]+)", // port number
+                /*  */ ")",
+                /* */ "|(?:", // special case for localhost
+                /* -- */ "localhost",
+                /* -- */ "(?:[0-9]+)?", // Optional port number
+                /*  */ ")",
+                ")", // end of alternatives
+                "/", // done matching at the first slash, which is not optional here
+            )).unwrap();
+            static ref WITH_REGISTRY: Regex = Regex::new(&format!(
+                "^{}{}(:{})?(@{})?$",
                 Registry::regex_str(),
                 Repository::regex_str(),
                 Tag::regex_str(),
                 ContentDigest::regex_str()
             ))
             .unwrap();
+            static ref NO_REGISTRY: Regex = Regex::new(&format!(
+                "^{}(:{})?(@{})?$",
+                Repository::regex_str(),
+                Tag::regex_str(),
+                ContentDigest::regex_str()
+            ))
+            .unwrap();
         }
-        match RE.captures(s) {
-            None => Err(ImageError::InvalidReferenceFormat(s.to_owned())),
-            Some(captures) => Ok(ImageName {
-                serialized: s.to_owned(),
-                registry_pos: captures.name("reg").map(|m| m.range()),
-                repository_pos: captures.name("repo").unwrap().range(),
-                tag_pos: captures.name("tag").map(|m| m.range()),
-                digest_pos: captures.name("dig").map(|m| m.range()),
-            }),
+        if HAS_REGISTRY.is_match(s) {
+            match WITH_REGISTRY.captures(s) {
+                None => Err(ImageError::InvalidReferenceFormat(s.to_owned())),
+                Some(captures) => Ok(ImageName {
+                    serialized: s.to_owned(),
+                    registry_pos: Some(captures.name("reg").unwrap().range()),
+                    repository_pos: captures.name("repo").unwrap().range(),
+                    tag_pos: captures.name("tag").map(|m| m.range()),
+                    digest_pos: captures.name("dig").map(|m| m.range()),
+                }),
+            }
+        } else {
+            match NO_REGISTRY.captures(s) {
+                None => Err(ImageError::InvalidReferenceFormat(s.to_owned())),
+                Some(captures) => Ok(ImageName {
+                    serialized: s.to_owned(),
+                    registry_pos: None,
+                    repository_pos: captures.name("repo").unwrap().range(),
+                    tag_pos: captures.name("tag").map(|m| m.range()),
+                    digest_pos: captures.name("dig").map(|m| m.range()),
+                }),
+            }
         }
     }
 
@@ -763,6 +822,17 @@ impl ContentDigest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_name_from_parts() {
+        assert!(ImageName::from_parts(None, "busybox", None, None).is_ok());
+        assert!(ImageName::from_parts(None, "localhost", None, None).is_ok());
+        assert!(ImageName::from_parts(None, "localpost/busybox", None, None).is_ok());
+        assert!(ImageName::from_parts(None, "localhost/busybox", None, None).is_err());
+        assert!(ImageName::from_parts(None, "library/busybox", None, None).is_ok());
+        assert!(ImageName::from_parts(None, "library:42/busybox", None, None).is_err());
+        assert!(ImageName::from_parts(Some("library:42"), "busybox", None, None).is_ok());
+    }
 
     #[test]
     fn parse_image_name() {
