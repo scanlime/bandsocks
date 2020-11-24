@@ -331,7 +331,7 @@ impl Client {
         };
 
         let slice = &map[..];
-        log::trace!("raw json manifest, {}", String::from_utf8_lossy(slice));
+        log::trace!("raw json manifest: {:?}", String::from_utf8_lossy(slice));
         Ok(serde_json::from_slice(slice)?)
     }
 
