@@ -11,28 +11,30 @@ use crate::{
     registry::DefaultRegistry,
 };
 
-use flate2::read::GzDecoder;
+use async_compression::tokio_02::write::GzipDecoder;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use http::header::HeaderValue;
 use memmap::Mmap;
-use reqwest::{header::HeaderMap, Certificate};
+use reqwest::{header, header::HeaderMap, Certificate};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     convert::TryInto,
     env,
-    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
-use tokio::task;
+use tokio::{io::AsyncWriteExt, task};
 
 /// Builder for configuring custom [Client] instances
+#[derive(Debug)]
 pub struct ClientBuilder {
     req: reqwest::ClientBuilder,
     cache_dir: Option<PathBuf>,
-    default_registry: Option<DefaultRegistry>,
     logins: HashMap<Registry, (String, String)>,
+    default_registry: Option<DefaultRegistry>,
+    allowed_registries: Option<HashSet<Registry>>,
+    allow_http_registries: bool,
 }
 
 impl ClientBuilder {
@@ -44,7 +46,30 @@ impl ClientBuilder {
             cache_dir: None,
             default_registry: None,
             logins: HashMap::new(),
+            allowed_registries: None,
+            allow_http_registries: true,
         }
+    }
+
+    /// Disallow connecting to registries via HTTP
+    ///
+    /// The way Docker parses image names, values like `localhost/blah` or
+    /// `dev:5000/foo` will be interpreted as hosts to contact over unencrypted
+    /// HTTP. This setting disallows such registries.
+    pub fn disallow_http(mut self) -> Self {
+        self.allow_http_registries = false;
+        self
+    }
+
+    /// Set a list of allowed registry servers
+    ///
+    /// All connections will be checked against this list. The default registry
+    /// is not automatically added to the list. If no allowed registry list is
+    /// set, any server will be allowed. An empty allow list will disallow all
+    /// connections, but the local cache will still be used if available.
+    pub fn allow_only_connections_to(mut self, allowed: HashSet<Registry>) -> Self {
+        self.allowed_registries = Some(allowed);
+        self
     }
 
     /// Change the cache directory
@@ -87,14 +112,6 @@ impl ClientBuilder {
         V::Error: Into<http::Error>,
     {
         self.req = self.req.user_agent(value);
-        self
-    }
-
-    /// Set whether connections emit verbose logs
-    ///
-    /// When this is set, requests will be logged at the `trace` level.
-    pub fn connection_verbose(mut self, verbose: bool) -> Self {
-        self.req = self.req.connection_verbose(verbose);
         self
     }
 
@@ -150,6 +167,8 @@ impl ClientBuilder {
         log::info!("using cache directory {:?}", cache_dir);
         Ok(Client {
             storage: FileStorage::new(cache_dir),
+            allowed_registries: self.allowed_registries,
+            allow_http_registries: self.allow_http_registries,
             default_registry: self
                 .default_registry
                 .unwrap_or_else(Client::default_registry),
@@ -167,9 +186,11 @@ impl ClientBuilder {
 #[derive(Clone)]
 pub struct Client {
     storage: FileStorage,
-    default_registry: DefaultRegistry,
     logins: HashMap<Registry, (String, String)>,
     req: reqwest::Client,
+    default_registry: DefaultRegistry,
+    allowed_registries: Option<HashSet<Registry>>,
+    allow_http_registries: bool,
 }
 
 impl Client {
@@ -223,47 +244,81 @@ impl Client {
         DefaultRegistry::new()
     }
 
-    async fn pull_manifest(&mut self, image: &ImageName) -> Result<Manifest, ImageError> {
-        let key = StorageKey::Manifest(image.clone());
-        let map = match self.storage.mmap(&key).await? {
-            Some(map) => map,
-            None => {
-                log::info!("{} downloading manifest...", image);
-                let (resolved_registry, resolved_repository) =
-                    self.default_registry.resolve_image_name(image);
-                let url = format!(
-                    "{}://{}/v2/{}/manifests/{}",
-                    resolved_registry.protocol_str(),
-                    resolved_registry,
-                    resolved_repository,
-                    image.effective_version_str(),
-                );
-
-                log::debug!("URL {}", url);
-
-                unimplemented!();
-                /*
-                    let rc = self.registry_client_for(image).await?;
-                    match rc
-                        .get_manifest(&image.repository(), &image.version())
-                        .await?
-                    {
-                        dkregistry::v2::manifest::Manifest::S2(schema) => {
-                            // FIXME: need to verify sha256 of the manifest.
-                            // multiple problems with using dkregistry here at this point. time to
-                            // switch tactics?
-                            let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
-                            self.storage.insert(&key, &spec_data).await?;
-                            match self.storage.mmap(&key).await? {
-                                Some(map) => map,
-                                None => return Err(ImageError::StorageMissingAfterInsert),
-                            }
-                        }
-                        _ => return Err(ImageError::UnsupportedManifestType),
-                    }
-                */
+    fn is_registry_allowed(&self, registry: &Registry) -> bool {
+        (self.allow_http_registries || registry.is_https())
+            && match &self.allowed_registries {
+                None => true,
+                Some(allow_list) => allow_list.contains(registry),
             }
+    }
+
+    async fn pull_manifest(&mut self, image: &ImageName) -> Result<Manifest, ImageError> {
+        let (registry, repository) = self.default_registry.resolve_image_name(image);
+        let key = StorageKey::Manifest(registry, repository, image.version());
+
+        let map = match self.storage.mmap(&key).await? {
+            Some(map) => {
+                log::debug!("{} manifest is already cached", image);
+                map
+            }
+            None => match &key {
+                StorageKey::Manifest(registry, repository, version) => {
+                    if !self.is_registry_allowed(registry) {
+                        log::warn!("registry {} not allowed by configuration", registry);
+                        return Err(ImageError::RegistryNotAllowed(registry.clone()));
+                    }
+
+                    let request = {
+                        let manifest_url = format!(
+                            "{}://{}/v2/{}/manifests/{}",
+                            registry.protocol_str(),
+                            registry,
+                            repository,
+                            version
+                        );
+                        log::info!("{} <{}> downloading manifest...", image, manifest_url);
+                        self.req
+                            .get(&manifest_url)
+                            .header(header::ACCEPT, media_types::MANIFEST)
+                            .build()?
+                    };
+
+                    let response = self.req.execute(request).await?;
+
+                    if !response.status().is_success() {
+                        return Err(ImageError::RegistryResponse(
+                            response.status(),
+                            response.url().clone(),
+                        ));
+                    }
+
+                    panic!("{:?}", response);
+
+                    /*:
+                                        let rc = self.registry_client_for(image).await?;
+                                        match rc
+                                            .get_manifest(&image.repository(), &image.version())
+                                            .await?
+                                        {
+                                            dkregistry::v2::manifest::Manifest::S2(schema) => {
+                    i                            // FIXME: need to verify sha256 of the manifest.
+                                                // multiple problems with using dkregistry here at this point. time to
+                                                // switch tactics?
+                                                let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
+                                                self.storage.insert(&key, &spec_data).await?;
+                                                match self.storage.mmap(&key).await? {
+                                                    Some(map) => map,
+                                                    None => return Err(ImageError::StorageMissingAfterInsert),
+                                                }
+                                            }
+                                            _ => return Err(ImageError::UnsupportedManifestType),
+                                        }
+                                    */
+                }
+                _ => unreachable!(),
+            },
         };
+
         let slice = &map[..];
         log::trace!("raw json manifest, {}", String::from_utf8_lossy(slice));
         Ok(serde_json::from_slice(slice)?)
@@ -350,27 +405,25 @@ impl Client {
     }
 
     async fn decompress_layer(&mut self, data: Mmap) -> Result<(), ImageError> {
-        let data_len = data.len();
-        let output: Result<(StorageKey, Vec<u8>), ImageError> = task::spawn_blocking(move || {
-            if data.len() > 1024 * 1024 {
-                log::info!("decompressing {} bytes ...", data.len());
+        if data.len() > 512 * 1024 {
+            log::info!("decompressing {} bytes ...", data.len());
+        }
+
+        let mut writer = self.storage.begin_write().await?;
+        let decompress_result = GzipDecoder::new(&mut writer).write_all(&data[..]).await;
+
+        match decompress_result {
+            Err(err) => {
+                writer.remove_temp().await?;
+                return Err(err.into());
             }
-            let mut decoder = GzDecoder::new(&data[..]);
-            let mut output = vec![];
-            decoder.read_to_end(&mut output)?;
-            let key = StorageKey::from_blob_data(&output);
-            Ok((key, output))
-        })
-        .await?;
-        let (key, output) = output?;
-        log::debug!(
-            "decompressed {} bytes into {} bytes, {:?}",
-            data_len,
-            output.len(),
-            key
-        );
-        self.storage.insert(&key, &output).await?;
-        Ok(())
+            Ok(()) => {
+                let key = StorageKey::Blob(writer.finalize().await?);
+                log::debug!("decompressed {} bytes into {:?}", data.len(), key);
+                self.storage.commit_write(writer, &key).await?;
+                Ok(())
+            }
+        }
     }
 
     async fn pull_and_decompress_layers(

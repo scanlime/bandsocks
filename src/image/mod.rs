@@ -136,14 +136,18 @@ impl ImageName {
         )
     }
 
-    /// Returns the most specific available version, as a string
+    /// Returns the most specific available version
     ///
     /// If the image name includes a digest, this returns the digest. Otherwise,
     /// it returns the tag, defaulting to `latest` if no tag is set.
-    pub fn effective_version_str(&self) -> &str {
-        self.content_digest_str()
-            .or(self.tag_str())
-            .unwrap_or("latest")
+    pub fn version(&self) -> ImageVersion {
+        if self.content_digest_str().is_some() {
+            return ImageVersion::ContentDigest(self.content_digest().unwrap());
+        }
+        if self.tag_str().is_some() {
+            return ImageVersion::Tag(self.tag().unwrap());
+        }
+        ImageVersion::Tag(Tag::latest())
     }
 
     /// Parse a [prim@str] as an [ImageName]
@@ -277,13 +281,13 @@ impl ImageName {
     /// provided one and a [ImageError::ContentDigestMismatch] is returned on
     /// mismatch.
     pub fn with_specific_digest(&self, digest: &ContentDigest) -> Result<Self, ImageError> {
-        match self.content_digest_str() {
+        match self.content_digest() {
             None => Ok(()),
-            Some(matching) if matching == digest.as_str() => Ok(()),
-            Some(mismatch) => Err(ImageError::ContentDigestMismatch(
-                mismatch.to_owned(),
-                digest.as_str().to_string(),
-            )),
+            Some(matching) if &matching == digest => Ok(()),
+            Some(mismatch) => Err(ImageError::ContentDigestMismatch {
+                expected: digest.clone(),
+                found: mismatch,
+            }),
         }?;
         ImageName::from_parts(
             self.registry_str(),
@@ -359,6 +363,11 @@ pub struct Registry {
 impl Registry {
     /// Returns a reference to the existing string representation of a
     /// [Registry]
+    ///
+    /// Always consists of a domain name with optional port, which have been
+    /// validated by the parser. May include alphanumeric characters, at most
+    /// one colon, and it may include single dots at positions other than the
+    /// beginning of the string.
     pub fn as_str(&self) -> &str {
         &self.serialized
     }
@@ -511,6 +520,11 @@ impl<'a> Iterator for RepositoryIter<'a> {
 impl Repository {
     /// Returns a reference to the existing string representation of a
     /// [Repository]
+    ///
+    /// Always consists of at least one path segment, separated by slashes.
+    /// Characters are limited to lowercase alphanumeric, single internal
+    /// forward slashes, and dots or dashes which do not begin a path
+    /// segment.
     pub fn as_str(&self) -> &str {
         &self.serialized
     }
@@ -630,8 +644,14 @@ pub struct Tag {
     serialized: String,
 }
 
+static LATEST_STR: &str = "latest";
+
 impl Tag {
     /// Returns a reference to the existing string representation of a [Tag]
+    ///
+    /// Tags are up to 128 characters long, including alphanumeric characters
+    /// and underscores appearing anywhere in the string, and dots or dashes
+    /// appearing anywhere except the beginning.
     pub fn as_str(&self) -> &str {
         &self.serialized
     }
@@ -647,6 +667,18 @@ impl Tag {
                 serialized: s.to_owned(),
             }),
         }
+    }
+
+    /// Returns the special tag `latest`
+    pub fn latest() -> Self {
+        Tag {
+            serialized: LATEST_STR.to_owned(),
+        }
+    }
+
+    /// Is this the special tag `latest`?
+    pub fn is_latest(&self) -> bool {
+        self.serialized == LATEST_STR
     }
 
     fn regex_str() -> &'static str {
@@ -757,6 +789,12 @@ impl PartialOrd for ContentDigest {
 impl ContentDigest {
     /// Returns a reference to the existing string representation of a
     /// [ContentDigest]
+    ///
+    /// This string always has a single colon. After the colon is 32 or more
+    /// characters which will always be lowercase hexadecimal digits. The format
+    /// specifier before this colon is alphanumeric, with plus, dash,
+    /// underscore, or dot characters allowed as separators between valid
+    /// groups of alphanumeric characters.
     pub fn as_str(&self) -> &str {
         &self.serialized
     }
@@ -764,8 +802,11 @@ impl ContentDigest {
     /// Create a new ContentDigest from parts
     ///
     /// The format string and hex string are assembled and parsed.
-    pub fn from_parts(format_part: &str, hex_part: &str) -> Result<Self, ImageError> {
-        ContentDigest::parse(&format!("{}:{}", format_part, hex_part))
+    pub fn from_parts<T: fmt::LowerHex>(
+        format_part: &str,
+        hex_part: &T,
+    ) -> Result<Self, ImageError> {
+        ContentDigest::parse(&format!("{}:{:x}", format_part, hex_part))
     }
 
     /// Create a new ContentDigest from content data
@@ -778,7 +819,7 @@ impl ContentDigest {
     /// assert_eq!(digest.as_str(), "sha256:77af778b51abd4a3c51c5ddd97204a9c3ae614ebccb75a606c3b6865aed6744e");
     /// ```
     pub fn from_content(content_bytes: &[u8]) -> Self {
-        ContentDigest::parse(&format!("sha256:{:x}", Sha256::digest(content_bytes))).unwrap()
+        ContentDigest::from_parts("sha256", &Sha256::digest(content_bytes)).unwrap()
     }
 
     /// Parse a [prim@str] as a [ContentDigest]
@@ -834,9 +875,61 @@ impl ContentDigest {
             /*  */ ")", // end digest format group
             /*  */ "[:]", // Main separator
             /*  */ "(?P<dig_h>", // digest hex group
-            /* -- */ "[a-fA-F0-9]{32,}",
+            /* -- */ "[a-f0-9]{32,}",
             /*  */ ")",
             ")",
         )
+    }
+}
+
+/// Either an image tag or a content digest
+///
+/// An [ImageName] includes an optional tag and an optional content digest. Only
+/// the most specific available version is used to actually download an image,
+/// though. Any [ImageName] can be resolved into an [ImageVersion] that is
+/// either a digest, a tag, or the special tag "latest".
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum ImageVersion {
+    Tag(Tag),
+    ContentDigest(ContentDigest),
+}
+
+impl ImageVersion {
+    /// Returns a reference to the existing string representation of an
+    /// [ImageVersion]
+    pub fn as_str(&self) -> &str {
+        match self {
+            ImageVersion::Tag(tag) => tag.as_str(),
+            ImageVersion::ContentDigest(content_digest) => content_digest.as_str(),
+        }
+    }
+
+    /// Parse a [prim@str] as an [ImageVersion]
+    pub fn parse(s: &str) -> Result<Self, ImageError> {
+        if s.contains(':') {
+            Ok(ImageVersion::ContentDigest(ContentDigest::parse(s)?))
+        } else {
+            Ok(ImageVersion::Tag(Tag::parse(s)?))
+        }
+    }
+}
+
+impl FromStr for ImageVersion {
+    type Err = ImageError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        ImageVersion::parse(s)
+    }
+}
+
+impl fmt::Display for ImageVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl fmt::Debug for ImageVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
     }
 }

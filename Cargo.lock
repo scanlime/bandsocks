@@ -37,6 +37,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-compression"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb1ff21a63d3262af46b9f33a826a8d134e2d0d9b2179c86034948b732ea8b2a"
+dependencies = [
+ "flate2",
+ "futures-core",
+ "memchr",
+ "pin-project-lite 0.1.10",
+ "tokio",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -57,13 +70,13 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 name = "bandsocks"
 version = "0.2.0"
 dependencies = [
+ "async-compression",
  "bandsocks-sand",
  "build-deps",
  "clap",
  "env_logger",
  "fd-queue",
  "file_limit",
- "flate2",
  "futures-util",
  "hash32",
  "hash32-derive",
@@ -74,6 +87,7 @@ dependencies = [
  "log",
  "memmap",
  "pentacle",
+ "pin-project 1.0.1",
  "regex",
  "reqwest",
  "serde",
@@ -82,6 +96,7 @@ dependencies = [
  "tar",
  "thiserror",
  "tokio",
+ "url",
 ]
 
 [[package]]

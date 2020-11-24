@@ -31,6 +31,7 @@ pub async fn extract(
         } else {
             Some(
                 archive
+                    .clone()
                     .range(file_range)
                     .map_err(|_| ImageError::TARFileError)?,
             )

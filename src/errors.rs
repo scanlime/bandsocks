@@ -19,6 +19,12 @@ pub enum ImageError {
     #[error("network request error: {0}")]
     NetworkRequest(#[from] reqwest::Error),
 
+    #[error("registry server is not allowed by the current configuration: {0}")]
+    RegistryNotAllowed(crate::image::Registry),
+
+    #[error("unsuccessful response from registry server: {0} {1}")]
+    RegistryResponse(http::StatusCode, url::Url),
+
     #[error("tar file format error")]
     TARFileError,
 
@@ -28,8 +34,14 @@ pub enum ImageError {
     #[error("data just written to the cache is missing")]
     StorageMissingAfterInsert,
 
-    #[error("calculated digest of downloaded content is not what we asked for, {0} != {1}")]
-    ContentDigestMismatch(String, String),
+    #[error("i/o errors occurred, the content digest is not valid")]
+    ContentDigestIOError,
+
+    #[error("calculated digest of downloaded content is not what we asked for, expected {expected}, found {found}")]
+    ContentDigestMismatch {
+        expected: crate::image::ContentDigest,
+        found: crate::image::ContentDigest,
+    },
 
     #[error("can't determine where to cache image files")]
     NoDefaultCacheDir,

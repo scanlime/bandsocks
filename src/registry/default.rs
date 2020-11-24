@@ -51,7 +51,8 @@ impl DefaultRegistry {
         }
     }
 
-    /// Use these settings to determine the actual network server and path for an image
+    /// Use these settings to determine the actual network server and path for
+    /// an image
     pub fn resolve_image_name(&self, image: &ImageName) -> (Registry, Repository) {
         let registry = image.registry();
         let settings = if self.is_default(&registry) {
