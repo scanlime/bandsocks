@@ -157,7 +157,7 @@ fn parse_digest_name() {
     );
     assert!(ContentDigest::parse("balls:0123456789abcdef0123456789abcdef").is_ok());
     assert!(ContentDigest::parse("balls:0123456789abcdef0123456789abcdeg").is_err());
-    assert!(ContentDigest::parse("balls:0123456789abcdef0123456789abcdefF").is_ok());
+    assert!(ContentDigest::parse("balls:0123456789abcdef0123456789abcdeff").is_ok());
     assert!(ContentDigest::parse("ball.ball.ball.balls:0123456789abcdef0123456789abcdef").is_ok());
     assert!(ContentDigest::parse("0123456789abcdef0123456789abcdef").is_err());
     assert!(ContentDigest::parse(":0123456789abcdef0123456789abcdef").is_err());
