@@ -273,29 +273,6 @@ impl ImageName {
         self.content_digest_str()
             .map(|s| ContentDigest::parse(s).expect("already parsed"))
     }
-
-    /// Make a new ImageName based on this one, including a specific
-    /// [ContentDigest]
-    ///
-    /// If this image already has a content digest, it is verified against the
-    /// provided one and a [ImageError::ContentDigestMismatch] is returned on
-    /// mismatch.
-    pub fn with_specific_digest(&self, digest: &ContentDigest) -> Result<Self, ImageError> {
-        match self.content_digest() {
-            None => Ok(()),
-            Some(matching) if &matching == digest => Ok(()),
-            Some(mismatch) => Err(ImageError::ContentDigestMismatch {
-                expected: digest.clone(),
-                found: mismatch,
-            }),
-        }?;
-        ImageName::from_parts(
-            self.registry_str(),
-            self.repository_str(),
-            self.tag_str(),
-            Some(digest.as_str()),
-        )
-    }
 }
 
 impl Eq for ImageName {}

@@ -283,37 +283,56 @@ impl Client {
                             .build()?
                     };
 
-                    let response = self.req.execute(request).await?;
+                    let mut response = self.req.execute(request).await?.error_for_status()?;
 
-                    if !response.status().is_success() {
-                        return Err(ImageError::RegistryResponse(
-                            response.status(),
-                            response.url().clone(),
-                        ));
+                    let mut writer = self.storage.begin_write().await?;
+
+                    let result: Result<(), ImageError> = loop {
+                        match response.chunk().await {
+                            Err(err) => break Err(err.into()),
+                            Ok(None) => break Ok(()),
+                            Ok(Some(chunk)) => match writer.write_all(&chunk).await {
+                                Err(err) => break Err(err.into()),
+                                Ok(()) => (),
+                            },
+                        }
+                    };
+
+                    if let Err(err) = result {
+                        writer.remove_temp().await?;
+                        return Err(err.into());
                     }
 
-                    panic!("{:?}", response);
+                    // If we are downloading using a digest, always verify before committing the
+                    // image to storage
+                    let found_digest = writer.finalize().await?;
+                    let digest_validated = match image.content_digest() {
+                        None => false,
+                        Some(image_digest) if image_digest == found_digest => true,
+                        Some(image_digest) => {
+                            return Err(ImageError::ContentDigestMismatch {
+                                expected: image_digest.clone(),
+                                found: found_digest,
+                            })
+                        }
+                    };
+                    let specific_image = ImageName::from_parts(
+                        image.registry_str(),
+                        image.repository_str(),
+                        image.tag_str(),
+                        Some(found_digest.as_str()),
+                    )?;
 
-                    /*:
-                                        let rc = self.registry_client_for(image).await?;
-                                        match rc
-                                            .get_manifest(&image.repository(), &image.version())
-                                            .await?
-                                        {
-                                            dkregistry::v2::manifest::Manifest::S2(schema) => {
-                    i                            // FIXME: need to verify sha256 of the manifest.
-                                                // multiple problems with using dkregistry here at this point. time to
-                                                // switch tactics?
-                                                let spec_data = serde_json::to_vec(&schema.manifest_spec)?;
-                                                self.storage.insert(&key, &spec_data).await?;
-                                                match self.storage.mmap(&key).await? {
-                                                    Some(map) => map,
-                                                    None => return Err(ImageError::StorageMissingAfterInsert),
-                                                }
-                                            }
-                                            _ => return Err(ImageError::UnsupportedManifestType),
-                                        }
-                                    */
+                    log::info!(
+                        "downloaded manifest. digest_validated: {} specific_image: {}",
+                        digest_validated,
+                        specific_image
+                    );
+                    self.storage.commit_write(writer, &key).await?;
+                    match self.storage.mmap(&key).await? {
+                        Some(map) => map,
+                        None => return Err(ImageError::StorageMissingAfterInsert),
+                    }
                 }
                 _ => unreachable!(),
             },
@@ -415,7 +434,7 @@ impl Client {
         match decompress_result {
             Err(err) => {
                 writer.remove_temp().await?;
-                return Err(err.into());
+                Err(err.into())
             }
             Ok(()) => {
                 let key = StorageKey::Blob(writer.finalize().await?);
@@ -491,13 +510,16 @@ impl Client {
             tar::extract(&mut filesystem, &storage, layer).await?;
         }
 
-        let digest = ContentDigest::parse("blah").unwrap();
+        unimplemented!();
+        /*
+                let digest = ContentDigest::parse("blah").unwrap();
 
-        Ok(Arc::new(Image {
-            name: image.with_specific_digest(&digest)?,
-            config,
-            filesystem,
-            storage,
-        }))
+                Ok(Arc::new(Image {
+                    name: image.with_specific_digest(&digest)?,
+                    config,
+                    filesystem,
+                    storage,
+                }))
+        */
     }
 }

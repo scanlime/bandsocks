@@ -22,9 +22,6 @@ pub enum ImageError {
     #[error("registry server is not allowed by the current configuration: {0}")]
     RegistryNotAllowed(crate::image::Registry),
 
-    #[error("unsuccessful response from registry server: {0} {1}")]
-    RegistryResponse(http::StatusCode, url::Url),
-
     #[error("tar file format error")]
     TARFileError,
 
