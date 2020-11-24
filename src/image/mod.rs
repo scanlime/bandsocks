@@ -273,6 +273,31 @@ impl ImageName {
         self.content_digest_str()
             .map(|s| ContentDigest::parse(s).expect("already parsed"))
     }
+
+    /// Create a new [ImageName] which includes the actual content digest we
+    /// found
+    ///
+    /// If the name already includes a digest, it is validated. On mismatch, an
+    /// appropriate error will be returned. On match, or if no validation
+    /// was requested, this returns a new specific [ImageName] with the provided
+    /// digest.
+    pub fn with_found_digest(&self, found_digest: &ContentDigest) -> Result<ImageName, ImageError> {
+        match self.content_digest() {
+            None => ImageName::from_parts(
+                self.registry_str(),
+                self.repository_str(),
+                self.tag_str(),
+                Some(found_digest.as_str()),
+            ),
+            Some(image_digest) if &image_digest == found_digest => Ok(self.clone()),
+            Some(image_digest) => {
+                return Err(ImageError::ContentDigestMismatch {
+                    expected: image_digest.clone(),
+                    found: found_digest.clone(),
+                })
+            }
+        }
+    }
 }
 
 impl Eq for ImageName {}

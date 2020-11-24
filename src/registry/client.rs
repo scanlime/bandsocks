@@ -303,32 +303,24 @@ impl Client {
                         return Err(err.into());
                     }
 
-                    // If we are downloading using a digest, always verify before committing the
-                    // image to storage
-                    let found_digest = writer.finalize().await?;
-                    let digest_validated = match image.content_digest() {
-                        None => false,
-                        Some(image_digest) if image_digest == found_digest => true,
-                        Some(image_digest) => {
-                            return Err(ImageError::ContentDigestMismatch {
-                                expected: image_digest.clone(),
-                                found: found_digest,
-                            })
-                        }
-                    };
-                    let specific_image = ImageName::from_parts(
-                        image.registry_str(),
-                        image.repository_str(),
-                        image.tag_str(),
-                        Some(found_digest.as_str()),
-                    )?;
+                    // if we have a digest to validate this one against, that must happen before
+                    // the commit to storage.
+                    let content_digest = writer.finalize().await?;
+                    let specific_image = image.with_found_digest(&content_digest)?;
+                    log::info!("downloaded manifest: {:?}", specific_image);
 
-                    log::info!(
-                        "downloaded manifest. digest_validated: {} specific_image: {}",
-                        digest_validated,
-                        specific_image
-                    );
+                    // Write the validated manifest both under the requested key and the more
+                    // specific key now that it's known.
                     self.storage.commit_write(writer, &key).await?;
+                    if &specific_image != image {
+                        let specific_key = StorageKey::Manifest(
+                            registry.clone(),
+                            repository.clone(),
+                            specific_image.version(),
+                        );
+                        self.storage.copy_data(&key, &specific_key).await?;
+                    }
+
                     match self.storage.mmap(&key).await? {
                         Some(map) => map,
                         None => return Err(ImageError::StorageMissingAfterInsert),

@@ -61,6 +61,23 @@ impl FileStorage {
         }
     }
 
+    pub async fn copy_data(
+        &self,
+        from_key: &StorageKey,
+        to_key: &StorageKey,
+    ) -> Result<bool, ImageError> {
+        let source = self.mmap(from_key).await?;
+        if let Some(source) = source {
+            let mut slice = &source[..];
+            let mut writer = self.begin_write().await?;
+            io::copy(&mut slice, &mut writer).await?;
+            self.commit_write(writer, to_key).await?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     pub async fn mmap(&self, key: &StorageKey) -> Result<Option<Mmap>, ImageError> {
         match self.open(key).await? {
             Some(file) => {
