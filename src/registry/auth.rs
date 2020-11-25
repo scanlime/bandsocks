@@ -1,5 +1,6 @@
+/// Reference: <https://docs.docker.com/registry/spec/auth/token/>
+
 use crate::{errors::ImageError, image::Registry};
-use http::header::HeaderValue;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -21,9 +22,9 @@ impl Auth {
     pub async fn authenticate_for(
         &self,
         req: &reqwest::Client,
-        auth_header: &HeaderValue,
+        auth_header: &str,
     ) -> Result<(), ImageError> {
         log::error!("{:?}", auth_header);
-        Ok(())
+        Err(ImageError::UnsupportedAuthentication(auth_header.to_string()))
     }
 }

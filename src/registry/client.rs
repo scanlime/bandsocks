@@ -314,9 +314,10 @@ impl Client {
             let from_req_copy = from_req.try_clone().unwrap();
             let response = from_req_copy.send().await?;
             if response.status() == StatusCode::UNAUTHORIZED {
-                match response.headers().get(reqwest::header::WWW_AUTHENTICATE) {
+                match response.headers().get(reqwest::header::WWW_AUTHENTICATE).map(|h| h.to_str()) {
                     None => response,
-                    Some(auth_header) => {
+                    Some(Err(_bad_string)) => response,
+                    Some(Ok(auth_header)) => {
                         self.auth.authenticate_for(&self.req, auth_header).await?;
                         from_req.send().await?
                     }

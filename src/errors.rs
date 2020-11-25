@@ -4,7 +4,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ImageError {
-    #[error("invalid image reference format: {0}")]
+    #[error("invalid image reference format: {0:?}")]
     InvalidReferenceFormat(String),
 
     #[error("storage io error: {0}")]
@@ -46,13 +46,13 @@ pub enum ImageError {
     #[error("only v2 image manifests are supported")]
     UnsupportedManifestType,
 
-    #[error("unsupported type for runtime config, {0}")]
+    #[error("unsupported type for runtime config, {0:?}")]
     UnsupportedRuntimeConfigType(String),
 
-    #[error("unsupported type for image layer, {0}")]
+    #[error("unsupported type for image layer, {0:?}")]
     UnsupportedLayerType(String),
 
-    #[error("invalid content type string, {0}")]
+    #[error("invalid content type string, {0:?}")]
     InvalidContentType(String),
 
     #[error("unexpected content size")]
@@ -61,11 +61,14 @@ pub enum ImageError {
     #[error("unable to locate decompressed layers by content hash")]
     UnexpectedDecompressedLayerContent,
 
-    #[error("unsupported type for rootfs in image config, {0}")]
+    #[error("unsupported type for rootfs in image config, {0:?}")]
     UnsupportedRootFilesystemType(String),
 
     #[error("insecure configuration; refusing to run a manifest downloaded over HTTP with no content digest")]
     InsecureManifest,
+
+    #[error("registry server requested an unsupported type of authentication: {0:?}")]
+    UnsupportedAuthentication(String),
 }
 
 #[derive(Error, Debug)]
