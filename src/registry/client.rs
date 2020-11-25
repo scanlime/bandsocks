@@ -84,6 +84,21 @@ impl ClientBuilder {
         self
     }
 
+    /// Set a random, disposable cache directory
+    ///
+    /// This is currently equivalent to calling cache_dir() on a randomly
+    /// generated path in the system temp directory. In the future this
+    /// setting may enable an entirely in-memory storage backend.
+    pub fn ephemeral_cache(self) -> Self {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "bandsocks-ephemeral-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        self.cache_dir(&path)
+    }
+
     /// Set a timeout for each network request
     ///
     /// This timeout applies from the beginning of a (GET) request until the
@@ -344,7 +359,7 @@ impl Client {
         match validator(content_digest) {
             Ok(validated) => {
                 self.storage.commit_write(writer, to_key).await?;
-                log::info!("validated and stored {:?}", to_key);
+                log::info!("stored valid {:?}", to_key);
                 Ok(validated)
             }
             Err(err) => {

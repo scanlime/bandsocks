@@ -36,3 +36,7 @@ args:
         value_name: DIR
         takes_value: true
         help: specify the cache directory to keep downloaded and decompressed images in
+    - ephemeral:
+        long: ephemeral
+        short: "0"
+        help: set a random, disposable cache directory

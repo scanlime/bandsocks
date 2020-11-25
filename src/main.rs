@@ -25,6 +25,9 @@ async fn main() {
     if let Some(dir) = matches.value_of("cache_dir") {
         client = client.cache_dir(Path::new(dir));
     }
+    if matches.is_present("ephemeral") {
+        client = client.ephemeral_cache();
+    }
     let mut client = client.build().unwrap();
 
     let image = client
