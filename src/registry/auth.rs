@@ -1,42 +1,62 @@
 use crate::{errors::ImageError, image::Registry};
 use regex::Regex;
+use reqwest::RequestBuilder;
 use std::collections::HashMap;
 use url::Url;
 
 #[derive(Clone)]
 pub struct Auth {
     logins: HashMap<Registry, Login>,
+    tokens: HashMap<Registry, Token>,
 }
 
 #[derive(Clone)]
 struct Login {
     username: String,
-    password: String,
+    password: Option<String>,
 }
 
 impl Auth {
     pub fn new() -> Self {
         Auth {
             logins: HashMap::new(),
+            tokens: HashMap::new(),
         }
     }
 
-    pub fn login(&mut self, registry: Registry, username: String, password: String) {
+    pub fn login(&mut self, registry: Registry, username: String, password: Option<String>) {
         self.logins.insert(registry, Login { username, password });
+    }
+
+    pub fn include_token(&self, registry: &Registry, req: RequestBuilder) -> RequestBuilder {
+        match self.tokens.get(registry) {
+            Some(token_struct) => {
+                log::debug!("using token for {}", registry);
+                req.bearer_auth(&token_struct.token)
+            }
+            None => req,
+        }
     }
 
     /// Reference: <https://docs.docker.com/registry/spec/auth/token/>
     pub async fn authenticate_for(
-        &self,
+        &mut self,
         registry: &Registry,
         req: &reqwest::Client,
         auth_header: &str,
     ) -> Result<(), ImageError> {
-        let login = self.logins.get(registry);
         let challenge = BearerChallenge::parse(auth_header)?;
-
-        log::info!("{} {:?}", login.is_some(), challenge);
-
+        log::debug!("login challenge for {}, {:?}", registry, challenge);
+        let req = req
+            .get(challenge.realm)
+            .query(&[("service", challenge.service), ("scope", challenge.scope)]);
+        let req = match self.logins.get(registry) {
+            Some(login) => req.basic_auth(&login.username, login.password.as_ref()),
+            None => req,
+        };
+        let response: Token = req.send().await?.error_for_status()?.json().await?;
+        log::debug!("received token for {}", registry);
+        self.tokens.insert(registry.clone(), response);
         Ok(())
     }
 }
@@ -46,6 +66,11 @@ struct BearerChallenge {
     realm: Url,
     service: String,
     scope: String,
+}
+
+#[derive(Clone, Deserialize)]
+struct Token {
+    token: String,
 }
 
 impl BearerChallenge {

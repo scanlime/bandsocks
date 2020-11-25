@@ -169,7 +169,7 @@ impl ClientBuilder {
 
     /// Store a username and password for use with a particular registry on this
     /// client
-    pub fn login(mut self, registry: Registry, username: String, password: String) -> Self {
+    pub fn login(mut self, registry: Registry, username: String, password: Option<String>) -> Self {
         self.auth.login(registry, username, password);
         self
     }
@@ -312,14 +312,24 @@ impl Client {
     {
         let response = {
             let from_req_copy = from_req.try_clone().unwrap();
-            let response = from_req_copy.send().await?;
+            let response = self
+                .auth
+                .include_token(registry, from_req_copy)
+                .send()
+                .await?;
             if response.status() == StatusCode::UNAUTHORIZED {
-                match response.headers().get(reqwest::header::WWW_AUTHENTICATE).map(|h| h.to_str()) {
+                match response
+                    .headers()
+                    .get(reqwest::header::WWW_AUTHENTICATE)
+                    .map(|h| h.to_str())
+                {
                     None => response,
                     Some(Err(_bad_string)) => response,
                     Some(Ok(auth_header)) => {
-                        self.auth.authenticate_for(registry, &self.req, auth_header).await?;
-                        from_req.send().await?
+                        self.auth
+                            .authenticate_for(registry, &self.req, auth_header)
+                            .await?;
+                        self.auth.include_token(registry, from_req).send().await?
                     }
                 }
             } else {
