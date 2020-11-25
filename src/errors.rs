@@ -63,6 +63,9 @@ pub enum ImageError {
 
     #[error("unsupported type for rootfs in image config, {0}")]
     UnsupportedRootFilesystemType(String),
+
+    #[error("insecure configuration; refusing to run a manifest downloaded over HTTP with no content digest")]
+    InsecureManifest,
 }
 
 #[derive(Error, Debug)]

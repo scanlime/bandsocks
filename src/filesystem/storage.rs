@@ -11,7 +11,6 @@ use std::{
     path::{Path, PathBuf},
     pin::Pin,
     task::{Context, Poll},
-    time::SystemTime,
 };
 use tokio::{
     fs::{os::unix::OpenOptionsExt, File, OpenOptions},
@@ -90,13 +89,8 @@ impl FileStorage {
 
     pub async fn begin_write(&self) -> Result<StorageWriter, ImageError> {
         let mut temp_path = self.path.clone();
-        let pid = std::process::id();
-        let ts = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(duration) => duration.as_millis(),
-            Err(_) => 0,
-        };
         temp_path.push("tmp");
-        temp_path.push(format!("{}.{}", pid, ts));
+        temp_path.push(format!("{}-{}", std::process::id(), rand::random::<u64>()));
         create_parent_dirs(&temp_path).await;
 
         let temp_file = OpenOptions::new()

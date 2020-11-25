@@ -326,7 +326,7 @@ impl Client {
             }
         };
 
-        log::info!("downloading {:?}", response.url());
+        log::info!("downloading {}", response.url());
         let mut response = response.error_for_status()?;
         let mut writer = self.storage.begin_write().await?;
 
@@ -354,7 +354,7 @@ impl Client {
         match validator(content_digest) {
             Ok(validated) => {
                 self.storage.commit_write(writer, to_key).await?;
-                log::info!("stored valid {:?}", to_key);
+                log::debug!("stored {:?}", to_key);
                 Ok(validated)
             }
             Err(err) => {
@@ -382,6 +382,10 @@ impl Client {
             }
             None => match &key {
                 StorageKey::Manifest(registry, repository, version) => {
+                    if !(registry.is_https() || image.content_digest_str().is_some()) {
+                        return Err(ImageError::InsecureManifest);
+                    }
+
                     let url = self.build_v2_url(&registry, &repository, "manifests", &version)?;
                     let request = self
                         .req
@@ -524,8 +528,8 @@ impl Client {
     }
 
     async fn decompress_layer(&mut self, data: Mmap) -> Result<(), ImageError> {
-        if data.len() > 512 * 1024 {
-            log::info!("decompressing {} bytes ...", data.len());
+        if data.len() >= 500000 {
+            log::info!("decompressing {} bytes", data.len());
         }
 
         let mut writer = self.storage.begin_write().await?;
