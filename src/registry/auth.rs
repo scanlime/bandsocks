@@ -100,7 +100,7 @@ impl BearerChallenge {
                 /* -- -- -- */ "https://",  // require auth server to be https
                 /* -- -- -- */ "[-_.+a-zA-Z:0-9/]+",
                 /* -- -- */ ")\"",
-                /* -- */ ")|",
+                /* -- */ ")",
                 /* */ ")",
                 /* */ ",?",      // to keep the parser regular, commas are all optional *shrug*
                 ")*$",

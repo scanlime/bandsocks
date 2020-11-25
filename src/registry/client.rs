@@ -473,7 +473,23 @@ impl Client {
         Ok(Some(result))
     }
 
+    async fn storage_keys_for_local_rootfs_layers(
+        &mut self,
+        config: &RuntimeConfig,
+    ) -> Result<Option<Vec<StorageKey>>, ImageError> {
+        if &config.rootfs.fs_type == FS_TYPE {
+            self.storage_keys_for_content_if_all_local(&config.rootfs.diff_ids)
+                .await
+        } else {
+            Err(ImageError::UnsupportedRootFilesystemType(
+                config.rootfs.fs_type.clone(),
+            ))
+        }
+    }
+
     async fn pull_blob(&mut self, image: &ImageName, link: &Link) -> Result<Mmap, ImageError> {
+        log::trace!("pull_blob starting, {} {:?}", image, link);
+
         let (registry, repository) = self.default_registry.resolve_image_name(image);
         let key = StorageKey::Blob(ContentDigest::parse(&link.digest)?);
         let content_type = HeaderValue::from_str(&link.media_type)
@@ -511,6 +527,7 @@ impl Client {
             },
         };
 
+        log::trace!("pull_blob completing with {} bytes mapped", map.len());
         if map.len() as u64 == link.size {
             Ok(map)
         } else {
@@ -535,6 +552,35 @@ impl Client {
             Err(ImageError::UnsupportedRuntimeConfigType(
                 link.media_type.clone(),
             ))
+        }
+    }
+
+    async fn pull_layers(&mut self, image: &ImageName, links: &[Link]) -> Result<(), ImageError> {
+        let mut tasks = FuturesUnordered::new();
+        for link in links {
+            let mut client = self.clone();
+            let image = image.clone();
+            let link = link.clone();
+            tasks.push(task::spawn(
+                async move { client.pull_layer(&image, &link).await },
+            ));
+        }
+        while let Some(result) = tasks.next().await {
+            result??;
+        }
+        Ok(())
+    }
+
+    async fn pull_layer(&mut self, image: &ImageName, link: &Link) -> Result<(), ImageError> {
+        if link.media_type == media_types::LAYER_TAR_GZIP {
+            // we don't actually need to keep the compressed blob, after verifying it and
+            // decompressing it. but doing it this way is a little easier, and it lets us
+            // cleanly restart just the decompression part if we got terminated after a
+            // download finished but before it was unpacked.
+            let tar_gzip = self.pull_blob(image, link).await?;
+            self.decompress_layer(tar_gzip).await
+        } else {
+            Err(ImageError::UnsupportedLayerType(link.media_type.clone()))
         }
     }
 
@@ -565,35 +611,6 @@ impl Client {
         }
     }
 
-    async fn pull_and_decompress_layers(
-        &mut self,
-        image: &ImageName,
-        manifest: &Manifest,
-    ) -> Result<(), ImageError> {
-        let mut tasks = FuturesUnordered::new();
-        for link in &manifest.layers {
-            let link = link.clone();
-            let image = image.clone();
-            let mut client = self.clone();
-            tasks.push(task::spawn(async move {
-                if link.media_type == media_types::LAYER_TAR_GZIP {
-                    // we don't actually need to keep the compressed blob, after verifying it and
-                    // decompressing it. but doing it this way is a little easier, and it lets us
-                    // cleanly restart just the decompression part if we got terminated after a
-                    // download finished but before it was unpacked.
-                    let tar_gzip = client.pull_blob(&image, &link).await?;
-                    client.decompress_layer(tar_gzip).await
-                } else {
-                    Err(ImageError::UnsupportedLayerType(link.media_type))
-                }
-            }));
-        }
-        for result in tasks.next().await {
-            result??;
-        }
-        Ok(())
-    }
-
     /// Resolve an [ImageName] into an [Image] if possible
     ///
     /// This will always try to load the image from local cache first without
@@ -607,29 +624,20 @@ impl Client {
     pub async fn pull(&mut self, image: &ImageName) -> Result<Arc<Image>, ImageError> {
         let (specific_image, manifest) = self.pull_manifest(image).await?;
         let config = self.pull_runtime_config(image, &manifest.config).await?;
-
-        if &config.rootfs.fs_type != FS_TYPE {
-            Err(ImageError::UnsupportedRootFilesystemType(
-                config.rootfs.fs_type.clone(),
-            ))?;
-        }
-        let ids = &config.rootfs.diff_ids;
-
-        let content = match self.storage_keys_for_content_if_all_local(ids).await? {
-            Some(content) => Ok(content),
+        let decompressed_layers = match self.storage_keys_for_local_rootfs_layers(&config).await? {
+            Some(layers) => layers,
             None => {
-                self.pull_and_decompress_layers(image, &manifest).await?;
-                match self.storage_keys_for_content_if_all_local(ids).await? {
-                    Some(content) => Ok(content),
-                    None => Err(ImageError::UnexpectedDecompressedLayerContent),
-                }
+                self.pull_layers(image, &manifest.layers).await?;
+                self.storage_keys_for_local_rootfs_layers(&config)
+                    .await?
+                    .ok_or(ImageError::UnexpectedDecompressedLayerContent)?
             }
-        }?;
+        };
 
         let mut filesystem = vfs::Filesystem::new();
         let storage = self.storage.clone();
 
-        for layer in &content {
+        for layer in &decompressed_layers {
             tar::extract(&mut filesystem, &storage, layer).await?;
         }
 
