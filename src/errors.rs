@@ -52,6 +52,9 @@ pub enum ImageError {
     #[error("unsupported type for image layer, {0}")]
     UnsupportedLayerType(String),
 
+    #[error("invalid content type string, {0}")]
+    InvalidContentType(String),
+
     #[error("unexpected content size")]
     UnexpectedContentSize,
 

@@ -6,7 +6,7 @@ use crate::{
         storage::{FileStorage, StorageKey},
         tar, vfs,
     },
-    image::{ContentDigest, Image, ImageName, Registry},
+    image::{ContentDigest, Image, ImageName, Registry, Repository},
     manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
     registry::DefaultRegistry,
 };
@@ -19,12 +19,13 @@ use reqwest::{header, header::HeaderMap, Certificate};
 use std::{
     collections::{HashMap, HashSet},
     convert::TryInto,
-    env,
+    env, fmt,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
 use tokio::{io::AsyncWriteExt, task};
+use url::Url;
 
 /// Builder for configuring custom [Client] instances
 #[derive(Debug)]
@@ -252,66 +253,122 @@ impl Client {
             }
     }
 
-    async fn pull_manifest(&mut self, image: &ImageName) -> Result<Manifest, ImageError> {
+    fn verify_registry_allowed(&self, registry: &Registry) -> Result<(), ImageError> {
+        if self.is_registry_allowed(registry) {
+            Ok(())
+        } else {
+            log::warn!("registry {} not allowed by configuration", registry);
+            Err(ImageError::RegistryNotAllowed(registry.clone()))
+        }
+    }
+
+    fn build_v2_url<T>(
+        &self,
+        registry: &Registry,
+        repository: &Repository,
+        bucket: &'static str,
+        object: T,
+    ) -> Result<Url, ImageError>
+    where
+        T: fmt::Display,
+    {
+        self.verify_registry_allowed(registry)?;
+        Ok(format!(
+            "{}://{}/v2/{}/{}/{}",
+            registry.protocol_str(),
+            registry,
+            repository,
+            bucket,
+            object
+        )
+        .parse()
+        .expect("url components already validated"))
+    }
+
+    async fn download_to_storage<F, V>(
+        &mut self,
+        from_req: reqwest::Request,
+        to_key: &StorageKey,
+        validator: F,
+    ) -> Result<V, ImageError>
+    where
+        F: FnOnce(ContentDigest) -> Result<V, ImageError>,
+    {
+        log::info!("downloading {}", from_req.url());
+
+        let mut response = self.req.execute(from_req).await?.error_for_status()?;
+        let mut writer = self.storage.begin_write().await?;
+
+        let result: Result<(), ImageError> = loop {
+            match response.chunk().await {
+                Err(err) => break Err(err.into()),
+                Ok(None) => break Ok(()),
+                Ok(Some(chunk)) => match writer.write_all(&chunk).await {
+                    Err(err) => break Err(err.into()),
+                    Ok(()) => (),
+                },
+            }
+        };
+        if let Err(err) = result {
+            writer.remove_temp().await?;
+            return Err(err.into());
+        }
+        let content_digest = match writer.finalize().await {
+            Ok(content_digest) => content_digest,
+            Err(err) => {
+                writer.remove_temp().await?;
+                return Err(err.into());
+            }
+        };
+        match validator(content_digest) {
+            Ok(validated) => {
+                self.storage.commit_write(writer, to_key).await?;
+                log::info!("validated and stored {:?}", to_key);
+                Ok(validated)
+            }
+            Err(err) => {
+                writer.remove_temp().await?;
+                return Err(err.into());
+            }
+        }
+    }
+
+    async fn pull_manifest(
+        &mut self,
+        image: &ImageName,
+    ) -> Result<(ImageName, Manifest), ImageError> {
         let (registry, repository) = self.default_registry.resolve_image_name(image);
         let key = StorageKey::Manifest(registry, repository, image.version());
 
-        let map = match self.storage.mmap(&key).await? {
+        let (specific_image, map) = match self.storage.mmap(&key).await? {
             Some(map) => {
-                log::debug!("{} manifest is already cached", image);
-                map
+                // If the manifest is cached, still verify its content digest and annotate the
+                // ImageName with that digest
+                let found_digest = ContentDigest::from_content(&map[..]);
+                let specific_image = image.with_found_digest(&found_digest)?;
+                log::debug!("{} manifest in cache is good", specific_image);
+                (specific_image, map)
             }
             None => match &key {
                 StorageKey::Manifest(registry, repository, version) => {
-                    if !self.is_registry_allowed(registry) {
-                        log::warn!("registry {} not allowed by configuration", registry);
-                        return Err(ImageError::RegistryNotAllowed(registry.clone()));
-                    }
+                    let url = self.build_v2_url(&registry, &repository, "manifests", &version)?;
+                    let request = self
+                        .req
+                        .get(url)
+                        .header(header::ACCEPT, media_types::MANIFEST)
+                        .build()?;
 
-                    let request = {
-                        let manifest_url = format!(
-                            "{}://{}/v2/{}/manifests/{}",
-                            registry.protocol_str(),
-                            registry,
-                            repository,
-                            version
-                        );
-                        log::info!("{} <{}> downloading manifest...", image, manifest_url);
-                        self.req
-                            .get(&manifest_url)
-                            .header(header::ACCEPT, media_types::MANIFEST)
-                            .build()?
-                    };
+                    // Stream the download to a temp file while hashing it, verify the digest, and
+                    // commits the file to storage only if the validator passes
+                    let specific_image = self
+                        .download_to_storage(request, &key, |content_digest| {
+                            image.with_found_digest(&content_digest)
+                        })
+                        .await?;
 
-                    let mut response = self.req.execute(request).await?.error_for_status()?;
-
-                    let mut writer = self.storage.begin_write().await?;
-
-                    let result: Result<(), ImageError> = loop {
-                        match response.chunk().await {
-                            Err(err) => break Err(err.into()),
-                            Ok(None) => break Ok(()),
-                            Ok(Some(chunk)) => match writer.write_all(&chunk).await {
-                                Err(err) => break Err(err.into()),
-                                Ok(()) => (),
-                            },
-                        }
-                    };
-
-                    if let Err(err) = result {
-                        writer.remove_temp().await?;
-                        return Err(err.into());
-                    }
-
-                    // if we have a digest to validate this one against, that must happen before
-                    // the commit to storage.
-                    let content_digest = writer.finalize().await?;
-                    let specific_image = image.with_found_digest(&content_digest)?;
-                    log::info!("downloaded manifest: {:?}", specific_image);
-
-                    // Write the validated manifest both under the requested key and the more
-                    // specific key now that it's known.
-                    self.storage.commit_write(writer, &key).await?;
+                    // If the specific name is different than the one it was requested under, the
+                    // image was requested by tag but now the digest is known. Make a copy of the
+                    // manifest under its more specific name.
                     if &specific_image != image {
                         let specific_key = StorageKey::Manifest(
                             registry.clone(),
@@ -321,18 +378,24 @@ impl Client {
                         self.storage.copy_data(&key, &specific_key).await?;
                     }
 
-                    match self.storage.mmap(&key).await? {
+                    let map = match self.storage.mmap(&key).await? {
                         Some(map) => map,
                         None => return Err(ImageError::StorageMissingAfterInsert),
-                    }
+                    };
+
+                    (specific_image, map)
                 }
                 _ => unreachable!(),
             },
         };
 
         let slice = &map[..];
-        log::trace!("raw json manifest: {:?}", String::from_utf8_lossy(slice));
-        Ok(serde_json::from_slice(slice)?)
+        log::trace!(
+            "raw json manifest for {}: {:?}",
+            specific_image,
+            String::from_utf8_lossy(slice)
+        );
+        Ok((specific_image, serde_json::from_slice(slice)?))
     }
 
     async fn storage_key_for_content_if_local(
@@ -366,31 +429,50 @@ impl Client {
     }
 
     async fn pull_blob(&mut self, image: &ImageName, link: &Link) -> Result<Mmap, ImageError> {
+        let (registry, repository) = self.default_registry.resolve_image_name(image);
         let key = StorageKey::Blob(ContentDigest::parse(&link.digest)?);
-        let mmap = match self.storage.mmap(&key).await? {
-            Some(map) => map,
-            None => {
-                unimplemented!();
-                /*
-                    let rc = self.registry_client_for(image).await?;
-                    log::info!("{} downloading {} bytes ...", image, link.size);
-                    let blob_data = rc.get_blob(&image.repository(), &link.digest).await?;
-                    // Note that the dkregistry library does verify the sha256 digest itself
-                    log::debug!("{} downloaded, {} bytes", link.digest, link.size);
-                    self.storage.insert(&key, &blob_data).await?;
+        let content_type = HeaderValue::from_str(&link.media_type)
+            .map_err(|_| ImageError::InvalidContentType(link.media_type.clone()))?;
+
+        let map = match self.storage.mmap(&key).await? {
+            Some(map) => {
+                log::debug!("{} blob {} is already cached", image, link.digest);
+                map
+            }
+            None => match &key {
+                StorageKey::Blob(content_digest) => {
+                    let url =
+                        self.build_v2_url(&registry, &repository, "blobs", &content_digest)?;
+                    let request = self
+                        .req
+                        .get(url)
+                        .header(header::ACCEPT, content_type)
+                        .build()?;
+
+                    self.download_to_storage(request, &key, |found_digest| {
+                        if &found_digest == content_digest {
+                            Ok(())
+                        } else {
+                            Err(ImageError::ContentDigestMismatch {
+                                expected: content_digest.clone(),
+                                found: found_digest,
+                            })
+                        }
+                    })
+                    .await?;
+
                     match self.storage.mmap(&key).await? {
                         Some(map) => map,
                         None => return Err(ImageError::StorageMissingAfterInsert),
                     }
-                */
-            }
+                }
+                _ => unreachable!(),
+            },
         };
-        if mmap.len() as u64 == link.size {
-            Ok(mmap)
+
+        if map.len() as u64 == link.size {
+            Ok(map)
         } else {
-            // In the event the server gives us bad data, get_blob() should already
-            // catch that during the digest verification. This path is more likely to hit
-            // if the cached data on disk has been truncated.
             Err(ImageError::UnexpectedContentSize)
         }
     }
@@ -421,15 +503,20 @@ impl Client {
         }
 
         let mut writer = self.storage.begin_write().await?;
-        let decompress_result = GzipDecoder::new(&mut writer).write_all(&data[..]).await;
-
-        match decompress_result {
+        let mut decoder = GzipDecoder::new(&mut writer);
+        let result = decoder.write_all(&data[..]).await;
+        let result = match result {
+            Ok(()) => decoder.shutdown().await,
+            Err(err) => Err(err),
+        };
+        match result {
             Err(err) => {
                 writer.remove_temp().await?;
                 Err(err.into())
             }
             Ok(()) => {
-                let key = StorageKey::Blob(writer.finalize().await?);
+                let content_digest = writer.finalize().await?;
+                let key = StorageKey::Blob(content_digest);
                 log::debug!("decompressed {} bytes into {:?}", data.len(), key);
                 self.storage.commit_write(writer, &key).await?;
                 Ok(())
@@ -457,7 +544,6 @@ impl Client {
             }));
         }
         for result in tasks.next().await {
-            println!("{:?}", result);
             result??;
         }
         Ok(())
@@ -474,7 +560,7 @@ impl Client {
     /// The resulting image is mapped into memory and ready for use in any
     /// number of containers.
     pub async fn pull(&mut self, image: &ImageName) -> Result<Arc<Image>, ImageError> {
-        let manifest = self.pull_manifest(image).await?;
+        let (specific_image, manifest) = self.pull_manifest(image).await?;
         let config = self.pull_runtime_config(image, &manifest.config).await?;
 
         if &config.rootfs.fs_type != FS_TYPE {
@@ -502,16 +588,11 @@ impl Client {
             tar::extract(&mut filesystem, &storage, layer).await?;
         }
 
-        unimplemented!();
-        /*
-                let digest = ContentDigest::parse("blah").unwrap();
-
-                Ok(Arc::new(Image {
-                    name: image.with_specific_digest(&digest)?,
-                    config,
-                    filesystem,
-                    storage,
-                }))
-        */
+        Ok(Arc::new(Image {
+            name: specific_image,
+            config,
+            filesystem,
+            storage,
+        }))
     }
 }

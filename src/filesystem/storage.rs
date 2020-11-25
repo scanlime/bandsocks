@@ -275,9 +275,7 @@ impl StorageKey {
             _ => Err(()),
         }
     }
-}
 
-impl StorageKey {
     fn to_path(&self, base_dir: &Path) -> PathBuf {
         match self {
             StorageKey::Blob(content_digest) => {
