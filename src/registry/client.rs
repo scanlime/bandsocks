@@ -15,7 +15,7 @@ use async_compression::tokio_02::write::GzipDecoder;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use http::header::HeaderValue;
 use memmap::Mmap;
-use reqwest::{header, header::HeaderMap, Certificate};
+use reqwest::{header, header::HeaderMap, Certificate, Request, StatusCode};
 use std::{
     collections::{HashMap, HashSet},
     convert::TryInto,
@@ -285,9 +285,14 @@ impl Client {
         .expect("url components already validated"))
     }
 
+    async fn authenticate_for(&mut self, auth_header: &HeaderValue) -> Result<(), ImageError> {
+        log::error!("{:?}", auth_header);
+        Ok(())
+    }
+
     async fn download_to_storage<F, V>(
         &mut self,
-        from_req: reqwest::Request,
+        from_req: Request,
         to_key: &StorageKey,
         validator: F,
     ) -> Result<V, ImageError>
@@ -296,7 +301,23 @@ impl Client {
     {
         log::info!("downloading {}", from_req.url());
 
-        let mut response = self.req.execute(from_req).await?.error_for_status()?;
+        let response = {
+            let from_req_copy = from_req.try_clone().unwrap();
+            let response = self.req.execute(from_req_copy).await?;
+            if response.status() == StatusCode::UNAUTHORIZED {
+                match response.headers().get(reqwest::header::WWW_AUTHENTICATE) {
+                    None => response,
+                    Some(auth_header) => {
+                        self.authenticate_for(auth_header).await?;
+                        self.req.execute(from_req).await?
+                    }
+                }
+            } else {
+                response
+            }
+        };
+
+        let mut response = response.error_for_status()?;
         let mut writer = self.storage.begin_write().await?;
 
         let result: Result<(), ImageError> = loop {
