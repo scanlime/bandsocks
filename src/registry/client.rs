@@ -29,11 +29,10 @@ use tokio::{io::AsyncWriteExt, task};
 use url::Url;
 
 /// Builder for configuring custom [Client] instances
-#[derive(Debug)]
 pub struct ClientBuilder {
     req: reqwest::ClientBuilder,
-    cache_dir: Option<PathBuf>,
     auth: Auth,
+    cache_dir: Option<PathBuf>,
     default_registry: Option<DefaultRegistry>,
     allowed_registries: Option<HashSet<Registry>>,
     allow_http_registries: bool,
@@ -303,6 +302,7 @@ impl Client {
 
     async fn download_to_storage<F, V>(
         &mut self,
+        registry: &Registry,
         from_req: RequestBuilder,
         to_key: &StorageKey,
         validator: F,
@@ -318,7 +318,7 @@ impl Client {
                     None => response,
                     Some(Err(_bad_string)) => response,
                     Some(Ok(auth_header)) => {
-                        self.auth.authenticate_for(&self.req, auth_header).await?;
+                        self.auth.authenticate_for(registry, &self.req, auth_header).await?;
                         from_req.send().await?
                     }
                 }
@@ -396,7 +396,7 @@ impl Client {
                     // Stream the download to a temp file while hashing it, verify the digest, and
                     // commits the file to storage only if the validator passes
                     let specific_image = self
-                        .download_to_storage(request, &key, |content_digest| {
+                        .download_to_storage(&registry, request, &key, |content_digest| {
                             image.with_found_digest(&content_digest)
                         })
                         .await?;
@@ -480,7 +480,7 @@ impl Client {
                         self.build_v2_url(&registry, &repository, "blobs", &content_digest)?;
                     let request = self.req.get(url).header(header::ACCEPT, content_type);
 
-                    self.download_to_storage(request, &key, |found_digest| {
+                    self.download_to_storage(&registry, request, &key, |found_digest| {
                         if &found_digest == content_digest {
                             Ok(())
                         } else {
