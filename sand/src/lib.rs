@@ -58,17 +58,52 @@ pub unsafe fn c_main(argv: &[*const u8], envp: &[*const u8]) -> usize {
         RunMode::Unknown => panic!("where am i"),
 
         RunMode::Tracer(fd) => {
-            close_all_except(&[&nolibc::stderr(), &fd]);
+            stdio_for_tracer(&fd);
             seccomp::policy_for_tracer();
             Tracer::new(Socket::from_sys_fd(&fd), process::task::task_fn).run();
         }
 
         RunMode::InitLoader(fd) => {
             seccomp::policy_for_loader();
+            stdio_for_loader();
             init::with_args_from_fd(&fd);
         }
     }
     EXIT_SUCCESS
+}
+
+fn stdio_for_tracer(socket_fd: &SysFd) {
+    // The tracer has its original stderr, the ipc socket, and nothing else.
+    // We don't want stdin or stdout really, but it's useful to keep the descriptors
+    // reserved, so keep copies of stderr there. The stderr stream is normally
+    // unused, but we keep it around for panic!() and friends.
+    //
+    // requires access to the real /proc, so this must run before seccomp.
+    nolibc::dup2(&nolibc::stderr(), &nolibc::stdin()).expect("closing stdin");
+    nolibc::dup2(&nolibc::stderr(), &nolibc::stdout()).expect("closing stdout");
+    close_all_except(&[
+        &nolibc::stdin(),
+        &nolibc::stdout(),
+        &nolibc::stderr(),
+        &socket_fd,
+    ]);
+}
+
+fn stdio_for_loader() {
+    // Replace the loader's stdin, stdout, and stderr with objects from the virtual
+    // filesystem. These are not real open() calls at this point, they're being trapped.
+    let v_stdin =
+        unsafe { nolibc::open(b"/proc/1/fd/0\0", abi::O_RDONLY, 0) }.expect("no init stdin");
+    let v_stdout =
+        unsafe { nolibc::open(b"/proc/1/fd/1\0", abi::O_WRONLY, 0) }.expect("no init stdout");
+    let v_stderr =
+        unsafe { nolibc::open(b"/proc/1/fd/2\0", abi::O_WRONLY, 0) }.expect("no init stderr");
+    nolibc::dup2(&v_stdin, &nolibc::stdin()).unwrap();
+    nolibc::dup2(&v_stdout, &nolibc::stdout()).unwrap();
+    nolibc::dup2(&v_stderr, &nolibc::stderr()).unwrap();
+    v_stdin.close().unwrap();
+    v_stdout.close().unwrap();
+    v_stderr.close().unwrap();
 }
 
 unsafe fn check_environment_determine_mode(argv: &[*const u8], envp: &[*const u8]) -> RunMode {

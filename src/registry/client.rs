@@ -561,9 +561,9 @@ impl Client {
             let mut client = self.clone();
             let image = image.clone();
             let link = link.clone();
-            tasks.push(task::spawn(
-                async move { client.pull_layer(&image, &link).await },
-            ));
+            tasks.push(task::spawn(async move {
+                client.pull_layer(&image, &link).await
+            }));
         }
         while let Some(result) = tasks.next().await {
             result??;

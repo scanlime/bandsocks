@@ -89,6 +89,14 @@ pub fn socketpair(domain: usize, ty: usize, protocol: usize) -> Result<(SysFd, S
     }
 }
 
+pub fn stdin() -> SysFd {
+    SysFd(0)
+}
+
+pub fn stdout() -> SysFd {
+    SysFd(1)
+}
+
 pub fn stderr() -> SysFd {
     SysFd(2)
 }
@@ -240,6 +248,16 @@ pub fn open_self_fd() -> Result<SysFd, Errno> {
 pub fn open_self_exe() -> Result<SysFd, Errno> {
     let flags = abi::O_RDONLY | abi::O_CLOEXEC;
     unsafe { open(&PROC_SELF_EXE, flags, 0) }
+}
+
+pub fn dup2(oldfd: &SysFd, newfd: &SysFd) -> Result<(), Errno> {
+    let result = unsafe { syscall!(DUP2, oldfd.0, newfd.0) as isize };
+    if result >= 0 {
+        assert_eq!(result as u32, newfd.0);
+        Ok(())
+    } else {
+        Err(Errno(result as i32))
+    }
 }
 
 pub struct DirIterator<'f, S: ArrayLength<u8>, F: Fn(Dirent<'_>) -> V, V> {
