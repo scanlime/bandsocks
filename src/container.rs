@@ -27,6 +27,7 @@ pub struct ContainerBuilder {
     image: Option<Arc<Image>>,
     arg_list: Vec<OsString>,
     env_list: Vec<EnvBuilder>,
+    fs_list: Vec<Box<dyn FnOnce(Filesystem) -> Filesystem>>,
     current_dir: Option<OsString>,
     entrypoint: Option<OsString>,
 }
@@ -48,21 +49,20 @@ impl ContainerBuilder {
             Some(image) => image.clone(),
         };
 
-        // this is a shallow copy of the image's immutable filesystem, which the
-        // container can modify
-        let filesystem = image.filesystem.clone();
+        // this is a shallow copy of the inode table
+        let mut filesystem = image.filesystem.clone();
         let storage = image.storage.clone();
 
-        // working directory is the configured one joined with an optional relative or
-        // absolute override
+        for fs_modifier in self.fs_list {
+            filesystem = fs_modifier(filesystem);
+        }
+
         let mut dir = PathBuf::new();
         dir.push(&image.config.config.working_dir);
         if let Some(dir_override) = &self.current_dir {
             dir.push(dir_override);
         }
 
-        // merge the environment, allowing arbitrary overrides to the configured
-        // environment
         let mut env = BTreeMap::new();
         for configured_env in &image.config.config.env {
             let mut iter = configured_env.splitn(2, "=");
