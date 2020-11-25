@@ -562,6 +562,10 @@ impl Client {
             let mut client = self.clone();
             tasks.push(task::spawn(async move {
                 if link.media_type == media_types::LAYER_TAR_GZIP {
+                    // we don't actually need to keep the compressed blob, after verifying it and
+                    // decompressing it. but doing it this way is a little easier, and it lets us
+                    // cleanly restart just the decompression part if we got terminated after a
+                    // download finished but before it was unpacked.
                     let tar_gzip = client.pull_blob(&image, &link).await?;
                     client.decompress_layer(tar_gzip).await
                 } else {
