@@ -8,18 +8,19 @@ use crate::{
     },
     image::{ContentDigest, Image, ImageName, Registry, Repository},
     manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
-    registry::DefaultRegistry,
+    registry::{auth::Auth, DefaultRegistry},
 };
 
 use async_compression::tokio_02::write::GzipDecoder;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use http::header::HeaderValue;
 use memmap::Mmap;
-use reqwest::{header, header::HeaderMap, Certificate, Request, StatusCode};
+use reqwest::{header, header::HeaderMap, Certificate, RequestBuilder, StatusCode};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     convert::TryInto,
-    env, fmt,
+    env,
+    fmt::Display,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -32,7 +33,7 @@ use url::Url;
 pub struct ClientBuilder {
     req: reqwest::ClientBuilder,
     cache_dir: Option<PathBuf>,
-    logins: HashMap<Registry, (String, String)>,
+    auth: Auth,
     default_registry: Option<DefaultRegistry>,
     allowed_registries: Option<HashSet<Registry>>,
     allow_http_registries: bool,
@@ -46,7 +47,7 @@ impl ClientBuilder {
             req,
             cache_dir: None,
             default_registry: None,
-            logins: HashMap::new(),
+            auth: Auth::new(),
             allowed_registries: None,
             allow_http_registries: true,
         }
@@ -170,7 +171,7 @@ impl ClientBuilder {
     /// Store a username and password for use with a particular registry on this
     /// client
     pub fn login(mut self, registry: Registry, username: String, password: String) -> Self {
-        self.logins.insert(registry, (username, password));
+        self.auth.login(registry, username, password);
         self
     }
 
@@ -188,7 +189,7 @@ impl ClientBuilder {
             default_registry: self
                 .default_registry
                 .unwrap_or_else(Client::default_registry),
-            logins: self.logins,
+            auth: self.auth,
             req: self.req.build()?,
         })
     }
@@ -202,7 +203,7 @@ impl ClientBuilder {
 #[derive(Clone)]
 pub struct Client {
     storage: FileStorage,
-    logins: HashMap<Registry, (String, String)>,
+    auth: Auth,
     req: reqwest::Client,
     default_registry: DefaultRegistry,
     allowed_registries: Option<HashSet<Registry>>,
@@ -285,7 +286,7 @@ impl Client {
         object: T,
     ) -> Result<Url, ImageError>
     where
-        T: fmt::Display,
+        T: Display,
     {
         self.verify_registry_allowed(registry)?;
         Ok(format!(
@@ -300,31 +301,24 @@ impl Client {
         .expect("url components already validated"))
     }
 
-    async fn authenticate_for(&mut self, auth_header: &HeaderValue) -> Result<(), ImageError> {
-        log::error!("{:?}", auth_header);
-        Ok(())
-    }
-
     async fn download_to_storage<F, V>(
         &mut self,
-        from_req: Request,
+        from_req: RequestBuilder,
         to_key: &StorageKey,
         validator: F,
     ) -> Result<V, ImageError>
     where
         F: FnOnce(ContentDigest) -> Result<V, ImageError>,
     {
-        log::info!("downloading {}", from_req.url());
-
         let response = {
             let from_req_copy = from_req.try_clone().unwrap();
-            let response = self.req.execute(from_req_copy).await?;
+            let response = from_req_copy.send().await?;
             if response.status() == StatusCode::UNAUTHORIZED {
                 match response.headers().get(reqwest::header::WWW_AUTHENTICATE) {
                     None => response,
                     Some(auth_header) => {
-                        self.authenticate_for(auth_header).await?;
-                        self.req.execute(from_req).await?
+                        self.auth.authenticate_for(&self.req, auth_header).await?;
+                        from_req.send().await?
                     }
                 }
             } else {
@@ -332,6 +326,7 @@ impl Client {
             }
         };
 
+        log::info!("downloading {:?}", response.url());
         let mut response = response.error_for_status()?;
         let mut writer = self.storage.begin_write().await?;
 
@@ -391,8 +386,7 @@ impl Client {
                     let request = self
                         .req
                         .get(url)
-                        .header(header::ACCEPT, media_types::MANIFEST)
-                        .build()?;
+                        .header(header::ACCEPT, media_types::MANIFEST);
 
                     // Stream the download to a temp file while hashing it, verify the digest, and
                     // commits the file to storage only if the validator passes
@@ -479,11 +473,7 @@ impl Client {
                 StorageKey::Blob(content_digest) => {
                     let url =
                         self.build_v2_url(&registry, &repository, "blobs", &content_digest)?;
-                    let request = self
-                        .req
-                        .get(url)
-                        .header(header::ACCEPT, content_type)
-                        .build()?;
+                    let request = self.req.get(url).header(header::ACCEPT, content_type);
 
                     self.download_to_storage(request, &key, |found_digest| {
                         if &found_digest == content_digest {
