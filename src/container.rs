@@ -1,14 +1,16 @@
 //! Sandboxed subprocesses with a virtual filesystem
 
 use crate::{
-    errors::{ImageError, RuntimeError},
-    filesystem::{storage::FileStorage, vfs::Filesystem},
+    errors::{ImageError, RuntimeError, VFSError},
+    filesystem::{
+        storage::FileStorage,
+        vfs::{Filesystem, Stat},
+    },
     image::{Image, ImageName},
     ipcserver::IPCServer,
     registry::Client,
     sand::protocol::{InitArgsHeader, SysFd},
 };
-use fd_queue::tokio::UnixStream;
 use std::{
     collections::BTreeMap,
     default::Default,
@@ -27,7 +29,7 @@ pub struct ContainerBuilder {
     image: Option<Arc<Image>>,
     arg_list: Vec<OsString>,
     env_list: Vec<EnvBuilder>,
-    fs_list: Vec<Box<dyn Fn(Filesystem) -> Filesystem>>,
+    fs_list: Vec<FsBuilder>,
     current_dir: Option<OsString>,
     entrypoint: Option<OsString>,
 }
@@ -37,6 +39,8 @@ enum EnvBuilder {
     Remove(OsString),
     Clear,
 }
+
+enum FsBuilder {}
 
 impl ContainerBuilder {
     /// Start a new [Container] using the current settings in this builder
@@ -53,8 +57,24 @@ impl ContainerBuilder {
         let mut filesystem = image.filesystem.clone();
         let storage = image.storage.clone();
 
-        for fs_modifier in &self.fs_list {
-            filesystem = fs_modifier(filesystem);
+        // fixme
+        //
+        let mut writer = filesystem.writer();
+        for fd in 0..=2 {
+            writer.write_unix_stream_factory(
+                Path::new(&format!("/proc/1/fd/{}", fd)),
+                Stat {
+                    ..Default::default()
+                },
+                Arc::new(move || {
+                    Box::pin(async move {
+                        log::warn!("stdio wip {}", fd);
+                        let (sock1, sock2) =
+                            tokio::net::UnixStream::pair().map_err(|_| VFSError::IO)?;
+                        Ok(sock2)
+                    })
+                }),
+            )?;
         }
 
         let mut dir = PathBuf::new();
@@ -289,7 +309,7 @@ impl Container {
 
         Ok(Container {
             join: tokio::spawn(async move {
-                let (mut args, args_client) = UnixStream::pair()?;
+                let (mut args, args_client) = fd_queue::tokio::UnixStream::pair()?;
                 let client_fd = args_client.as_raw_fd();
                 assert_eq!(0, unsafe { libc::fcntl(client_fd, libc::F_SETFL, 0) });
                 let client_fd = SysFd(client_fd as u32);

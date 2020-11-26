@@ -2,16 +2,16 @@ use crate::{
     errors::VFSError,
     filesystem::storage::{FileStorage, StorageKey},
 };
-use memfd::Memfd;
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     future::Future,
+    os::unix::io::AsRawFd,
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
 };
-use tokio::fs::File;
+use tokio::{fs::File, net::UnixStream};
 
 type INodeNum = usize;
 
@@ -34,7 +34,6 @@ pub struct Filesystem {
 #[derive(Debug, Clone)]
 pub struct VFile {
     inode: INodeNum,
-    // future home of per-file-object flags
 }
 
 pub struct VFSWriter<'f> {
@@ -57,8 +56,9 @@ struct DirEntryRef {
 #[derive(Clone)]
 enum Node {
     NormalDirectory(BTreeMap<OsString, INodeNum>),
-    NormalFileStorage(StorageKey),
-    NormalFileMemfd(AsyncMemfdFactory),
+    FileStorage(StorageKey),
+    FileFactory(AsyncFactory<File>),
+    UnixStreamFactory(AsyncFactory<UnixStream>),
     EmptyFile,
     SymbolicLink(PathBuf),
     Char(u32, u32),
@@ -66,8 +66,8 @@ enum Node {
     Fifo,
 }
 
-pub type AsyncMemfdFactory =
-    Arc<fn() -> Pin<Box<dyn Future<Output = Result<Memfd, VFSError>> + Sync + Send>>>;
+pub type AsyncFactory<T> =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<T, VFSError>> + Sync + Send>> + Sync + Send>;
 
 #[derive(Debug)]
 struct Limits {
@@ -225,36 +225,30 @@ impl<'s> Filesystem {
         }
     }
 
-    pub async fn vfile_storage(&self, storage: &FileStorage, f: &VFile) -> Result<File, VFSError> {
+    pub async fn vfile_storage(
+        &self,
+        storage: &FileStorage,
+        f: &VFile,
+    ) -> Result<Box<dyn AsRawFd + Sync + Send>, VFSError> {
         match &self.inodes[f.inode] {
             None => Err(VFSError::NotFound),
             Some(node) => match &node.data {
-                Node::EmptyFile => File::open("/dev/null")
-                    .await
-                    .map_err(|_| VFSError::ImageStorageError),
-                Node::NormalFileStorage(key) => storage
-                    .open_part(key)
-                    .await
-                    .ok()
-                    .flatten()
-                    .ok_or(VFSError::ImageStorageError),
-                Node::NormalFileMemfd(factory) => {
-                    let memfd = factory().await?;
-                    Ok(File::from_std(memfd.into_file()))
-                }
+                Node::EmptyFile => Ok(Box::new(
+                    File::open("/dev/null")
+                        .await
+                        .map_err(|_| VFSError::ImageStorageError)?,
+                )),
+                Node::FileStorage(key) => Ok(Box::new(
+                    storage
+                        .open_part(key)
+                        .await
+                        .ok()
+                        .flatten()
+                        .ok_or(VFSError::ImageStorageError)?,
+                )),
+                Node::FileFactory(factory) => Ok(Box::new(factory().await?)),
+                Node::UnixStreamFactory(factory) => Ok(Box::new(factory().await?)),
                 _ => Err(VFSError::FileExpected),
-            },
-        }
-    }
-
-    pub fn is_file(&self, f: &VFile) -> bool {
-        match &self.inodes[f.inode] {
-            None => false,
-            Some(node) => match &node.data {
-                Node::NormalFileStorage(_) => true,
-                Node::NormalFileMemfd(_) => true,
-                Node::EmptyFile => true,
-                _ => false,
             },
         }
     }
@@ -391,7 +385,7 @@ impl<'f> VFSWriter<'f> {
         }
     }
 
-    fn write_node_file(&mut self, path: &Path, data: Node, stat: Stat) -> Result<(), VFSError> {
+    fn write_node_file(&mut self, path: &Path, stat: Stat, data: Node) -> Result<(), VFSError> {
         let mut limits = Limits::reset();
         let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
         let num = self.alloc_inode_number();
@@ -403,35 +397,44 @@ impl<'f> VFSWriter<'f> {
     pub fn write_storage_file(
         &mut self,
         path: &Path,
-        data: Option<StorageKey>,
         stat: Stat,
+        data: Option<StorageKey>,
     ) -> Result<(), VFSError> {
         self.write_node_file(
             path,
+            stat,
             match data {
-                Some(key) => Node::NormalFileStorage(key),
+                Some(key) => Node::FileStorage(key),
                 None => Node::EmptyFile,
             },
-            stat,
         )
     }
 
-    pub fn write_memfd_file(
+    pub fn write_file_factory(
         &mut self,
         path: &Path,
-        factory: AsyncMemfdFactory,
         stat: Stat,
+        factory: AsyncFactory<File>,
     ) -> Result<(), VFSError> {
-        self.write_node_file(path, Node::NormalFileMemfd(factory), stat)
+        self.write_node_file(path, stat, Node::FileFactory(factory))
+    }
+
+    pub fn write_unix_stream_factory(
+        &mut self,
+        path: &Path,
+        stat: Stat,
+        factory: AsyncFactory<UnixStream>,
+    ) -> Result<(), VFSError> {
+        self.write_node_file(path, stat, Node::UnixStreamFactory(factory))
     }
 
     pub fn write_symlink(
         &mut self,
         path: &Path,
-        link_to: &Path,
         stat: Stat,
+        link_to: &Path,
     ) -> Result<(), VFSError> {
-        self.write_node_file(path, Node::SymbolicLink(link_to.to_path_buf()), stat)
+        self.write_node_file(path, stat, Node::SymbolicLink(link_to.to_path_buf()))
     }
 
     pub fn write_hardlink(&mut self, path: &Path, link_to: &Path) -> Result<(), VFSError> {
@@ -446,7 +449,7 @@ impl<'f> VFSWriter<'f> {
     }
 
     pub fn write_fifo(&mut self, path: &Path, stat: Stat) -> Result<(), VFSError> {
-        self.write_node_file(path, Node::Fifo, stat)
+        self.write_node_file(path, stat, Node::Fifo)
     }
 
     pub fn write_char_device(
@@ -456,7 +459,7 @@ impl<'f> VFSWriter<'f> {
         major: u32,
         minor: u32,
     ) -> Result<(), VFSError> {
-        self.write_node_file(path, Node::Char(major, minor), stat)
+        self.write_node_file(path, stat, Node::Char(major, minor))
     }
 
     pub fn write_block_device(
@@ -466,7 +469,7 @@ impl<'f> VFSWriter<'f> {
         major: u32,
         minor: u32,
     ) -> Result<(), VFSError> {
-        self.write_node_file(path, Node::Block(major, minor), stat)
+        self.write_node_file(path, stat, Node::Block(major, minor))
     }
 
     fn resolve_or_create_path_segment(
@@ -495,7 +498,6 @@ impl<'f> VFSWriter<'f> {
         let mut iter = path.iter();
         if let Some(part) = iter.next() {
             let mut entry = self.resolve_or_create_path_segment(&mut limits, parent, part)?;
-
             while let Some(part) = iter.next() {
                 entry = self.fs.resolve_symlinks(&mut limits, entry)?;
                 entry = self.resolve_or_create_path_segment(&mut limits, entry.child, part)?;

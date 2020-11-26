@@ -76,10 +76,10 @@ fn extract_file_metadata<'a, R: Read>(
 
     match kind {
         EntryType::Fifo => fsw.write_fifo(&path, stat)?,
-        EntryType::Regular => fsw.write_storage_file(&path, data, stat)?,
+        EntryType::Regular => fsw.write_storage_file(&path, stat, data)?,
         EntryType::Directory => fsw.write_directory_metadata(&path, stat)?,
         EntryType::Symlink => match link_name {
-            Some(link_name) => fsw.write_symlink(&path, &link_name, stat)?,
+            Some(link_name) => fsw.write_symlink(&path, stat, &link_name)?,
             None => Err(ImageError::TARFileError)?,
         },
         EntryType::Link => match link_name {
