@@ -27,7 +27,6 @@ use std::{
 ///
 /// The virtual filesystem stores all metadata in memory, but file contents are
 /// referenced as needed from the configured disk cache.
-#[derive(Debug)]
 pub struct Image {
     pub(crate) name: ImageName,
     pub(crate) config: RuntimeConfig,
@@ -46,6 +45,12 @@ impl Image {
     /// Get the name of this image, including its content digest
     pub fn name(&self) -> &ImageName {
         &self.name
+    }
+}
+
+impl fmt::Debug for Image {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Image({})", self.name)
     }
 }
 

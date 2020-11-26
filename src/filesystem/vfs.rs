@@ -2,11 +2,13 @@ use crate::{
     errors::VFSError,
     filesystem::storage::{FileStorage, StorageKey},
 };
+use memfd::Memfd;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::BTreeMap,
     ffi::{OsStr, OsString},
-    fmt,
+    future::Future,
     path::{Path, PathBuf},
+    pin::Pin,
     sync::Arc,
 };
 use tokio::fs::File;
@@ -40,7 +42,7 @@ pub struct VFSWriter<'f> {
     workdir: INodeNum,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct INode {
     stat: Stat,
     data: Node,
@@ -52,17 +54,22 @@ struct DirEntryRef {
     child: INodeNum,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 enum Node {
-    Directory(BTreeMap<OsString, INodeNum>),
+    NormalDirectory(BTreeMap<OsString, INodeNum>),
+    NormalFileStorage(StorageKey),
+    NormalFileMemfd(AsyncMemfdFactory),
     EmptyFile,
-    NormalFile(StorageKey),
     SymbolicLink(PathBuf),
     Char(u32, u32),
     Block(u32, u32),
     Fifo,
 }
 
+pub type AsyncMemfdFactory =
+    Arc<fn() -> Pin<Box<dyn Future<Output = Result<Memfd, VFSError>> + Sync + Send>>>;
+
+#[derive(Debug)]
 struct Limits {
     path_segment: usize,
     symbolic_link: usize,
@@ -149,7 +156,7 @@ impl<'s> Filesystem {
             })
         } else {
             match &self.get_inode(parent)?.data {
-                Node::Directory(map) => match map.get(part) {
+                Node::NormalDirectory(map) => match map.get(part) {
                     None => Err(VFSError::NotFound),
                     Some(child) => {
                         let entry = DirEntryRef {
@@ -159,13 +166,7 @@ impl<'s> Filesystem {
                         Ok(entry)
                     }
                 },
-                other => {
-                    log::trace!(
-                        "failed to resolve path segment in non-directory node, {:?}",
-                        other
-                    );
-                    Err(VFSError::DirectoryExpected)
-                }
+                other => Err(VFSError::DirectoryExpected),
             }
         }
     }
@@ -228,14 +229,19 @@ impl<'s> Filesystem {
         match &self.inodes[f.inode] {
             None => Err(VFSError::NotFound),
             Some(node) => match &node.data {
-                Node::EmptyFile => match File::open("/dev/null").await {
-                    Ok(f) => Ok(f),
-                    Err(_) => Err(VFSError::ImageStorageError),
-                },
-                Node::NormalFile(k) => match storage.open_part(k).await {
-                    Ok(Some(f)) => Ok(f),
-                    Err(_) | Ok(None) => Err(VFSError::ImageStorageError),
-                },
+                Node::EmptyFile => File::open("/dev/null")
+                    .await
+                    .map_err(|_| VFSError::ImageStorageError),
+                Node::NormalFileStorage(key) => storage
+                    .open_part(key)
+                    .await
+                    .ok()
+                    .flatten()
+                    .ok_or(VFSError::ImageStorageError),
+                Node::NormalFileMemfd(factory) => {
+                    let memfd = factory().await?;
+                    Ok(File::from_std(memfd.into_file()))
+                }
                 _ => Err(VFSError::FileExpected),
             },
         }
@@ -245,7 +251,8 @@ impl<'s> Filesystem {
         match &self.inodes[f.inode] {
             None => false,
             Some(node) => match &node.data {
-                Node::NormalFile(_) => true,
+                Node::NormalFileStorage(_) => true,
+                Node::NormalFileMemfd(_) => true,
                 Node::EmptyFile => true,
                 _ => false,
             },
@@ -256,7 +263,7 @@ impl<'s> Filesystem {
         match &self.inodes[f.inode] {
             None => false,
             Some(node) => match &node.data {
-                Node::Directory(_) => true,
+                Node::NormalDirectory(_) => true,
                 _ => false,
             },
         }
@@ -297,7 +304,7 @@ impl<'f> VFSWriter<'f> {
                     nlink: 1,
                     ..Default::default()
                 },
-                data: Node::Directory(map),
+                data: Node::NormalDirectory(map),
             },
         );
     }
@@ -330,19 +337,10 @@ impl<'f> VFSWriter<'f> {
         child_name: &OsStr,
         child_value: INodeNum,
     ) -> Result<(), VFSError> {
-        log::trace!(
-            "add_child_to_directory, parent {}, child {:?} {}",
-            parent,
-            child_name,
-            child_value
-        );
         self.inode_incref(child_value)?;
         let previous = match &mut self.get_inode_mut(parent)?.data {
-            Node::Directory(map) => map.insert(child_name.to_os_string(), child_value),
-            other => {
-                log::warn!("failed to add a child to a non-directory node, {:?}", other);
-                Err(VFSError::DirectoryExpected)?
-            }
+            Node::NormalDirectory(map) => map.insert(child_name.to_os_string(), child_value),
+            other => Err(VFSError::DirectoryExpected)?,
         };
         match previous {
             None => Ok(()),
@@ -385,40 +383,46 @@ impl<'f> VFSWriter<'f> {
         let entry = self.resolve_or_create_path(&mut limits, self.workdir, path)?;
         let entry = self.fs.resolve_symlinks(&mut limits, entry)?;
         let inode = self.get_inode_mut(entry.child)?;
-        if let Node::Directory(_) = inode.data {
+        if let Node::NormalDirectory(_) = inode.data {
             inode.stat = stat;
             Ok(())
         } else {
-            log::warn!(
-                "failed to write metadata {:?}, expected a directory node but found {:?}",
-                stat,
-                inode.data
-            );
             Err(VFSError::DirectoryExpected)
         }
     }
 
-    pub fn write_file(
+    fn write_node_file(&mut self, path: &Path, data: Node, stat: Stat) -> Result<(), VFSError> {
+        let mut limits = Limits::reset();
+        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
+        let num = self.alloc_inode_number();
+        self.put_inode(num, INode { stat, data });
+        self.add_child_to_directory(dir, name, num)?;
+        Ok(())
+    }
+
+    pub fn write_storage_file(
         &mut self,
         path: &Path,
         data: Option<StorageKey>,
         stat: Stat,
     ) -> Result<(), VFSError> {
-        let mut limits = Limits::reset();
-        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
-        let num = self.alloc_inode_number();
-        self.put_inode(
-            num,
-            INode {
-                stat,
-                data: match data {
-                    Some(key) => Node::NormalFile(key),
-                    None => Node::EmptyFile,
-                },
+        self.write_node_file(
+            path,
+            match data {
+                Some(key) => Node::NormalFileStorage(key),
+                None => Node::EmptyFile,
             },
-        );
-        self.add_child_to_directory(dir, name, num)?;
-        Ok(())
+            stat,
+        )
+    }
+
+    pub fn write_memfd_file(
+        &mut self,
+        path: &Path,
+        factory: AsyncMemfdFactory,
+        stat: Stat,
+    ) -> Result<(), VFSError> {
+        self.write_node_file(path, Node::NormalFileMemfd(factory), stat)
     }
 
     pub fn write_symlink(
@@ -427,18 +431,7 @@ impl<'f> VFSWriter<'f> {
         link_to: &Path,
         stat: Stat,
     ) -> Result<(), VFSError> {
-        let mut limits = Limits::reset();
-        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
-        let num = self.alloc_inode_number();
-        self.put_inode(
-            num,
-            INode {
-                stat,
-                data: Node::SymbolicLink(link_to.to_path_buf()),
-            },
-        );
-        self.add_child_to_directory(dir, name, num)?;
-        Ok(())
+        self.write_node_file(path, Node::SymbolicLink(link_to.to_path_buf()), stat)
     }
 
     pub fn write_hardlink(&mut self, path: &Path, link_to: &Path) -> Result<(), VFSError> {
@@ -453,18 +446,7 @@ impl<'f> VFSWriter<'f> {
     }
 
     pub fn write_fifo(&mut self, path: &Path, stat: Stat) -> Result<(), VFSError> {
-        let mut limits = Limits::reset();
-        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
-        let num = self.alloc_inode_number();
-        self.put_inode(
-            num,
-            INode {
-                stat,
-                data: Node::Fifo,
-            },
-        );
-        self.add_child_to_directory(dir, name, num)?;
-        Ok(())
+        self.write_node_file(path, Node::Fifo, stat)
     }
 
     pub fn write_char_device(
@@ -474,18 +456,7 @@ impl<'f> VFSWriter<'f> {
         major: u32,
         minor: u32,
     ) -> Result<(), VFSError> {
-        let mut limits = Limits::reset();
-        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
-        let num = self.alloc_inode_number();
-        self.put_inode(
-            num,
-            INode {
-                stat,
-                data: Node::Char(major, minor),
-            },
-        );
-        self.add_child_to_directory(dir, name, num)?;
-        Ok(())
+        self.write_node_file(path, Node::Char(major, minor), stat)
     }
 
     pub fn write_block_device(
@@ -495,18 +466,7 @@ impl<'f> VFSWriter<'f> {
         major: u32,
         minor: u32,
     ) -> Result<(), VFSError> {
-        let mut limits = Limits::reset();
-        let (dir, name) = self.resolve_or_create_parent(&mut limits, path)?;
-        let num = self.alloc_inode_number();
-        self.put_inode(
-            num,
-            INode {
-                stat,
-                data: Node::Block(major, minor),
-            },
-        );
-        self.add_child_to_directory(dir, name, num)?;
-        Ok(())
+        self.write_node_file(path, Node::Block(major, minor), stat)
     }
 
     fn resolve_or_create_path_segment(
@@ -532,8 +492,6 @@ impl<'f> VFSWriter<'f> {
         parent: INodeNum,
         path: &Path,
     ) -> Result<DirEntryRef, VFSError> {
-        log::trace!("resolve/create path {:?} in {}", path, parent);
-
         let mut iter = path.iter();
         if let Some(part) = iter.next() {
             let mut entry = self.resolve_or_create_path_segment(&mut limits, parent, part)?;
@@ -542,8 +500,6 @@ impl<'f> VFSWriter<'f> {
                 entry = self.fs.resolve_symlinks(&mut limits, entry)?;
                 entry = self.resolve_or_create_path_segment(&mut limits, entry.child, part)?;
             }
-
-            log::trace!("path {:?} resolved to {:?}", path, entry);
             Ok(entry)
         } else {
             Ok(DirEntryRef {
@@ -551,64 +507,5 @@ impl<'f> VFSWriter<'f> {
                 child: parent,
             })
         }
-    }
-}
-
-impl fmt::Debug for Filesystem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut stack = vec![(PathBuf::new(), self.root)];
-        let mut memo = HashSet::new();
-        while let Some((path, dir)) = stack.pop() {
-            memo.insert(dir);
-            match self.get_inode(dir) {
-                Ok(inode) => match &inode.data {
-                    Node::Directory(map) => {
-                        for (name, child) in map.iter() {
-                            let child_path = path.join(name);
-                            match self.get_inode(*child) {
-                                Ok(child_node) => {
-                                    write!(
-                                        f,
-                                        "{:5}  {:?} {:?}  /{}\n",
-                                        *child,
-                                        child_node.stat,
-                                        child_node.data,
-                                        child_path.to_string_lossy()
-                                    )?;
-
-                                    if let Node::Directory(_) = &child_node.data {
-                                        if !memo.contains(child) {
-                                            stack.push((child_path, *child))
-                                        }
-                                    }
-                                }
-                                other => {
-                                    write!(
-                                        f,
-                                        "<<ERROR>>, failed to read child inode, {:?}",
-                                        other
-                                    )?;
-                                }
-                            }
-                        }
-                    }
-                    other => {
-                        write!(
-                            f,
-                            "<<ERROR>>, expected directory at inode {}, found: {:?}",
-                            dir, other
-                        )?;
-                    }
-                },
-                other => {
-                    write!(
-                        f,
-                        "<<ERROR>>, failed to read directory inode {}, {:?}",
-                        dir, other
-                    )?;
-                }
-            }
-        }
-        Ok(())
     }
 }

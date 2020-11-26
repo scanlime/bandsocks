@@ -27,7 +27,7 @@ pub struct ContainerBuilder {
     image: Option<Arc<Image>>,
     arg_list: Vec<OsString>,
     env_list: Vec<EnvBuilder>,
-    fs_list: Vec<Box<dyn FnOnce(Filesystem) -> Filesystem>>,
+    fs_list: Vec<Box<dyn Fn(Filesystem) -> Filesystem>>,
     current_dir: Option<OsString>,
     entrypoint: Option<OsString>,
 }
@@ -53,7 +53,7 @@ impl ContainerBuilder {
         let mut filesystem = image.filesystem.clone();
         let storage = image.storage.clone();
 
-        for fs_modifier in self.fs_list {
+        for fs_modifier in &self.fs_list {
             filesystem = fs_modifier(filesystem);
         }
 

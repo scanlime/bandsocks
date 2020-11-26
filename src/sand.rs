@@ -1,17 +1,61 @@
-pub const PROGRAM_DATA: &'static [u8] = include_bytes!(concat!(
-    env!("OUT_DIR"),
-    "/sand-target/release/bandsocks-sand"
-));
-
 pub mod protocol {
     include!("../sand/src/protocol.rs");
 }
 
+const PROGRAM_DATA: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/sand-target/release/bandsocks-sand"
+));
+
+use crate::errors::IPCError;
 use protocol::{LogLevel, LogMessage, SysFd, VPid};
-use std::os::{
-    raw::c_int,
-    unix::{io::AsRawFd, prelude::RawFd},
+use std::{
+    fs::File,
+    io::Write,
+    os::{
+        raw::c_int,
+        unix::{
+            io::{AsRawFd, RawFd},
+            process::CommandExt,
+        },
+    },
+    process::Command,
 };
+
+lazy_static! {
+    static ref PROGRAM_FILE: Result<File, IPCError> = create_program_file();
+}
+
+fn create_program_file() -> Result<File, IPCError> {
+    let memfd = memfd::MemfdOptions::default()
+        .allow_sealing(true)
+        .create("bandsocks-sand")?;
+    memfd.as_file().write_all(PROGRAM_DATA)?;
+    memfd.add_seals(
+        &[
+            memfd::FileSeal::SealWrite,
+            memfd::FileSeal::SealShrink,
+            memfd::FileSeal::SealGrow,
+            memfd::FileSeal::SealSeal,
+        ]
+        .iter()
+        .cloned()
+        .collect(),
+    )?;
+    Ok(memfd.into_file())
+}
+
+pub fn command(fd: RawFd) -> Result<Command, IPCError> {
+    let file = match &*PROGRAM_FILE {
+        Err(err) => return Err(IPCError::ProgramAllocError(err.to_string())),
+        Ok(file) => file,
+    };
+    let mut cmd = Command::new(format!("/proc/self/fd/{}", file.as_raw_fd()));
+    cmd.arg0("sand");
+    cmd.env_clear();
+    cmd.env("FD", fd.to_string());
+    Ok(cmd)
+}
 
 impl AsRawFd for SysFd {
     fn as_raw_fd(&self) -> RawFd {

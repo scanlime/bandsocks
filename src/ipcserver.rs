@@ -14,11 +14,9 @@ use crate::{
     taskcall,
 };
 use fd_queue::{tokio::UnixStream, EnqueueFd};
-use pentacle::SealedCommand;
 use std::{
     collections::HashMap,
-    io::Cursor,
-    os::unix::{io::AsRawFd, prelude::RawFd, process::CommandExt},
+    os::unix::{io::AsRawFd, prelude::RawFd},
     process::Child,
 };
 use tokio::{
@@ -68,18 +66,10 @@ impl IPCServer {
         )
         .await?;
 
-        let mut sand_bin = Cursor::new(sand::PROGRAM_DATA);
-        let mut cmd = SealedCommand::new(&mut sand_bin).unwrap();
-
-        // The stage 1 process requires these specific args and env.
-        cmd.arg0("sand");
-        cmd.env_clear();
-        cmd.env("FD", child_socket.as_raw_fd().to_string());
-
         Ok(IPCServer {
             filesystem,
             storage,
-            tracer: cmd.spawn()?,
+            tracer: sand::command(child_socket.as_raw_fd())?.spawn()?,
             stream: server_socket,
             process_table: HashMap::new(),
         })

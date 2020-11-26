@@ -133,8 +133,14 @@ pub enum IPCError {
     #[error("string decoding error")]
     StringDecoding,
 
+    #[error("failed to allocate sandbox process: {0}")]
+    ProgramAllocError(String),
+
     #[error("memory access error")]
     MemAccess,
+
+    #[error("error in memory-backed file: {0}")]
+    MemfdError(#[from] memfd::Error),
 
     #[error("connection lost unexpectedly")]
     Disconnected,

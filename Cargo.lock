@@ -85,8 +85,8 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
+ "memfd",
  "memmap",
- "pentacle",
  "pin-project 1.0.1",
  "rand",
  "regex",
@@ -259,6 +259,12 @@ checksum = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
 dependencies = [
  "generic-array 0.14.4",
 ]
+
+[[package]]
+name = "either"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
 name = "encoding_rs"
@@ -732,6 +738,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3728d817d99e5ac407411fa471ff9800a778d88a24685968b36824eaf4bee400"
 
 [[package]]
+name = "memfd"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59c3b335b96d56e116c654a994b2b1b83b4e5b4d0a2a95085fc35464eecf4f03"
+dependencies = [
+ "either",
+ "libc",
+ "thiserror",
+]
+
+[[package]]
 name = "memmap"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -892,16 +909,6 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "pentacle"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e26ee4fbe38a973890ca68cace434e192d88f3703099fd64f799f3d6043ee7b6"
-dependencies = [
- "libc",
- "log",
 ]
 
 [[package]]
