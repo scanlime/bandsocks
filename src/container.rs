@@ -42,6 +42,14 @@ enum EnvBuilder {
 
 enum FsBuilder {}
 
+async fn new_stdio_socket_wip(fd: u32) -> tokio::io::Result<tokio::net::UnixStream> {
+    let (local, remote) = tokio::net::UnixStream::pair()?;
+    tokio::task::spawn(async move {
+        log::warn!("stdio wip {}", fd);
+    });
+    Ok(remote)
+}
+
 impl ContainerBuilder {
     /// Start a new [Container] using the current settings in this builder
     pub fn spawn(&self) -> Result<Container, RuntimeError> {
@@ -67,12 +75,9 @@ impl ContainerBuilder {
                     ..Default::default()
                 },
                 Arc::new(move || {
-                    Box::pin(async move {
-                        log::warn!("stdio wip {}", fd);
-                        let (sock1, sock2) =
-                            tokio::net::UnixStream::pair().map_err(|_| VFSError::IO)?;
-                        Ok(sock2)
-                    })
+                    Box::pin(
+                        async move { new_stdio_socket_wip(fd).await.map_err(|_| VFSError::IO) },
+                    )
                 }),
             )?;
         }
