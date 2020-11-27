@@ -1,8 +1,7 @@
 use crate::{errors::ImageError, image::Registry};
 use regex::Regex;
-use reqwest::RequestBuilder;
+use reqwest::{RequestBuilder, Url};
 use std::collections::HashMap;
-use url::Url;
 
 #[derive(Clone)]
 pub struct Auth {

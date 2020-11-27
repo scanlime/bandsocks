@@ -11,11 +11,13 @@ use crate::{
     registry::{auth::Auth, DefaultRegistry},
 };
 
-use async_compression::tokio_02::write::GzipDecoder;
 use futures_util::{stream::FuturesUnordered, StreamExt};
-use http::header::HeaderValue;
 use memmap::Mmap;
-use reqwest::{header, header::HeaderMap, Certificate, RequestBuilder, StatusCode};
+use reqwest::{
+    header,
+    header::{HeaderMap, HeaderValue},
+    Certificate, RequestBuilder, StatusCode, Url,
+};
 use std::{
     collections::HashSet,
     convert::TryInto,
@@ -26,7 +28,6 @@ use std::{
     time::Duration,
 };
 use tokio::{io::AsyncWriteExt, task};
-use url::Url;
 
 /// Builder for configuring custom [Client] instances
 pub struct ClientBuilder {
@@ -320,7 +321,7 @@ impl Client {
             if response.status() == StatusCode::UNAUTHORIZED {
                 match response
                     .headers()
-                    .get(reqwest::header::WWW_AUTHENTICATE)
+                    .get(header::WWW_AUTHENTICATE)
                     .map(|h| h.to_str())
                 {
                     None => response,
@@ -590,7 +591,7 @@ impl Client {
         }
 
         let mut writer = self.storage.begin_write().await?;
-        let mut decoder = GzipDecoder::new(&mut writer);
+        let decoder = &mut writer; //GzipDecoder::new(&mut writer);
         let result = decoder.write_all(&data[..]).await;
         let result = match result {
             Ok(()) => decoder.shutdown().await,

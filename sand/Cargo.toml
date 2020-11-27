@@ -1,7 +1,7 @@
 [package]
 name = "bandsocks-sand"
-version = "0.1.1"
-description = "Experimental embeddable container sandbox (not working yet)"
+version = "0.2.0"
+description = "Internal runtime binary for bandsocks"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/scanlime/bandsocks"
 authors = ["Micah Elizabeth Scott <micah@scanlime.org>"]
@@ -11,20 +11,20 @@ edition = "2018"
 
 as-slice = "0.1"
 compiler_builtins = { version = "0.1", features = [ "compiler-builtins", "mem" ] }
-memoffset = "0.5"
-heapless = "0.5"
-typenum = "1.12"
+goblin = { version = "0.2", default-features = false, features = ["elf64"] }
 hash32 = "0.1"
 hash32-derive = "0.1"
+heapless = "0.5"
+memoffset = "0.5"
 pin-project = "1"
-seccomp-tiny = "0.1"
 plain = "0.2"
-goblin = { version = "0.2", default-features = false, features = ["elf64"] }
+raw-cpuid = "8.1"
+sc = "0.2"
+seccomp-tiny = "0.1"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 smalloca = { version = "0.1", default-features = false }
-sc = "0.2"
 twoway = { version = "0.2", default-features = false }
-raw-cpuid = "8.1"
+typenum = "1.12"
 
 [dev-dependencies]
 file_limit = "0.0"

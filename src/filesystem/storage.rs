@@ -218,6 +218,17 @@ impl StorageWriter {
         Ok(())
     }
 
+    pub async fn into_mmap(mut self) -> Result<Mmap, ImageError> {
+        self.remove_temp().await?;
+        let file = self
+            .temp_file
+            .take()
+            .expect("storage writer open")
+            .into_std()
+            .await;
+        Ok(unsafe { MmapOptions::new().map(&file) }?)
+    }
+
     pub async fn finalize(&mut self) -> Result<ContentDigest, ImageError> {
         if let Some(mut temp_file) = self.temp_file.take() {
             temp_file.shutdown().await?;

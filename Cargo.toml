@@ -9,8 +9,8 @@ edition = "2018"
 
 [dependencies]
 
-async-compression = { version = "0.3", features = [ "tokio-02", "gzip" ] }
 fd-queue = { version = "1.0.0-beta.2", features = [ "tokio-fd" ] }
+flate2 = "1.0.19"
 futures-util = "0.3"
 hash32 = "0.1"
 hash32-derive = "0.1"
@@ -31,7 +31,6 @@ sha2 = "0.9"
 tar = "0.4"
 thiserror = "1.0"
 tokio = { version = "0.2", features = ["fs", "time", "blocking", "uds", "io-util"] }
-url = "2.2"
 
 [dev-dependencies]
 file_limit = "0.0"

@@ -37,19 +37,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compression"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb1ff21a63d3262af46b9f33a826a8d134e2d0d9b2179c86034948b732ea8b2a"
-dependencies = [
- "flate2",
- "futures-core",
- "memchr",
- "pin-project-lite 0.1.11",
- "tokio",
-]
-
-[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -70,11 +57,11 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 name = "bandsocks"
 version = "0.2.0"
 dependencies = [
- "async-compression",
  "build-deps",
  "env_logger",
  "fd-queue",
  "file_limit",
+ "flate2",
  "futures-util",
  "hash32",
  "hash32-derive",
@@ -95,7 +82,6 @@ dependencies = [
  "tar",
  "thiserror",
  "tokio",
- "url",
 ]
 
 [[package]]
@@ -817,9 +803,9 @@ dependencies = [
 
 [[package]]
 name = "net2"
-version = "0.2.35"
+version = "0.2.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ebc3ec692ed7c9a255596c67808dee269f64655d8baf7b4f0638e51ba1d6853"
+checksum = "d7cf75f38f16cb05ea017784dc6dbfd354f76c223dba37701734c4f5a9337d02"
 dependencies = [
  "cfg-if 0.1.10",
  "libc",
