@@ -624,12 +624,10 @@ impl Client {
                 match decoder.read(&mut buffer) {
                     Err(err) => break Err(err),
                     Ok(size) if size == 0 => break Ok(()),
-                    Ok(size) => {
-                        match writer.write_all(&buffer[..size]) {
-                            Err(err) => break Err(err),
-                            Ok(()) => (),
-                        }
-                    }
+                    Ok(size) => match writer.write_all(&buffer[..size]) {
+                        Err(err) => break Err(err),
+                        Ok(()) => (),
+                    },
                 }
             };
             match result {

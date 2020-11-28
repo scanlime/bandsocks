@@ -69,7 +69,11 @@ impl StorageWriter {
 
 impl Write for StorageWriter {
     fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
-        let result = self.temp_file.as_ref().expect("storage writer open").write(buf);
+        let result = self
+            .temp_file
+            .as_ref()
+            .expect("storage writer open")
+            .write(buf);
         match result {
             Err(e) => {
                 self.content_digest = Some(Err(()));
@@ -85,7 +89,11 @@ impl Write for StorageWriter {
     }
 
     fn flush(&mut self) -> Result<(), io::Error> {
-        let result = self.temp_file.as_ref().expect("storage writer open").flush();
+        let result = self
+            .temp_file
+            .as_ref()
+            .expect("storage writer open")
+            .flush();
         match result {
             Ok(()) => Ok(()),
             Err(e) => {
