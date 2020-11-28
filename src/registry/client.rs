@@ -547,11 +547,7 @@ impl Client {
             let mut decoder = flate2::bufread::GzDecoder::new(&*source);
             let mut buffer = [0u8; 128 * 1024];
             let handle = tokio::runtime::Handle::current();
-            log::info!(
-                "decompressing {} bytes, header={:?}",
-                source.len(),
-                decoder.header()
-            );
+            log::info!("decompressing {} bytes", source.len(),);
             loop {
                 match decoder.read(&mut buffer) {
                     Err(err) => return (writer, Err(err)),

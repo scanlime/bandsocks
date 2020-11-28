@@ -35,20 +35,26 @@ async fn main() {
         .await
         .expect("failed to pull container image");
 
-    let container = Container::new()
-        .image(&image)
-        .args(run_args)
-        .envs(run_env)
-        .spawn()
-        .expect("container failed to start");
+    if matches.is_present("pull") {
+        if !run_args.is_empty() || !run_env.is_empty() {
+            log::warn!("pull-only mode, run arguments are being ignored")
+        }
+    } else {
+        let container = Container::new()
+            .image(&image)
+            .args(run_args)
+            .envs(run_env)
+            .spawn()
+            .expect("container failed to start");
 
-    let status = container
-        .wait()
-        .await
-        .expect("failed waiting for container to stop");
+        let status = container
+            .wait()
+            .await
+            .expect("failed waiting for container to stop");
 
-    if let Some(code) = status.code() {
-        std::process::exit(code);
+        if let Some(code) = status.code() {
+            std::process::exit(code);
+        }
     }
 }
 
