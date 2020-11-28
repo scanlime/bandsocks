@@ -1,6 +1,6 @@
 use crate::{errors::ImageError, image::Registry};
 use regex::Regex;
-use reqwest::{RequestBuilder, Url};
+use reqwest::{header, RequestBuilder, Response, StatusCode, Url};
 use std::collections::HashMap;
 
 #[derive(Clone)]
@@ -27,7 +27,7 @@ impl Auth {
         self.logins.insert(registry, Login { username, password });
     }
 
-    pub fn include_token(&self, registry: &Registry, req: RequestBuilder) -> RequestBuilder {
+    fn include_token(&self, registry: &Registry, req: RequestBuilder) -> RequestBuilder {
         match self.tokens.get(registry) {
             Some(token_struct) => {
                 log::debug!("using token for {}", registry);
@@ -38,7 +38,7 @@ impl Auth {
     }
 
     /// Reference: <https://docs.docker.com/registry/spec/auth/token/>
-    pub async fn authenticate_for(
+    async fn authenticate_for(
         &mut self,
         registry: &Registry,
         req: &reqwest::Client,
@@ -57,6 +57,42 @@ impl Auth {
         log::debug!("received token for {}", registry);
         self.tokens.insert(registry.clone(), response);
         Ok(())
+    }
+
+    /// Send a request, with one auth attempt and retry if a 401 error comes
+    /// back the first time.
+    ///
+    /// Requires a request that can be cloned (no stream data)
+    pub async fn request(
+        &mut self,
+        registry: &Registry,
+        client: &reqwest::Client,
+        req: RequestBuilder,
+    ) -> Result<Response, ImageError> {
+        let response = self
+            .include_token(
+                registry,
+                req.try_clone()
+                    .expect("not expecting unclonable requests here"),
+            )
+            .send()
+            .await?;
+        if response.status() == StatusCode::UNAUTHORIZED {
+            match response
+                .headers()
+                .get(header::WWW_AUTHENTICATE)
+                .map(|h| h.to_str())
+            {
+                None => Ok(response),
+                Some(Err(_bad_string)) => Ok(response),
+                Some(Ok(auth_header)) => {
+                    self.authenticate_for(registry, client, auth_header).await?;
+                    Ok(self.include_token(registry, req).send().await?)
+                }
+            }
+        } else {
+            Ok(response)
+        }
     }
 }
 

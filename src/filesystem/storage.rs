@@ -6,6 +6,7 @@ use memmap::{Mmap, MmapOptions};
 use pin_project::pin_project;
 use sha2::{Digest, Sha256};
 use std::{
+    env,
     hash::Hash,
     ops::Range,
     path::{Path, PathBuf},
@@ -13,6 +14,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::{
+    fs,
     fs::{os::unix::OpenOptionsExt, File, OpenOptions},
     io,
     io::{AsyncWrite, AsyncWriteExt},
@@ -28,6 +30,7 @@ impl FileStorage {
         FileStorage { path }
     }
 
+    /// Open one object from local storage, as a File
     pub async fn open(&self, key: &StorageKey) -> Result<Option<File>, ImageError> {
         let path = key.to_path(&self.path);
         match File::open(path).await {
@@ -39,6 +42,7 @@ impl FileStorage {
         }
     }
 
+    /// Open an object, creating requested BlobParts on demand
     pub async fn open_part(&self, key: &StorageKey) -> Result<Option<File>, ImageError> {
         match self.open(key).await? {
             Some(f) => Ok(Some(f)),
@@ -60,6 +64,29 @@ impl FileStorage {
         }
     }
 
+    /// Check whether a stored file exists without actually opening it
+    ///
+    /// Returns true if and only if the storage exists as a regular file. Any
+    /// errors will cause this to return false.
+    pub async fn exists(&self, key: &StorageKey) -> bool {
+        let path = key.to_path(&self.path);
+        match fs::metadata(path).await {
+            Err(_) => false,
+            Ok(metadata) => metadata.is_file(),
+        }
+    }
+
+    /// Check whether a set of stored files all exist
+    pub async fn all_exists<'a, T: Iterator<Item = &'a StorageKey>>(&self, keys: T) -> bool {
+        for item in keys {
+            if !self.exists(item).await {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Make a new storage object at `to_key` using the data from `from_key`
     pub async fn copy_data(
         &self,
         from_key: &StorageKey,
@@ -77,6 +104,7 @@ impl FileStorage {
         }
     }
 
+    /// Open a storage object and memory map it
     pub async fn mmap(&self, key: &StorageKey) -> Result<Option<Mmap>, ImageError> {
         match self.open(key).await? {
             Some(file) => {
@@ -87,10 +115,10 @@ impl FileStorage {
         }
     }
 
+    /// Begin writing to temporary storage
     pub async fn begin_write(&self) -> Result<StorageWriter, ImageError> {
-        let mut temp_path = self.path.clone();
-        temp_path.push("tmp");
-        temp_path.push(format!("{}-{}", std::process::id(), rand::random::<u64>()));
+        let key = StorageKey::temp();
+        let temp_path = key.to_path(&self.path);
         create_parent_dirs(&temp_path).await;
 
         let temp_file = OpenOptions::new()
@@ -101,6 +129,7 @@ impl FileStorage {
             .await?;
 
         Ok(StorageWriter {
+            key,
             temp_file: Some(temp_file),
             temp_path: Some(temp_path),
             hasher: Some(Sha256::new()),
@@ -108,6 +137,7 @@ impl FileStorage {
         })
     }
 
+    /// Promote a temporary file into a StorageKey
     pub async fn commit_write(
         &self,
         mut writer: StorageWriter,
@@ -140,6 +170,7 @@ pub struct StorageWriter {
     hasher: Option<Sha256>,
     temp_path: Option<PathBuf>,
     content_digest: Option<Result<ContentDigest, ()>>,
+    pub key: StorageKey,
 }
 
 impl AsyncWrite for StorageWriter {
@@ -202,6 +233,7 @@ impl AsyncWrite for StorageWriter {
 }
 
 impl StorageWriter {
+    /// Delete the temporary file backing this writer
     pub async fn remove_temp(&mut self) -> Result<(), ImageError> {
         if let Some(path) = self.temp_path.take() {
             tokio::fs::remove_file(path).await?;
@@ -209,6 +241,7 @@ impl StorageWriter {
         Ok(())
     }
 
+    /// Rename the temporary file and detach it from this writer
     pub async fn rename_temp(&mut self, dest_path: &Path) -> Result<(), ImageError> {
         let temp_path = self
             .temp_path
@@ -218,17 +251,8 @@ impl StorageWriter {
         Ok(())
     }
 
-    pub async fn into_mmap(mut self) -> Result<Mmap, ImageError> {
-        self.remove_temp().await?;
-        let file = self
-            .temp_file
-            .take()
-            .expect("storage writer open")
-            .into_std()
-            .await;
-        Ok(unsafe { MmapOptions::new().map(&file) }?)
-    }
-
+    /// Wait for I/O to complete, and return the final ContentDigest of the
+    /// written data
     pub async fn finalize(&mut self) -> Result<ContentDigest, ImageError> {
         if let Some(mut temp_file) = self.temp_file.take() {
             temp_file.shutdown().await?;
@@ -248,28 +272,19 @@ impl StorageWriter {
     }
 }
 
-#[derive(Debug)]
-pub struct TempStorage {
-    path: Option<PathBuf>,
-    pub content_digest: Result<ContentDigest, ImageError>,
-}
-
-impl Drop for TempStorage {
-    fn drop(&mut self) {
-        if let Some(path) = &self.path {
-            log::warn!("leaking temporary storage at {:?}", path);
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum StorageKey {
+    Temp(u32, u64),
     Blob(ContentDigest),
     BlobPart(ContentDigest, Range<usize>),
     Manifest(Registry, Repository, ImageVersion),
 }
 
 impl StorageKey {
+    pub fn temp() -> Self {
+        StorageKey::Temp(std::process::id(), rand::random::<u64>())
+    }
+
     pub fn range(self, sub_range: Range<usize>) -> Result<StorageKey, ()> {
         match self {
             StorageKey::Blob(content_digest) => Ok(StorageKey::BlobPart(content_digest, sub_range)),
@@ -283,6 +298,12 @@ impl StorageKey {
 
     fn to_path(&self, base_dir: &Path) -> PathBuf {
         match self {
+            StorageKey::Temp(pid, random) => {
+                let mut path = base_dir.to_path_buf();
+                path.push("tmp");
+                path.push(format!("{}-{}", pid, random));
+                path
+            }
             StorageKey::Blob(content_digest) => {
                 let mut path = base_dir.to_path_buf();
                 path.push("blobs");
@@ -304,6 +325,25 @@ impl StorageKey {
                 path.push(version.as_str());
                 path
             }
+        }
+    }
+}
+
+pub fn default_cache_dir() -> Result<PathBuf, ImageError> {
+    match env::var("BANDSOCKS_CACHE") {
+        Ok(s) => Ok(Path::new(&s).to_path_buf()),
+        Err(_) => {
+            let mut buf = match env::var("XDG_CACHE_HOME") {
+                Ok(s) => Ok(Path::new(&s).to_path_buf()),
+                Err(_) => match env::var("HOME") {
+                    Ok(s) => Ok(Path::new(&s).join(".cache")),
+                    Err(_) => Err(ImageError::NoDefaultCacheDir),
+                },
+            };
+            if let Ok(buf) = &mut buf {
+                buf.push("bandsocks");
+            }
+            buf
         }
     }
 }

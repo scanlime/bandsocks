@@ -920,6 +920,22 @@ impl ImageVersion {
             Ok(ImageVersion::Tag(Tag::parse(s)?))
         }
     }
+
+    /// Is this version a content digest?
+    pub fn is_content_digest(&self) -> bool {
+        match self {
+            ImageVersion::Tag(_) => false,
+            ImageVersion::ContentDigest(_) => true,
+        }
+    }
+
+    /// Is this version a tag?
+    pub fn is_tag(&self) -> bool {
+        match self {
+            ImageVersion::Tag(_) => true,
+            ImageVersion::ContentDigest(_) => false,
+        }
+    }
 }
 
 impl FromStr for ImageVersion {
