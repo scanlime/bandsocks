@@ -42,8 +42,8 @@ enum EnvBuilder {
 
 enum FsBuilder {}
 
-async fn new_stdio_socket_wip(fd: u32) -> tokio::io::Result<tokio::net::UnixStream> {
-    let (local, remote) = tokio::net::UnixStream::pair()?;
+async fn new_stdio_socket_wip(fd: u32) -> std::io::Result<std::os::unix::net::UnixStream> {
+    let (local, remote) = std::os::unix::net::UnixStream::pair()?;
     tokio::task::spawn(async move {
         log::warn!("stdio wip {}", fd);
     });

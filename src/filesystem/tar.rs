@@ -8,13 +8,13 @@ use crate::{
 use std::io::{Cursor, Read};
 use tar::{Archive, Entry, EntryType};
 
-pub async fn extract(
+pub fn extract(
     fs: &mut Filesystem,
     storage: &FileStorage,
     archive: &StorageKey,
 ) -> Result<(), ImageError> {
     let mut offset: usize = 0;
-    let archive_map = match storage.mmap(archive).await? {
+    let archive_map = match storage.mmap(archive)? {
         Some(map) => map,
         None => return Err(ImageError::TARFileError),
     };

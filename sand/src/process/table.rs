@@ -118,7 +118,7 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
             let table = project.table.get_unchecked_mut();
             let prev = match &table[index] {
                 Some(process) => Some(process.sys_pid.clone()),
-                None => None
+                None => None,
             };
             table[index] = None;
             prev

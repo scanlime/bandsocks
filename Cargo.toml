@@ -9,6 +9,7 @@ edition = "2018"
 
 [dependencies]
 
+bytes = "0.5"
 fd-queue = { version = "1.0.0-beta.2", features = [ "tokio-fd" ] }
 flate2 = "1.0.19"
 futures-util = "0.3"
@@ -30,7 +31,7 @@ serde_json = "1.0"
 sha2 = "0.9"
 tar = "0.4"
 thiserror = "1.0"
-tokio = { version = "0.2", features = ["fs", "time", "blocking", "uds", "io-util"] }
+tokio = { version = "0.2", features = ["fs", "time", "blocking", "uds", "io-util", "macros"] }
 
 [dev-dependencies]
 file_limit = "0.0"

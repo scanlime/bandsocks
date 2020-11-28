@@ -5,7 +5,8 @@ use crate::{
     filesystem::{
         storage,
         storage::{FileStorage, StorageKey, StorageWriter},
-        tar, vfs,
+        tar,
+        vfs::Filesystem,
     },
     image::{ContentDigest, Image, ImageName, ImageVersion, Registry, Repository},
     manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
@@ -17,25 +18,26 @@ use memmap::Mmap;
 use reqwest::{
     header,
     header::{HeaderMap, HeaderValue},
-    Certificate, RequestBuilder, Url,
+    Certificate, Client as NetworkClient, ClientBuilder as NetworkClientBuilder, RequestBuilder,
+    Response, Url,
 };
 use std::{
     collections::HashSet,
     convert::TryInto,
     env,
     fmt::Display,
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
-use tokio::{io::AsyncWriteExt, task};
+use tokio::task;
 
 /// Builder for configuring custom [Client] instances
 pub struct ClientBuilder {
     auth: Auth,
     cache_dir: Option<PathBuf>,
-    network: Option<reqwest::ClientBuilder>,
+    network: Option<NetworkClientBuilder>,
     default_registry: Option<DefaultRegistry>,
     allowed_registries: Option<HashSet<Registry>>,
     allow_http_registries: bool,
@@ -44,9 +46,8 @@ pub struct ClientBuilder {
 impl ClientBuilder {
     /// Start constructing a custom registry client
     pub fn new() -> Self {
-        let req = reqwest::Client::builder().user_agent(Client::default_user_agent());
         ClientBuilder {
-            network: Some(req),
+            network: Some(NetworkClient::builder().user_agent(Client::default_user_agent())),
             cache_dir: None,
             default_registry: None,
             auth: Auth::new(),
@@ -227,7 +228,7 @@ impl ClientBuilder {
 pub struct Client {
     storage: FileStorage,
     auth: Auth,
-    network: Option<reqwest::Client>,
+    network: Option<NetworkClient>,
     default_registry: DefaultRegistry,
     allowed_registries: Option<HashSet<Registry>>,
     allow_http_registries: bool,
@@ -286,18 +287,24 @@ impl Client {
         }
     }
 
-    fn build_url<T>(
-        &self,
+    fn begin_get<'a, T>(
+        &'a mut self,
         registry: &Registry,
         repository: &Repository,
         bucket: &'static str,
         object: T,
-    ) -> Result<Url, ImageError>
+    ) -> Result<(&'a NetworkClient, &'a mut Auth, RequestBuilder), ImageError>
     where
         T: Display,
     {
         self.verify_registry_allowed(registry)?;
-        Ok(format!(
+
+        let network = self
+            .network
+            .as_ref()
+            .ok_or(ImageError::DownloadInOfflineMode)?;
+
+        let url: Url = format!(
             "{}://{}/v2/{}/{}/{}",
             registry.protocol_str(),
             registry,
@@ -306,47 +313,58 @@ impl Client {
             object
         )
         .parse()
-        .expect("url components already validated"))
+        .expect("url components already validated");
+
+        let req = network.get(url);
+        Ok((network, &mut self.auth, req))
     }
 
-    async fn download(
+    async fn download_response(
         &mut self,
-        registry: &Registry,
-        from_req: RequestBuilder,
+        response: Response,
     ) -> Result<(StorageWriter, ContentDigest), ImageError> {
-        let network = self
-            .network
-            .as_ref()
-            .ok_or(ImageError::DownloadInOfflineMode)?;
-        let response = self.auth.request(registry, network, from_req).await?;
         log::info!("downloading {}", response.url());
         let mut response = response.error_for_status()?;
-        let mut writer = self.storage.begin_write().await?;
-        let result: Result<(), ImageError> = loop {
-            match response.chunk().await {
-                Err(err) => break Err(err.into()),
-                Ok(None) => break Ok(()),
-                Ok(Some(chunk)) => match writer.write_all(&chunk).await {
-                    Err(err) => break Err(err.into()),
-                    Ok(()) => (),
-                },
-            }
-        };
-        match result {
-            Err(err) => {
-                writer.remove_temp().await?;
-                Err(err.into())
-            }
-            Ok(()) => match writer.finalize().await {
-                Ok(content_digest) => {
-                    log::debug!("download has digest {}", content_digest);
-                    Ok((writer, content_digest))
+        let storage = self.storage.clone();
+
+        // Send blocks from the async reactor to a sync thread pool for hashing
+        let (send_channel, recv_channel) = std::sync::mpsc::channel::<bytes::Bytes>();
+        let send_task = task::spawn(async move {
+            loop {
+                match response.chunk().await? {
+                    Some(chunk) => send_channel.send(chunk)?,
+                    None => return Ok::<(), ImageError>(()),
                 }
-                Err(err) => {
-                    writer.remove_temp().await?;
-                    Err(err.into())
+            }
+        });
+        let recv_task = task::spawn_blocking(move || {
+            let mut writer = storage.begin_write()?;
+            while let Ok(chunk) = recv_channel.recv() {
+                if let Err(err) = writer.write_all(&chunk) {
+                    return Ok::<(StorageWriter, Result<ContentDigest, ImageError>), ImageError>((
+                        writer,
+                        Err(err.into()),
+                    ));
                 }
-            },
+            }
+            match writer.finalize() {
+                Ok(content_digest) => Ok((writer, Ok(content_digest))),
+                Err(err) => Ok((writer, Err(err.into()))),
+            }
+        });
+
+        match tokio::join!(send_task, recv_task) {
+            (Ok(Ok(())), Ok(Ok((writer, Ok(content_digest))))) => {
+                log::debug!("download has digest {}", content_digest);
+                Ok((writer, content_digest))
+            }
+            (send_result, recv_result) => {
+                let (mut writer, recv_result) = recv_result??;
+                task::spawn_blocking(move || writer.remove_temp()).await??;
+                recv_result?;
+                send_result??;
+                unreachable!();
+            }
         }
     }
 
@@ -359,15 +377,16 @@ impl Client {
         if !(registry.is_https() || version.is_content_digest()) {
             Err(ImageError::InsecureManifest)
         } else {
-            let network = self
-                .network
-                .as_ref()
-                .ok_or(ImageError::DownloadInOfflineMode)?;
-            let url = self.build_url(registry, repository, "manifests", version)?;
-            let request = network
-                .get(url)
-                .header(header::ACCEPT, media_types::MANIFEST);
-            self.download(registry, request).await
+            let (network, auth, request) =
+                self.begin_get(registry, repository, "manifests", version)?;
+            let response = auth
+                .request(
+                    registry,
+                    network,
+                    request.header(header::ACCEPT, media_types::MANIFEST),
+                )
+                .await?;
+            self.download_response(response).await
         }
     }
 
@@ -378,17 +397,20 @@ impl Client {
         content_digest: &ContentDigest,
         content_type: &HeaderValue,
     ) -> Result<StorageWriter, ImageError> {
-        let network = self
-            .network
-            .as_ref()
-            .ok_or(ImageError::DownloadInOfflineMode)?;
-        let url = self.build_url(registry, repository, "blobs", content_digest)?;
-        let request = network.get(url).header(header::ACCEPT, content_type);
-        let (mut writer, found_digest) = self.download(registry, request).await?;
+        let (network, auth, request) =
+            self.begin_get(registry, repository, "blobs", content_digest)?;
+        let response = auth
+            .request(
+                registry,
+                network,
+                request.header(header::ACCEPT, content_type),
+            )
+            .await?;
+        let (mut writer, found_digest) = self.download_response(response).await?;
         if &found_digest == content_digest {
             Ok(writer)
         } else {
-            writer.remove_temp().await?;
+            task::spawn_blocking(move || writer.remove_temp()).await??;
             Err(ImageError::ContentDigestMismatch {
                 expected: content_digest.clone(),
                 found: found_digest,
@@ -402,7 +424,7 @@ impl Client {
     ) -> Result<(ImageName, Manifest), ImageError> {
         let (registry, repository) = self.default_registry.resolve_image_name(image);
         let key = StorageKey::Manifest(registry, repository, image.version());
-        let (specific_image, map) = match self.storage.mmap(&key).await? {
+        let (specific_image, map) = match self.storage.mmap(&key)? {
             Some(map) => {
                 // If the manifest is cached, still verify its content digest and annotate the
                 // ImageName with that digest
@@ -416,16 +438,23 @@ impl Client {
                     let (mut writer, found_digest) = self
                         .download_manifest(registry, repository, version)
                         .await?;
-                    let specific_image = match image.with_found_digest(&found_digest) {
-                        Ok(specific_image) => {
-                            self.storage.commit_write(writer, &key).await?;
-                            specific_image
+
+                    let task_storage = self.storage.clone();
+                    let task_image = image.clone();
+                    let task_key = key.clone();
+                    let specific_image = task::spawn_blocking(move || {
+                        match task_image.with_found_digest(&found_digest) {
+                            Ok(specific_image) => {
+                                task_storage.commit_write(writer, &task_key)?;
+                                Ok(specific_image)
+                            }
+                            Err(err) => {
+                                writer.remove_temp()?;
+                                Err(err)
+                            }
                         }
-                        Err(err) => {
-                            writer.remove_temp().await?;
-                            return Err(err);
-                        }
-                    };
+                    })
+                    .await??;
 
                     // If the specific name is different than the one it was requested under, the
                     // image was requested by tag but now the digest is known. Make a copy of the
@@ -439,7 +468,7 @@ impl Client {
                         self.storage.copy_data(&key, &specific_key).await?;
                     }
 
-                    let map = match self.storage.mmap(&key).await? {
+                    let map = match self.storage.mmap(&key)? {
                         Some(map) => map,
                         None => return Err(ImageError::StorageMissingAfterInsert),
                     };
@@ -478,7 +507,7 @@ impl Client {
         let content_type = Client::content_type_for_link(link)?;
         Client::check_mmap_for_link(
             link,
-            match self.storage.mmap(&key).await? {
+            match self.storage.mmap(&key)? {
                 Some(map) => {
                     log::debug!("{} blob {} is already cached", image, link.digest);
                     map
@@ -488,8 +517,14 @@ impl Client {
                         let writer = self
                             .download_blob(&registry, &repository, content_digest, &content_type)
                             .await?;
-                        self.storage.commit_write(writer, &key).await?;
-                        match self.storage.mmap(&key).await? {
+
+                        let task_storage = self.storage.clone();
+                        match task::spawn_blocking(move || {
+                            task_storage.commit_write(writer, &key)?;
+                            task_storage.mmap(&key)
+                        })
+                        .await??
+                        {
                             Some(map) => map,
                             None => return Err(ImageError::StorageMissingAfterInsert),
                         }
@@ -515,9 +550,15 @@ impl Client {
                     let mut writer = self
                         .download_blob(&registry, &repository, content_digest, &content_type)
                         .await?;
-                    let result = self.storage.mmap(&writer.key).await;
-                    writer.remove_temp().await?;
-                    match result? {
+
+                    let task_storage = self.storage.clone();
+                    match task::spawn_blocking(move || {
+                        let result = task_storage.mmap(&writer.key);
+                        writer.remove_temp()?;
+                        result
+                    })
+                    .await??
+                    {
                         Some(map) => map,
                         None => return Err(ImageError::StorageMissingAfterInsert),
                     }
@@ -573,46 +614,38 @@ impl Client {
 
     async fn pull_gzip_layer(&mut self, image: &ImageName, link: &Link) -> Result<(), ImageError> {
         let source = self.pull_blob_uncached(image, link).await?;
-        let mut writer = self.storage.begin_write().await?;
-        let (mut writer, result) = task::spawn_blocking(move || {
+        let task_storage = self.storage.clone();
+        task::spawn_blocking(move || {
+            let mut writer = task_storage.begin_write()?;
             let mut decoder = flate2::bufread::GzDecoder::new(&*source);
-            let mut buffer = [0u8; 128 * 1024];
-            let handle = tokio::runtime::Handle::current();
-            log::info!("decompressing {} bytes", source.len(),);
-            loop {
+            let mut buffer = [0u8; 64 * 1024];
+            log::info!("decompressing {} bytes", source.len());
+            let result = loop {
                 match decoder.read(&mut buffer) {
-                    Err(err) => return (writer, Err(err)),
-                    Ok(size) if size == 0 => return (writer, Ok(())),
+                    Err(err) => break Err(err),
+                    Ok(size) if size == 0 => break Ok(()),
                     Ok(size) => {
-                        log::trace!("decompressed {} bytes", size);
-                        match handle.block_on(async { writer.write_all(&buffer[..size]).await }) {
-                            Err(err) => return (writer, Err(err)),
+                        match writer.write_all(&buffer[..size]) {
+                            Err(err) => break Err(err),
                             Ok(()) => (),
                         }
                     }
                 }
+            };
+            match result {
+                Err(err) => {
+                    writer.remove_temp()?;
+                    Err(err.into())
+                }
+                Ok(()) => {
+                    let content_digest = writer.finalize()?;
+                    let key = StorageKey::Blob(content_digest);
+                    task_storage.commit_write(writer, &key)?;
+                    Ok(())
+                }
             }
         })
-        .await?;
-        let result = match result {
-            Err(err) => Err(err),
-            Ok(()) => {
-                writer.shutdown().await?;
-                Ok(())
-            }
-        };
-        match result {
-            Err(err) => {
-                writer.remove_temp().await?;
-                Err(err.into())
-            }
-            Ok(()) => {
-                let content_digest = writer.finalize().await?;
-                let key = StorageKey::Blob(content_digest);
-                self.storage.commit_write(writer, &key).await?;
-                Ok(())
-            }
-        }
+        .await?
     }
 
     /// Resolve an [ImageName] into an [Image] if possible
@@ -638,12 +671,16 @@ impl Client {
             }
         };
 
-        let mut filesystem = vfs::Filesystem::new();
         let storage = self.storage.clone();
-
-        for layer in &decompressed_layers {
-            tar::extract(&mut filesystem, &storage, layer).await?;
-        }
+        let task_storage = self.storage.clone();
+        let filesystem = task::spawn_blocking(move || -> Result<Filesystem, ImageError> {
+            let mut filesystem = Filesystem::new();
+            for layer in &decompressed_layers {
+                tar::extract(&mut filesystem, &task_storage, layer)?;
+            }
+            Ok(filesystem)
+        })
+        .await??;
 
         Ok(Arc::new(Image {
             name: specific_image,
@@ -667,7 +704,7 @@ impl Client {
             for digest_str in layer_ids {
                 layers.push(StorageKey::Blob(ContentDigest::parse(digest_str)?));
             }
-            if self.storage.all_exists(layers.iter()).await {
+            if layers.iter().all(|layer| self.storage.exists(layer)) {
                 Ok(Some(layers))
             } else {
                 Ok(None)

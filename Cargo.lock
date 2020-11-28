@@ -58,6 +58,7 @@ name = "bandsocks"
 version = "0.2.0"
 dependencies = [
  "build-deps",
+ "bytes",
  "env_logger",
  "fd-queue",
  "file_limit",

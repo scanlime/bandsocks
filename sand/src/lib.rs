@@ -91,7 +91,8 @@ fn stdio_for_tracer(socket_fd: &SysFd) {
 
 fn stdio_for_loader() {
     // Replace the loader's stdin, stdout, and stderr with objects from the virtual
-    // filesystem. These are not real open() calls at this point, they're being trapped.
+    // filesystem. These are not real open() calls at this point, they're being
+    // trapped.
     let v_stdin =
         unsafe { nolibc::open(b"/proc/1/fd/0\0", abi::O_RDONLY, 0) }.expect("no init stdin");
     let v_stdout =

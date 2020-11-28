@@ -20,7 +20,7 @@ pub mod task;
 
 use crate::{
     process::task::TaskData,
-    protocol::{FromTask, ToTask, SysPid},
+    protocol::{FromTask, SysPid, ToTask},
 };
 use core::{
     future::Future,

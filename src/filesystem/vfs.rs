@@ -5,13 +5,13 @@ use crate::{
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
+    fs::File,
     future::Future,
-    os::unix::io::AsRawFd,
+    os::unix::{io::AsRawFd, net::UnixStream},
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
 };
-use tokio::{fs::File, net::UnixStream};
 
 type INodeNum = usize;
 
@@ -234,9 +234,7 @@ impl<'s> Filesystem {
             None => Err(VFSError::NotFound),
             Some(node) => match &node.data {
                 Node::EmptyFile => Ok(Box::new(
-                    File::open("/dev/null")
-                        .await
-                        .map_err(|_| VFSError::ImageStorageError)?,
+                    File::open("/dev/null").map_err(|_| VFSError::ImageStorageError)?,
                 )),
                 Node::FileStorage(key) => Ok(Box::new(
                     storage
