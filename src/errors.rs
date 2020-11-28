@@ -34,6 +34,9 @@ pub enum ImageError {
     #[error("i/o errors occurred, the content digest is not valid")]
     ContentDigestIOError,
 
+    #[error("we are in offline mode, but a download was requested")]
+    DownloadInOfflineMode,
+
     #[error("calculated digest of downloaded content is not what we asked for, expected {expected}, found {found}")]
     ContentDigestMismatch {
         expected: crate::image::ContentDigest,

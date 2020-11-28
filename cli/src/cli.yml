@@ -42,5 +42,7 @@ args:
         help: set a random, disposable cache directory
     - pull:
         long: pull
-        short: p
         help: download the image and verify its filesystem but do not run it
+    - offline:
+        long: offline
+        help: don't download anything, only use images from the cache

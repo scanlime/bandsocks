@@ -33,9 +33,9 @@ use tokio::{io::AsyncWriteExt, task};
 
 /// Builder for configuring custom [Client] instances
 pub struct ClientBuilder {
-    req: reqwest::ClientBuilder,
     auth: Auth,
     cache_dir: Option<PathBuf>,
+    network: Option<reqwest::ClientBuilder>,
     default_registry: Option<DefaultRegistry>,
     allowed_registries: Option<HashSet<Registry>>,
     allow_http_registries: bool,
@@ -46,7 +46,7 @@ impl ClientBuilder {
     pub fn new() -> Self {
         let req = reqwest::Client::builder().user_agent(Client::default_user_agent());
         ClientBuilder {
-            req,
+            network: Some(req),
             cache_dir: None,
             default_registry: None,
             auth: Auth::new(),
@@ -62,6 +62,12 @@ impl ClientBuilder {
     /// HTTP. This setting disallows such registries.
     pub fn disallow_http(mut self) -> Self {
         self.allow_http_registries = false;
+        self
+    }
+
+    /// Only use images already in the local cache
+    pub fn offline(mut self) -> Self {
+        self.network = None;
         self
     }
 
@@ -107,7 +113,9 @@ impl ClientBuilder {
     /// This timeout applies from the beginning of a (GET) request until the
     /// last byte has been received. By default there is no timeout.
     pub fn request_timeout(mut self, timeout: Duration) -> Self {
-        self.req = self.req.timeout(timeout);
+        if let Some(network) = self.network.take() {
+            self.network = Some(network.timeout(timeout));
+        }
         self
     }
 
@@ -116,7 +124,9 @@ impl ClientBuilder {
     /// By default there is no timeout beyond those built into the networking
     /// stack.
     pub fn connect_timeout(mut self, timeout: Duration) -> Self {
-        self.req = self.req.connect_timeout(timeout);
+        if let Some(network) = self.network.take() {
+            self.network = Some(network.connect_timeout(timeout));
+        }
         self
     }
 
@@ -130,7 +140,9 @@ impl ClientBuilder {
         V: TryInto<HeaderValue>,
         V::Error: Into<http::Error>,
     {
-        self.req = self.req.user_agent(value);
+        if let Some(network) = self.network.take() {
+            self.network = Some(network.user_agent(value));
+        }
         self
     }
 
@@ -139,19 +151,25 @@ impl ClientBuilder {
     where
         T: Into<Option<std::net::IpAddr>>,
     {
-        self.req = self.req.local_address(addr);
+        if let Some(network) = self.network.take() {
+            self.network = Some(network.local_address(addr));
+        }
         self
     }
 
     /// Set the default headers for every HTTP request
     pub fn default_request_headers(mut self, headers: HeaderMap) -> Self {
-        self.req = self.req.default_headers(headers);
+        if let Some(network) = self.network.take() {
+            self.network = Some(network.default_headers(headers));
+        }
         self
     }
 
     /// Trust an additional root certificate
     pub fn add_root_certificate(mut self, certificate: Certificate) -> Self {
-        self.req = self.req.add_root_certificate(certificate);
+        if let Some(network) = self.network.take() {
+            self.network = Some(network.add_root_certificate(certificate));
+        }
         self
     }
 
@@ -192,7 +210,10 @@ impl ClientBuilder {
                 .default_registry
                 .unwrap_or_else(Client::default_registry),
             auth: self.auth,
-            req: self.req.build()?,
+            network: match self.network {
+                Some(n) => Some(n.build()?),
+                None => None,
+            },
         })
     }
 }
@@ -206,7 +227,7 @@ impl ClientBuilder {
 pub struct Client {
     storage: FileStorage,
     auth: Auth,
-    req: reqwest::Client,
+    network: Option<reqwest::Client>,
     default_registry: DefaultRegistry,
     allowed_registries: Option<HashSet<Registry>>,
     allow_http_registries: bool,
@@ -293,11 +314,14 @@ impl Client {
         registry: &Registry,
         from_req: RequestBuilder,
     ) -> Result<(StorageWriter, ContentDigest), ImageError> {
-        let response = self.auth.request(registry, &self.req, from_req).await?;
+        let network = self
+            .network
+            .as_ref()
+            .ok_or(ImageError::DownloadInOfflineMode)?;
+        let response = self.auth.request(registry, network, from_req).await?;
         log::info!("downloading {}", response.url());
         let mut response = response.error_for_status()?;
         let mut writer = self.storage.begin_write().await?;
-
         let result: Result<(), ImageError> = loop {
             match response.chunk().await {
                 Err(err) => break Err(err.into()),
@@ -335,9 +359,12 @@ impl Client {
         if !(registry.is_https() || version.is_content_digest()) {
             Err(ImageError::InsecureManifest)
         } else {
+            let network = self
+                .network
+                .as_ref()
+                .ok_or(ImageError::DownloadInOfflineMode)?;
             let url = self.build_url(registry, repository, "manifests", version)?;
-            let request = self
-                .req
+            let request = network
                 .get(url)
                 .header(header::ACCEPT, media_types::MANIFEST);
             self.download(registry, request).await
@@ -351,8 +378,12 @@ impl Client {
         content_digest: &ContentDigest,
         content_type: &HeaderValue,
     ) -> Result<StorageWriter, ImageError> {
+        let network = self
+            .network
+            .as_ref()
+            .ok_or(ImageError::DownloadInOfflineMode)?;
         let url = self.build_url(registry, repository, "blobs", content_digest)?;
-        let request = self.req.get(url).header(header::ACCEPT, content_type);
+        let request = network.get(url).header(header::ACCEPT, content_type);
         let (mut writer, found_digest) = self.download(registry, request).await?;
         if &found_digest == content_digest {
             Ok(writer)
