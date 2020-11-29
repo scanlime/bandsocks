@@ -148,20 +148,30 @@ pub fn vstring_len(stopped_task: &mut StoppedTask, ptr: VString) -> Result<usize
     Err(())
 }
 
-#[allow(dead_code)]
 pub fn print_stack_dump(stopped_task: &mut StoppedTask) {
-    let mut sp = VPtr(stopped_task.regs.sp as usize);
     println!("stack dump:");
+    let mut sp = VPtr(stopped_task.regs.sp as usize);
+    let mut previous_word = None;
+    let mut skipping = false;
     while let Ok(word) = read_word(stopped_task, sp) {
-        print!("{:x?} = {:16x}  ", sp, word,);
-        for byte in &word.to_ne_bytes() {
-            if byte.is_ascii_graphic() || *byte == b' ' {
-                print!("{}", *byte as char);
-            } else {
-                print!(".");
+        if Some(word) == previous_word {
+            if !skipping {
+                println!("...");
+                skipping = true;
             }
+        } else {
+            skipping = false;
+            previous_word = Some(word);
+            print!("{:x?} = {:16x}  ", sp, word,);
+            for byte in &word.to_ne_bytes() {
+                if byte.is_ascii_graphic() || *byte == b' ' {
+                    print!("{}", *byte as char);
+                } else {
+                    print!(".");
+                }
+            }
+            println!();
+            sp = sp.add(size_of::<usize>());
         }
-        println!();
-        sp = sp.add(size_of::<usize>());
     }
 }
