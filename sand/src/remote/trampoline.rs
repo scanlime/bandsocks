@@ -3,7 +3,7 @@ use crate::{
     abi::SyscallInfo,
     process::{
         maps::{MapsIterator, MemArea, MemAreaName},
-        task::{Task, StoppedTask},
+        task::{StoppedTask, Task},
         Event,
     },
     protocol::{Errno, LogLevel, LogMessage, LogSyscall, VPtr},
@@ -124,11 +124,16 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         // Run the syscall until completion, trapping again on the way out
         ptrace::set_regs(pid, &local_regs);
         ptrace::trace_syscall(pid);
-        Task::expect_event_or_panic(&mut task.events, pid, Event::Signal {
-            sig: abi::SIGCHLD,
-            code: abi::CLD_TRAPPED,
-            status: abi::PTRACE_SIG_TRACESYSGOOD,
-        }).await;
+        Task::expect_event_or_panic(
+            &mut task.events,
+            pid,
+            Event::Signal {
+                sig: abi::SIGCHLD,
+                code: abi::CLD_TRAPPED,
+                status: abi::PTRACE_SIG_TRACESYSGOOD,
+            },
+        )
+        .await;
         ptrace::get_regs(pid, &mut local_regs);
 
         // Save the results from the remote call
@@ -156,11 +161,16 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
 
         ptrace::set_regs(pid, &local_regs);
         ptrace::single_step(pid);
-        Task::expect_event_or_panic(&mut task.events, pid, Event::Signal {
-            sig: abi::SIGCHLD,
-            code: abi::CLD_TRAPPED,
-            status: abi::PTRACE_SIG_SECCOMP,
-        }).await;
+        Task::expect_event_or_panic(
+            &mut task.events,
+            pid,
+            Event::Signal {
+                sig: abi::SIGCHLD,
+                code: abi::CLD_TRAPPED,
+                status: abi::PTRACE_SIG_SECCOMP,
+            },
+        )
+        .await;
         ptrace::get_regs(pid, &mut local_regs);
         let info = SyscallInfo::from_regs(&local_regs);
         assert_eq!(info.nr, fake_syscall_nr as u64);

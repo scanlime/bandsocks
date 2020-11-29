@@ -7,7 +7,7 @@ use crate::{
 use core::{iter::Iterator, marker::PhantomData};
 use heapless::consts::*;
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone)]
 pub struct MemArea {
     pub start: usize,
     pub end: usize,
@@ -40,6 +40,26 @@ impl MemArea {
     pub fn len(&self) -> usize {
         assert!(self.end >= self.start);
         self.end - self.start + 1
+    }
+}
+
+impl core::fmt::Debug for MemArea {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(
+            f,
+            "MemArea({:10?} {:16x}-{:16x} {}{}{}{} {}:{}:{}@{:x})",
+            self.name,
+            self.start,
+            self.end,
+            if self.read { "r" } else { "-" },
+            if self.write { "w" } else { "-" },
+            if self.execute { "x" } else { "-" },
+            if self.mayshare { "s" } else { "p" },
+            self.dev_major,
+            self.dev_minor,
+            self.inode,
+            self.offset,
+        )
     }
 }
 

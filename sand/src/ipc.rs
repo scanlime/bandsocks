@@ -1,13 +1,13 @@
 use crate::{
     abi,
     abi::{CMsgHdr, IOVec, MsgHdr},
-    nolibc::{fcntl, exit, getpid, signal},
+    nolibc::{exit, fcntl, getpid, signal},
     protocol::{
         buffer,
         buffer::{FilesMax, IPCBuffer},
         MessageFromSand, MessageToSand, SysFd,
     },
-    EXIT_DISCONNECTED
+    EXIT_DISCONNECTED,
 };
 use core::{
     mem::size_of,

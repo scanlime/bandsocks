@@ -2,6 +2,15 @@
 // by the runtime crate along with our finished binary.
 // This depends on only: core, serde, generic-array
 
+/// Exit codes returned by the sand process
+#[allow(dead_code)]
+pub mod exit {
+    pub const EXIT_OK: usize = 0;
+    pub const EXIT_PANIC: usize = 10;
+    pub const EXIT_DISCONNECTED: usize = 15;
+    pub const EXIT_IO_ERROR: usize = 20;
+}
+
 /// Any message sent from the IPC server to the sand process
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum MessageToSand {
@@ -273,8 +282,8 @@ pub mod buffer {
 
         fn begin_fill(&mut self) -> &mut [T] {
             let prev_partial_range = self.range.clone();
-            let new_partial_range = 0 .. prev_partial_range.end - prev_partial_range.start;
-            let new_empty_range = new_partial_range.end .. self.array.len();
+            let new_partial_range = 0..prev_partial_range.end - prev_partial_range.start;
+            let new_empty_range = new_partial_range.end..self.array.len();
             self.array.copy_within(prev_partial_range, 0);
             self.range = new_partial_range;
             &mut self.array[new_empty_range]

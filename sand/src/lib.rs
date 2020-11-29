@@ -32,13 +32,8 @@ mod remote;
 mod seccomp;
 mod tracer;
 
-pub use nolibc::{
-    c_str_slice, c_strv_slice, c_unwrap_nul, exit, write_stderr};
-
-pub const EXIT_SUCCESS: usize = 0;
-pub const EXIT_PANIC: usize = 10;
-pub const EXIT_DISCONNECTED: usize = 15;
-pub const EXIT_IO_ERROR: usize = 20;
+pub use nolibc::{c_str_slice, c_strv_slice, c_unwrap_nul, exit, write_stderr};
+pub use protocol::exit::*;
 
 use crate::{
     ipc::Socket,
@@ -72,7 +67,7 @@ pub unsafe fn c_main(argv: &[*const u8], envp: &[*const u8]) -> usize {
             init::with_args_from_fd(&fd);
         }
     }
-    EXIT_SUCCESS
+    EXIT_OK
 }
 
 fn stdio_for_tracer(socket_fd: &SysFd) {

@@ -107,7 +107,7 @@ pub struct IOVec {
 // user_regs_struct
 // linux/arch/x86/include/asm/user_64.h
 // linux/include/asm/user_64.h
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Clone)]
 #[repr(C)]
 pub struct UserRegs {
     pub r15: u64,
@@ -137,6 +137,49 @@ pub struct UserRegs {
     pub es: u64,
     pub fs: u64,
     pub gs: u64,
+}
+
+impl core::fmt::Debug for UserRegs {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(
+            f,
+            concat!(
+                "UserRegs {{\n",
+                "  cs={:16x}  ip={:16x}  ss={:16x}  sp={:16x}  bp={:16x}\n",
+                "  ax={:16x} oax={:16x}  di={:16x}  si={:16x}  dx={:16x} r10={:16x}  r8={:16x}  r9={:16x}\n",
+                "  bx={:16x}  cx={:16x} r11={:16x} r12={:16x} r13={:16x} r14={:16x} r15={:16x}\n",
+                "  ds={:16x}  es={:16x}  fs={:16x}  gs={:16x} fs@={:16x} gs@={:16x} flg={:16x}\n",
+                "}}"
+            ),
+            self.cs,
+            self.ip,
+            self.ss,
+            self.sp,
+            self.bp,
+            self.ax,
+            self.orig_ax,
+            self.di,
+            self.si,
+            self.dx,
+            self.r10,
+            self.r8,
+            self.r9,
+            self.bx,
+            self.cx,
+            self.r11,
+            self.r12,
+            self.r13,
+            self.r14,
+            self.r15,
+            self.ds,
+            self.es,
+            self.fs,
+            self.gs,
+            self.fs_base,
+            self.gs_base,
+            self.flags,
+        )
+    }
 }
 
 // ELF machine constants
