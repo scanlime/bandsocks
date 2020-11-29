@@ -1,8 +1,7 @@
 use bandsocks::{container::ContainerBuilder, Container};
 use tokio::runtime::Runtime;
 
-const IMAGE: &str =
-    "gcr.io/google-samples/hello-app:1.0";
+const IMAGE: &str = "gcr.io/google-samples/hello-app:1.0";
 
 async fn common() -> ContainerBuilder {
     let _ = env_logger::builder().is_test(true).try_init();

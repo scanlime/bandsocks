@@ -24,7 +24,7 @@ use tokio::{io::AsyncWriteExt, task::JoinHandle};
 
 /// Setup for containers, starting at [Container::new()] and ending with
 /// [ContainerBuilder::spawn()]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ContainerBuilder {
     image: Option<Arc<Image>>,
     arg_list: Vec<OsString>,
@@ -34,12 +34,14 @@ pub struct ContainerBuilder {
     entrypoint: Option<OsString>,
 }
 
+#[derive(Clone)]
 enum EnvBuilder {
     Set(OsString, OsString),
     Remove(OsString),
     Clear,
 }
 
+#[derive(Clone)]
 enum FsBuilder {}
 
 async fn new_stdio_socket_wip(fd: u32) -> std::io::Result<std::os::unix::net::UnixStream> {
