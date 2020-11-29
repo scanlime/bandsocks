@@ -145,8 +145,8 @@ impl core::fmt::Debug for UserRegs {
             f,
             concat!(
                 "UserRegs {{\n",
-                "  cs={:16x}  ip={:16x}  ss={:16x}  sp={:16x}  bp={:16x}\n",
-                "  ax={:16x} oax={:16x}  di={:16x}  si={:16x}  dx={:16x} r10={:16x}  r8={:16x}  r9={:16x}\n",
+                "  cs={:16x}  ip={:16x}  ss={:16x}  sp={:16x}  bp={:16x} oax={:16x}\n",
+                "  ax={:16x}  di={:16x}  si={:16x}  dx={:16x} r10={:16x}  r8={:16x}  r9={:16x}\n",
                 "  bx={:16x}  cx={:16x} r11={:16x} r12={:16x} r13={:16x} r14={:16x} r15={:16x}\n",
                 "  ds={:16x}  es={:16x}  fs={:16x}  gs={:16x} fs@={:16x} gs@={:16x} flg={:16x}\n",
                 "}}"
@@ -156,8 +156,8 @@ impl core::fmt::Debug for UserRegs {
             self.ss,
             self.sp,
             self.bp,
-            self.ax,
             self.orig_ax,
+            self.ax,
             self.di,
             self.si,
             self.dx,

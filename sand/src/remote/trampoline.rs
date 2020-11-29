@@ -112,10 +112,8 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
     }
 
     pub async fn syscall(&mut self, nr: usize, args: &[isize]) -> isize {
-        let task = &mut self.stopped_task.task;
-        let pid = task.task_data.sys_pid;
-        let task_regs = &mut self.stopped_task.regs;
-        let mut local_regs = task_regs.clone();
+        let pid = self.stopped_task.task.task_data.sys_pid;
+        let mut local_regs = self.stopped_task.regs.clone();
 
         SyscallInfo::orig_nr_to_regs(nr as isize, &mut local_regs);
         SyscallInfo::args_to_regs(args, &mut local_regs);
@@ -124,24 +122,21 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         // Run the syscall until completion, trapping again on the way out
         ptrace::set_regs(pid, &local_regs);
         ptrace::trace_syscall(pid);
-        Task::expect_event_or_panic(
-            &mut task.events,
-            pid,
-            Event::Signal {
+        self.stopped_task
+            .expect_event_or_panic(Event::Signal {
                 sig: abi::SIGCHLD,
                 code: abi::CLD_TRAPPED,
                 status: abi::PTRACE_SIG_TRACESYSGOOD,
-            },
-        )
-        .await;
+            })
+            .await;
         ptrace::get_regs(pid, &mut local_regs);
 
         // Save the results from the remote call
         let result = SyscallInfo::ret_from_regs(&local_regs);
 
         let log_level = LogLevel::Debug;
-        if task.log_enabled(log_level) {
-            task.log(
+        if self.stopped_task.task.log_enabled(log_level) {
+            self.stopped_task.task.log(
                 log_level,
                 LogMessage::Remote(LogSyscall(call.nr, call.args, result)),
             )
@@ -161,22 +156,19 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
 
         ptrace::set_regs(pid, &local_regs);
         ptrace::single_step(pid);
-        Task::expect_event_or_panic(
-            &mut task.events,
-            pid,
-            Event::Signal {
+        self.stopped_task
+            .expect_event_or_panic(Event::Signal {
                 sig: abi::SIGCHLD,
                 code: abi::CLD_TRAPPED,
                 status: abi::PTRACE_SIG_SECCOMP,
-            },
-        )
-        .await;
+            })
+            .await;
         ptrace::get_regs(pid, &mut local_regs);
         let info = SyscallInfo::from_regs(&local_regs);
         assert_eq!(info.nr, fake_syscall_nr as u64);
         assert_eq!(info.args, [fake_syscall_arg; 6]);
 
-        ptrace::set_regs(pid, &task_regs);
+        ptrace::set_regs(pid, &self.stopped_task.regs);
         result
     }
 

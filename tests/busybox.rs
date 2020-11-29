@@ -39,7 +39,7 @@ fn busybox_false() {
 }
 
 #[test]
-fn busybox_sleep() {
+fn busybox_sleep_once() {
     Runtime::new().unwrap().block_on(async {
         let container = common().await.arg("sleep").arg("0.5").spawn().unwrap();
         let status = container.wait().await.unwrap();

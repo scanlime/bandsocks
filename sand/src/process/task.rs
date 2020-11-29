@@ -78,7 +78,7 @@ impl<'q> Task<'q> {
         task_data: TaskData,
     ) -> Task<'q> {
         ptrace::setoptions(task_data.sys_pid);
-        Task::expect_event_or_panic(
+        expect_event_or_panic(
             &mut events,
             task_data.sys_pid,
             Event::Signal {
@@ -90,7 +90,7 @@ impl<'q> Task<'q> {
         .await;
 
         ptrace::cont(task_data.sys_pid);
-        Task::expect_event_or_panic(
+        expect_event_or_panic(
             &mut events,
             task_data.sys_pid,
             Event::Signal {
@@ -109,6 +109,10 @@ impl<'q> Task<'q> {
                 process_handle,
                 task_data,
             },
+            event => {
+                unexpected_event_panic(task_data.sys_pid, None, event, ExpectedEvent::OpenProcess)
+                    .await
+            }
             other => panic!(
                 "unexpected open_process reply, task={:x?}, received={:x?}",
                 task_data, other
@@ -158,29 +162,20 @@ impl<'q> Task<'q> {
                     status,
                 } => return self.handle_exited(status).await,
 
-                event => Task::unexpected_event_panic(self.task_data.sys_pid, event, None).await,
+                event => {
+                    let mut regs: UserRegs = Default::default();
+                    let sys_pid = self.task_data.sys_pid;
+                    let mut stopped_task = self.as_stopped_task(&mut regs);
+                    unexpected_event_panic(
+                        sys_pid,
+                        Some(&mut stopped_task),
+                        event,
+                        ExpectedEvent::MainLoop,
+                    )
+                    .await
+                }
             }
         }
-    }
-
-    pub async fn expect_event_or_panic(
-        events: &mut EventSource<'q>,
-        sys_pid: SysPid,
-        expected: Event,
-    ) {
-        let received = events.next().await;
-        if received != expected {
-            Task::unexpected_event_panic(sys_pid, received, Some(expected)).await;
-        }
-    }
-
-    async fn unexpected_event_panic(sys_pid: SysPid, received: Event, expected: Option<Event>) {
-        let mut regs: UserRegs = Default::default();
-        ptrace::get_regs(sys_pid, &mut regs);
-        panic!(
-            "*** unexpected event ***\nexpected?: {:?}\nreceived: {:?}\ntask: {:?} {:x?}",
-            expected, received, sys_pid, regs
-        );
     }
 
     fn cont(&self) {
@@ -219,4 +214,57 @@ impl<'q> Task<'q> {
         ptrace::set_regs(sys_pid, &stopped_task.regs);
         self.cont();
     }
+}
+
+async fn expect_event_or_panic<'q, 's, 't>(
+    events: &'s mut EventSource<'q>,
+    sys_pid: SysPid,
+    expected: Event,
+) {
+    let received = events.next().await;
+    if received != expected {
+        unexpected_event_panic(sys_pid, None, received, ExpectedEvent::Matching(expected)).await;
+    }
+}
+
+impl<'q, 's> StoppedTask<'q, 's> {
+    pub async fn expect_event_or_panic(&mut self, expected: Event) {
+        let sys_pid = self.task.task_data.sys_pid;
+        let received = self.task.events.next().await;
+        if received != expected {
+            unexpected_event_panic(
+                sys_pid,
+                Some(self),
+                received,
+                ExpectedEvent::Matching(expected),
+            )
+            .await;
+        }
+    }
+}
+
+#[derive(Debug)]
+enum ExpectedEvent {
+    Matching(Event),
+    MainLoop,
+    OpenProcess,
+}
+
+async fn unexpected_event_panic<'q, 's, 't>(
+    sys_pid: SysPid,
+    stopped_task: Option<&'t mut StoppedTask<'q, 's>>,
+    received: Event,
+    expected: ExpectedEvent,
+) -> ! {
+    let mut regs: UserRegs = Default::default();
+    ptrace::get_regs(sys_pid, &mut regs);
+    println!("task state: {:?}\n{:x?}", sys_pid, regs);
+    if let Some(stopped_task) = stopped_task {
+        print_maps_dump(stopped_task);
+        print_stack_dump(stopped_task);
+    }
+    panic!(
+        "*** unexpected event ***\nexpected?: {:?}\nreceived: {:?}",
+        expected, received
+    );
 }
