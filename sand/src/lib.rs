@@ -33,9 +33,12 @@ mod seccomp;
 mod tracer;
 
 pub use nolibc::{
-    c_str_slice, c_strv_slice, c_unwrap_nul, exit, write_stderr, EXIT_IO_ERROR, EXIT_PANIC,
-    EXIT_SUCCESS,
-};
+    c_str_slice, c_strv_slice, c_unwrap_nul, exit, write_stderr};
+
+pub const EXIT_SUCCESS: usize = 0;
+pub const EXIT_PANIC: usize = 10;
+pub const EXIT_DISCONNECTED: usize = 15;
+pub const EXIT_IO_ERROR: usize = 20;
 
 use crate::{
     ipc::Socket,

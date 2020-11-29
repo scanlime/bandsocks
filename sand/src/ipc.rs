@@ -1,12 +1,13 @@
 use crate::{
     abi,
     abi::{CMsgHdr, IOVec, MsgHdr},
-    nolibc::{fcntl, getpid, signal},
+    nolibc::{fcntl, exit, getpid, signal},
     protocol::{
         buffer,
         buffer::{FilesMax, IPCBuffer},
         MessageFromSand, MessageToSand, SysFd,
     },
+    EXIT_DISCONNECTED
 };
 use core::{
     mem::size_of,
@@ -100,7 +101,7 @@ impl Socket {
                 self.recv_buffer.commit_fill(len as usize, num_files);
             }
             e if e == -abi::EAGAIN as isize => (),
-            e if e == 0 || e == -abi::ECONNRESET as isize => panic!("disconnected from ipc server"),
+            e if e == 0 || e == -abi::ECONNRESET as isize => exit(EXIT_DISCONNECTED),
             e => panic!("ipc recvmsg error, ({})", e),
         }
     }

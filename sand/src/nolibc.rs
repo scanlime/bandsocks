@@ -29,10 +29,6 @@ macro_rules! println {
 pub const PROC_SELF_EXE: &[u8] = b"/proc/self/exe\0";
 pub const PROC_SELF_FD: &[u8] = b"/proc/self/fd\0";
 
-pub const EXIT_SUCCESS: usize = 0;
-pub const EXIT_PANIC: usize = 10;
-pub const EXIT_IO_ERROR: usize = 20;
-
 impl fmt::Write for SysFd {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if s.len() == unsafe { syscall!(WRITE, self.0, s.as_ptr() as usize, s.len()) } {
@@ -103,7 +99,7 @@ pub fn stderr() -> SysFd {
 
 pub fn write_stderr(msg: fmt::Arguments) {
     if fmt::write(&mut stderr(), msg).is_err() {
-        exit(EXIT_IO_ERROR);
+        exit(crate::EXIT_IO_ERROR);
     }
 }
 
