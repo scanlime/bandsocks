@@ -78,24 +78,28 @@ impl<'q> Task<'q> {
         task_data: TaskData,
     ) -> Task<'q> {
         ptrace::setoptions(task_data.sys_pid);
-        assert_eq!(
-            events.next().await,
+        Task::expect_event_or_panic(
+            &mut events,
+            task_data.sys_pid,
             Event::Signal {
                 sig: abi::SIGCHLD,
                 code: abi::CLD_TRAPPED,
                 status: abi::SIGSTOP,
-            }
-        );
+            },
+        )
+        .await;
 
         ptrace::cont(task_data.sys_pid);
-        assert_eq!(
-            events.next().await,
+        Task::expect_event_or_panic(
+            &mut events,
+            task_data.sys_pid,
             Event::Signal {
                 sig: abi::SIGCHLD,
                 code: abi::CLD_TRAPPED,
                 status: abi::PTRACE_SIG_EXEC,
-            }
-        );
+            },
+        )
+        .await;
 
         msg.send(FromTask::OpenProcess(task_data.sys_pid));
         match events.next().await {
@@ -159,6 +163,22 @@ impl<'q> Task<'q> {
         }
     }
 
+    pub async fn expect_event_or_panic(
+        events: &mut EventSource<'q>,
+        sys_pid: SysPid,
+        expected: Event,
+    ) {
+        let received = events.next().await;
+        if received != expected {
+            let mut regs: UserRegs = Default::default();
+            ptrace::get_regs(sys_pid, &mut regs);
+            panic!(
+                "*** unexpected event ***\nexpected: {:?}\nreceived: {:?}\ntask: {:?} {:x?}",
+                expected, received, sys_pid, regs
+            );
+        }
+    }
+
     fn cont(&self) {
         ptrace::cont(self.task_data.sys_pid);
     }
@@ -169,8 +189,7 @@ impl<'q> Task<'q> {
     }
 
     async fn handle_signal(&mut self, signal: u32) {
-        // to do: have ipc-based debug for fatal signals, and don't exit
-        // on non-fatal ones.
+        // to do
         let mut regs: UserRegs = Default::default();
         let mut stopped_task = self.as_stopped_task(&mut regs);
         print_stack_dump(&mut stopped_task);

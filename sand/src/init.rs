@@ -57,8 +57,8 @@ pub fn with_args_from_fd(fd: &SysFd) -> ! {
 
 fn cstr_vec_pointers(cstr_vec: &[u8], count: usize, pointers: &mut [usize]) {
     let mut offset = 0;
-    for index in 0..count {
-        pointers[index] = cstr_vec[offset..].as_ptr() as usize;
+    for pointer in pointers.iter_mut() {
+        *pointer = cstr_vec[offset..].as_ptr() as usize;
         while cstr_vec[offset] != 0 {
             offset += 1;
         }

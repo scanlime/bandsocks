@@ -198,7 +198,6 @@ impl<'s> Filesystem {
             })
         };
 
-        log::trace!("resolved path {:?} in {} -> {:?}", path, parent, result);
         result
     }
 
