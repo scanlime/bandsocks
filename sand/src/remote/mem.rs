@@ -171,7 +171,7 @@ pub fn print_stack_dump(stopped_task: &mut StoppedTask) {
                 }
             }
             println!();
-            sp = sp.add(size_of::<usize>());
         }
+        sp = sp.add(size_of::<usize>());
     }
 }

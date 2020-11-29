@@ -196,11 +196,10 @@ impl<'q> Task<'q> {
         // to do
         let mut regs: UserRegs = Default::default();
         let mut stopped_task = self.as_stopped_task(&mut regs);
-        println!("*** signal {} inside sandbox ***", signal);
         println!("task state:\n{:x?}", stopped_task.regs);
         print_maps_dump(&mut stopped_task);
         print_stack_dump(&mut stopped_task);
-        panic!();
+        panic!("*** signal {} inside sandbox ***", signal);
     }
 
     async fn handle_fork(&mut self, child_pid: u32) {
