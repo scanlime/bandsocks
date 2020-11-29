@@ -6,6 +6,7 @@ const IMAGE: &str =
     "busybox@sha256:e06f93f59fe842fb490ba992bae19fdd5a05373547b52f8184650c2509908114";
 
 async fn common() -> ContainerBuilder {
+    file_limit::set_to_max().unwrap();
     let _ = env_logger::builder().is_test(true).try_init();
     Container::pull(&IMAGE.parse().unwrap())
         .await
@@ -48,10 +49,10 @@ fn busybox_sleep() {
 
 #[test]
 fn busybox_sleep_sequential() {
-    const NUM: usize = 10;
+    const NUM: usize = 400;
     Runtime::new().unwrap().block_on(async {
         let mut builder = common().await;
-        builder.arg("sleep").arg("0.01");
+        builder.arg("sleep").arg("0.001");
         for _ in 0..NUM {
             assert!(builder.spawn().unwrap().wait().await.unwrap().success());
         }
@@ -60,11 +61,11 @@ fn busybox_sleep_sequential() {
 
 #[test]
 fn busybox_sleep_parallel() {
-    const NUM: usize = 100;
+    const NUM: usize = 400;
     Runtime::new().unwrap().block_on(async {
         let mut builder = common().await;
         let mut tasks = FuturesUnordered::new();
-        builder.arg("sleep").arg("2.0");
+        builder.arg("sleep").arg("5.0");
         for _ in 0..NUM {
             let builder_copy = builder.clone();
             tasks.push(task::spawn(async move {
