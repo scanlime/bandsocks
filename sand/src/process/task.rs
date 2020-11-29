@@ -158,7 +158,7 @@ impl<'q> Task<'q> {
                     status,
                 } => return self.handle_exited(status).await,
 
-                e => panic!("{:?}, unexpected event, {:?}", self.task_data, e),
+                event => Task::unexpected_event_panic(self.task_data.sys_pid, event, None).await,
             }
         }
     }
@@ -170,13 +170,17 @@ impl<'q> Task<'q> {
     ) {
         let received = events.next().await;
         if received != expected {
-            let mut regs: UserRegs = Default::default();
-            ptrace::get_regs(sys_pid, &mut regs);
-            panic!(
-                "*** unexpected event ***\nexpected: {:?}\nreceived: {:?}\ntask: {:?} {:x?}",
-                expected, received, sys_pid, regs
-            );
+            Task::unexpected_event_panic(sys_pid, received, Some(expected)).await;
         }
+    }
+
+    async fn unexpected_event_panic(sys_pid: SysPid, received: Event, expected: Option<Event>) {
+        let mut regs: UserRegs = Default::default();
+        ptrace::get_regs(sys_pid, &mut regs);
+        panic!(
+            "*** unexpected event ***\nexpected?: {:?}\nreceived: {:?}\ntask: {:?} {:x?}",
+            expected, received, sys_pid, regs
+        );
     }
 
     fn cont(&self) {
