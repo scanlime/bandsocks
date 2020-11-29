@@ -3,6 +3,7 @@ use crate::{
     abi::{CMsgHdr, IOVec, MsgHdr},
     nolibc::{fcntl, getpid, signal},
     protocol::{
+        buffer,
         buffer::{FilesMax, IPCBuffer},
         MessageFromSand, MessageToSand, SysFd,
     },
@@ -57,17 +58,17 @@ impl Socket {
         } else {
             match self.recv_buffer.pop_front() {
                 Ok(message) => Some(message),
+                Err(buffer::Error::UnexpectedEnd) => None,
                 Err(e) => panic!("deserialize failed, {:x?}", e),
             }
         }
     }
 
     fn recv_to_buffer(&mut self) {
-        assert!(self.recv_buffer.is_empty());
-        self.recv_buffer.reset();
+        let available = self.recv_buffer.begin_fill();
         let mut iov = IOVec {
-            base: self.recv_buffer.as_slice_mut().bytes.as_mut_ptr(),
-            len: self.recv_buffer.byte_capacity(),
+            base: available.bytes.as_mut_ptr(),
+            len: available.bytes.len(),
         };
         let mut cmsg: CMsgBuffer = unsafe { core::mem::zeroed() };
         let mut msghdr = MsgHdr {
@@ -93,10 +94,10 @@ impl Socket {
                     assert!(data_len % size_of::<u32>() == 0);
                     data_len / size_of::<u32>()
                 };
-                unsafe { self.recv_buffer.set_len(len as usize, num_files) };
                 for idx in 0..num_files {
-                    self.recv_buffer.as_slice_mut().files[idx] = SysFd(cmsg.files[idx]);
+                    available.files[idx] = SysFd(cmsg.files[idx]);
                 }
+                self.recv_buffer.commit_fill(len as usize, num_files);
             }
             e if e == -abi::EAGAIN as isize => (),
             e if e == 0 || e == -abi::ECONNRESET as isize => panic!("disconnected from ipc server"),
@@ -115,12 +116,13 @@ impl Socket {
             },
             files: unsafe { core::mem::zeroed() },
         };
-        for (idx, file) in buffer.as_slice().files.iter().enumerate() {
+        let slice = buffer.as_slice();
+        for (idx, file) in slice.files.iter().enumerate() {
             cmsg.files[idx] = file.0;
         }
         let mut iov = IOVec {
-            base: buffer.as_slice_mut().bytes.as_mut_ptr(),
-            len: buffer.as_slice().bytes.len(),
+            base: slice.bytes.as_ptr() as *mut u8,
+            len: slice.bytes.len(),
         };
         let msghdr = MsgHdr {
             msg_name: ptr::null_mut(),

@@ -1,6 +1,6 @@
 // The protocol is defined here canonically and then imported
 // by the runtime crate along with our finished binary.
-// This depends on only: core, serde, heapless
+// This depends on only: core, serde, generic-array
 
 /// Any message sent from the IPC server to the sand process
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
@@ -132,9 +132,15 @@ pub struct ProcessHandle {
     pub maps: SysFd,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Hash32)]
 #[repr(C)]
 pub struct SysFd(pub u32);
+
+impl core::default::Default for SysFd {
+    fn default() -> Self {
+        SysFd(!0u32)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Hash32, Serialize, Deserialize)]
 #[repr(C)]
@@ -182,8 +188,8 @@ pub struct VString(pub VPtr);
 
 pub mod buffer {
     use super::{de, ser, SysFd};
-    use core::fmt;
-    use heapless::{consts::*, Vec};
+    use core::{fmt, ops::Range};
+    use generic_array::{typenum::*, ArrayLength, GenericArray};
     use serde::{de::DeserializeOwned, Serialize};
 
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -208,10 +214,14 @@ pub mod buffer {
 
     #[derive(Default)]
     pub struct IPCBuffer {
-        bytes: Vec<u8, BytesMax>,
-        files: Vec<SysFd, FilesMax>,
-        byte_offset: usize,
-        file_offset: usize,
+        bytes: Queue<u8, BytesMax>,
+        files: Queue<SysFd, FilesMax>,
+    }
+
+    #[derive(Default)]
+    struct Queue<T: Clone, N: ArrayLength<T>> {
+        array: GenericArray<T, N>,
+        range: Range<usize>,
     }
 
     #[derive(Debug, Eq, PartialEq)]
@@ -226,47 +236,92 @@ pub mod buffer {
         pub files: &'a mut [SysFd],
     }
 
+    impl<T: Copy, N: ArrayLength<T>> Queue<T, N> {
+        fn is_empty(&self) -> bool {
+            self.range.is_empty()
+        }
+
+        fn push_back(&mut self, item: T) -> Result<()> {
+            if self.range.end < self.array.len() {
+                self.array[self.range.end] = item;
+                self.range.end += 1;
+                Ok(())
+            } else {
+                Err(Error::BufferFull)
+            }
+        }
+
+        fn extend(&mut self, items: &[T]) -> Result<()> {
+            let new_end = self.range.end + items.len();
+            if new_end > self.array.len() {
+                Err(Error::BufferFull)
+            } else {
+                self.array[self.range.end..new_end].clone_from_slice(items);
+                self.range.end = new_end;
+                Ok(())
+            }
+        }
+
+        fn pop_front(&mut self, count: usize) {
+            self.range.start += count;
+            assert!(self.range.start <= self.range.end);
+        }
+
+        fn as_slice(&self) -> &[T] {
+            &self.array[self.range.clone()]
+        }
+
+        fn begin_fill(&mut self) -> &mut [T] {
+            let prev_partial_range = self.range.clone();
+            let new_partial_range = 0 .. prev_partial_range.end - prev_partial_range.start;
+            let new_empty_range = new_partial_range.end .. self.array.len();
+            self.array.copy_within(prev_partial_range, 0);
+            self.range = new_partial_range;
+            &mut self.array[new_empty_range]
+        }
+
+        fn commit_fill(&mut self, len: usize) {
+            let new_end = self.range.end + len;
+            assert!(new_end < self.array.len());
+            self.range.end = new_end;
+        }
+
+        fn front(&self, len: usize) -> Result<&[T]> {
+            let slice = self.as_slice();
+            if len <= slice.len() {
+                Ok(&slice[..len])
+            } else {
+                Err(Error::UnexpectedEnd)
+            }
+        }
+    }
+
     impl<'a> IPCBuffer {
         pub fn new() -> Self {
             Default::default()
         }
 
-        pub fn reset(&mut self) {
-            self.bytes.clear();
-            self.files.clear();
-            self.byte_offset = 0;
-            self.file_offset = 0;
+        pub fn as_slice(&'a self) -> IPCSlice<'a> {
+            IPCSlice {
+                bytes: self.bytes.as_slice(),
+                files: self.files.as_slice(),
+            }
         }
 
-        pub fn byte_capacity(&self) -> usize {
-            self.bytes.capacity()
+        pub fn begin_fill(&'a mut self) -> IPCSliceMut<'a> {
+            IPCSliceMut {
+                bytes: self.bytes.begin_fill(),
+                files: self.files.begin_fill(),
+            }
         }
 
-        pub unsafe fn set_len(&mut self, num_bytes: usize, num_files: usize) {
-            assert_eq!(self.byte_offset, 0);
-            assert_eq!(self.file_offset, 0);
-            assert!(num_bytes <= self.bytes.capacity());
-            assert!(num_files <= self.files.capacity());
-            self.bytes.set_len(num_bytes);
-            self.files.set_len(num_files);
+        pub fn commit_fill(&'a mut self, num_bytes: usize, num_files: usize) {
+            self.bytes.commit_fill(num_bytes);
+            self.files.commit_fill(num_files);
         }
 
         pub fn is_empty(&self) -> bool {
-            self.byte_offset == self.bytes.len() && self.file_offset == self.files.len()
-        }
-
-        pub fn as_slice(&'a self) -> IPCSlice<'a> {
-            IPCSlice {
-                bytes: &self.bytes[self.byte_offset..],
-                files: &self.files[self.file_offset..],
-            }
-        }
-
-        pub fn as_slice_mut(&'a mut self) -> IPCSliceMut<'a> {
-            IPCSliceMut {
-                bytes: &mut self.bytes[self.byte_offset..],
-                files: &mut self.files[self.file_offset..],
-            }
+            self.bytes.is_empty() && self.files.is_empty()
         }
 
         pub fn push_back<T: Serialize>(&mut self, message: &T) -> Result<()> {
@@ -280,63 +335,43 @@ pub mod buffer {
         }
 
         pub fn extend_bytes(&mut self, data: &[u8]) -> Result<()> {
-            self.bytes
-                .extend_from_slice(data)
-                .map_err(|_| Error::BufferFull)
+            self.bytes.extend(data)
         }
 
         pub fn push_back_byte(&mut self, data: u8) -> Result<()> {
-            self.bytes.push(data).map_err(|_| Error::BufferFull)
+            self.bytes.push_back(data)
         }
 
         pub fn push_back_file(&mut self, file: SysFd) -> Result<()> {
-            self.files.push(file).map_err(|_| Error::BufferFull)
+            self.files.push_back(file)
         }
 
         pub fn front_bytes(&self, len: usize) -> Result<&[u8]> {
-            let bytes = self.as_slice().bytes;
-            if len <= bytes.len() {
-                Ok(&bytes[..len])
-            } else {
-                Err(Error::UnexpectedEnd)
-            }
+            self.bytes.front(len)
         }
 
         pub fn front_files(&self, len: usize) -> Result<&[SysFd]> {
-            let files = self.as_slice().files;
-            if len <= files.len() {
-                Ok(&files[..len])
-            } else {
-                Err(Error::UnexpectedEnd)
-            }
+            self.files.front(len)
         }
 
         pub fn pop_front_bytes(&mut self, len: usize) {
-            let new_offset = self.byte_offset + len;
-            assert!(new_offset <= self.bytes.len());
-            self.byte_offset = new_offset;
+            self.bytes.pop_front(len)
         }
 
         pub fn pop_front_files(&mut self, len: usize) {
-            let new_offset = self.file_offset + len;
-            assert!(new_offset <= self.files.len());
-            self.file_offset = new_offset;
+            self.files.pop_front(len)
         }
 
         pub fn pop_front_byte(&mut self) -> Result<u8> {
-            let result = self.front_bytes(1).map(|slice| slice[0]);
-            if result.is_ok() {
-                self.pop_front_bytes(1);
-            }
-            result
+            let result = self.front_bytes(1)?[0];
+            self.pop_front_bytes(1);
+            Ok(result)
         }
 
         pub fn pop_front_file(&mut self) -> Result<SysFd> {
-            let result = self.front_files(1).map(|slice| slice[0].clone());
-            if result.is_ok() {
-                self.pop_front_files(1);
-            }
-            result
+            let result = self.front_files(1)?[0];
+            self.pop_front_files(1);
+            Ok(result)
         }
     }
 }

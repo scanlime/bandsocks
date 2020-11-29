@@ -60,7 +60,7 @@ fn busybox_sleep_sequential() {
 
 #[test]
 fn busybox_sleep_parallel() {
-    const NUM: usize = 10;
+    const NUM: usize = 100;
     Runtime::new().unwrap().block_on(async {
         let mut builder = common().await;
         let mut tasks = FuturesUnordered::new();

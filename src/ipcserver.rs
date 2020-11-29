@@ -8,8 +8,8 @@ use crate::{
     process::{Process, ProcessStatus},
     sand,
     sand::protocol::{
-        buffer::IPCBuffer, Errno, FileStat, FromTask, MessageFromSand, MessageToSand, SysFd,
-        ToTask, VPid,
+        buffer, buffer::IPCBuffer, Errno, FileStat, FromTask, MessageFromSand, MessageToSand,
+        SysFd, ToTask, VPid,
     },
     taskcall,
 };
@@ -79,14 +79,17 @@ impl IPCServer {
         task::spawn(async move {
             let mut buffer = IPCBuffer::new();
             loop {
-                buffer.reset();
-                unsafe { buffer.set_len(buffer.byte_capacity(), 0) };
-                match self.stream.read(buffer.as_slice_mut().bytes).await? {
-                    len if len > 0 => unsafe { buffer.set_len(len, 0) },
+                let available = buffer.begin_fill();
+                match self.stream.read(available.bytes).await? {
+                    len if len > 0 => buffer.commit_fill(len, 0),
                     _ => return Err(IPCError::Disconnected),
                 }
                 while !buffer.is_empty() {
-                    let message = buffer.pop_front()?;
+                    let message = match buffer.pop_front() {
+                        Ok(message) => message,
+                        Err(buffer::Error::UnexpectedEnd) => break,
+                        Err(err) => return Err(err.into()),
+                    };
                     if let Some(exit) = self.handle_message(message).await? {
                         return Ok(exit);
                     }

@@ -11,6 +11,7 @@ edition = "2018"
 
 as-slice = "0.1"
 compiler_builtins = { version = "0.1", features = [ "compiler-builtins", "mem" ] }
+generic-array = "0.14"
 goblin = { version = "0.2", default-features = false, features = ["elf64"] }
 hash32 = "0.1"
 hash32-derive = "0.1"
