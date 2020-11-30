@@ -48,6 +48,15 @@ async fn new_stdio_socket_wip(fd: u32) -> std::io::Result<std::os::unix::net::Un
     let (local, remote) = std::os::unix::net::UnixStream::pair()?;
     tokio::task::spawn(async move {
         log::warn!("stdio wip {}", fd);
+        let mut local = tokio::net::UnixStream::from_std(local).unwrap();
+        let (mut reader, mut writer) = local.split();
+
+        let mut stdout = tokio::io::stdout();
+        let mut stdin = tokio::io::stdin();
+
+        let out_copy = tokio::io::copy(&mut reader, &mut stdout);
+        let in_copy = tokio::io::copy(&mut stdin, &mut writer);
+        tokio::join!(out_copy, in_copy);
     });
     Ok(remote)
 }
