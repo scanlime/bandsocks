@@ -71,7 +71,6 @@ impl KernelMemAreas {
                     vvar = Some(map);
                 }
                 MemAreaName::VSyscall => {
-                    assert_eq!(map.read, false);
                     assert_eq!(map.write, false);
                     assert_eq!(map.execute, true);
                     assert_eq!(map.mayshare, false);
