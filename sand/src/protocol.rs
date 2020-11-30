@@ -339,8 +339,16 @@ pub mod buffer {
         }
 
         pub fn pop_front<T: Clone + DeserializeOwned>(&'a mut self) -> Result<T> {
+            let saved_bytes_range = self.bytes.range.clone();
+            let saved_files_range = self.files.range.clone();
             let mut deserializer = de::IPCDeserializer::new(self);
-            T::deserialize(&mut deserializer)
+            let result = T::deserialize(&mut deserializer);
+            if result.is_err() {
+                // Rewind the pop on error, to recover after a partial read
+                self.bytes.range = saved_bytes_range;
+                self.files.range = saved_files_range;
+            }
+            result
         }
 
         pub fn extend_bytes(&mut self, data: &[u8]) -> Result<()> {
