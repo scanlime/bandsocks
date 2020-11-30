@@ -79,3 +79,26 @@ fn busybox_sleep_parallel() {
         assert_eq!(results, vec![true; NUM])
     })
 }
+
+#[test]
+fn busybox_truefalse_parallel() {
+    const NUM: usize = 333;
+    Runtime::new().unwrap().block_on(async {
+        let builder = common().await;
+        let mut tasks = FuturesUnordered::new();
+        for i in 0..NUM {
+            let mut builder_copy = builder.clone();
+            builder_copy.arg(["true", "false"][i & 1]);
+            tasks.push(task::spawn(async move {
+                Ok::<(usize, Option<i32>), RuntimeError>((
+                    i,
+                    builder_copy.spawn()?.wait().await?.code(),
+                ))
+            }));
+        }
+        for _ in 0..NUM {
+            let (i, code) = tasks.next().await.unwrap().unwrap().unwrap();
+            assert_eq!(code.unwrap(), (i & 1) as i32);
+        }
+    })
+}
