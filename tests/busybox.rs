@@ -26,7 +26,9 @@ fn busybox_true() {
         let container = common().await.arg("/bin/true").spawn().unwrap();
         let status = container.wait().await.unwrap();
         assert_eq!(status.code(), Some(0));
-    })
+        log::trace!("done??");
+    });
+    log::trace!("done?1!");
 }
 
 #[test]
@@ -49,7 +51,7 @@ fn busybox_sleep_once() {
 
 #[test]
 fn busybox_sleep_sequential() {
-    const NUM: usize = 400;
+    const NUM: usize = 100;
     Runtime::new().unwrap().block_on(async {
         let mut builder = common().await;
         builder.arg("sleep").arg("0.001");
@@ -61,7 +63,7 @@ fn busybox_sleep_sequential() {
 
 #[test]
 fn busybox_sleep_parallel() {
-    const NUM: usize = 400;
+    const NUM: usize = 100;
     Runtime::new().unwrap().block_on(async {
         let mut builder = common().await;
         let mut tasks = FuturesUnordered::new();
@@ -81,8 +83,8 @@ fn busybox_sleep_parallel() {
 }
 
 #[test]
-fn busybox_truefalse_parallel() {
-    const NUM: usize = 333;
+fn busybox_bool_parallel() {
+    const NUM: usize = 100;
     Runtime::new().unwrap().block_on(async {
         let builder = common().await;
         let mut tasks = FuturesUnordered::new();

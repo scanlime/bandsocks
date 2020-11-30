@@ -17,10 +17,10 @@ use fd_queue::{tokio::UnixStream, EnqueueFd};
 use std::{
     collections::HashMap,
     os::unix::{io::AsRawFd, prelude::RawFd},
-    process::Child,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
+    process::{Child, Command},
     task,
     task::JoinHandle,
 };
@@ -66,10 +66,13 @@ impl IPCServer {
         )
         .await?;
 
+        let mut command: Command = sand::command(child_socket.as_raw_fd())?.into();
+        let tracer = command.spawn()?;
+
         Ok(IPCServer {
             filesystem,
             storage,
-            tracer: sand::command(child_socket.as_raw_fd())?.spawn()?,
+            tracer,
             stream: server_socket,
             process_table: HashMap::new(),
         })
@@ -77,33 +80,57 @@ impl IPCServer {
 
     pub fn task(mut self) -> JoinHandle<Result<ExitStatus, IPCError>> {
         task::spawn(async move {
-            let mut buffer = IPCBuffer::new();
-            loop {
-                let available = buffer.begin_fill();
-                match self.stream.read(available.bytes).await? {
-                    len if len > 0 => {
-                        log::trace!("available={} len={}", available.bytes.len(), len);
-                        buffer.commit_fill(len, 0)
-                    }
-                    _ => return Err(IPCError::Disconnected),
+            let result = self.task_message_loop().await;
+            log::trace!("task_message_loop -> {:?}", result);
+            self.task_finalize().await?;
+            result
+        })
+    }
+
+    pub async fn task_message_loop(&mut self) -> Result<ExitStatus, IPCError> {
+        let mut buffer = IPCBuffer::new();
+        loop {
+            let available = buffer.begin_fill();
+            match self.stream.read(available.bytes).await? {
+                len if len > 0 => {
+                    log::trace!("available={} len={}", available.bytes.len(), len);
+                    buffer.commit_fill(len, 0)
                 }
-                while !buffer.is_empty() {
-                    let message = match buffer.pop_front() {
-                        Ok(message) => message,
-                        Err(buffer::Error::UnexpectedEnd) => break,
-                        Err(err) => return Err(err.into()),
-                    };
-                    match self.handle_message(&message).await {
-                        Err(err) => {
-                            log::error!("{:?} while handling {:?}", err, message);
-                            return Err(err);
-                        }
-                        Ok(Some(exit)) => return Ok(exit),
-                        Ok(None) => (),
+                _ => return Err(IPCError::Disconnected),
+            }
+            while !buffer.is_empty() {
+                let message = match buffer.pop_front() {
+                    Ok(message) => message,
+                    Err(buffer::Error::UnexpectedEnd) => break,
+                    Err(err) => return Err(err.into()),
+                };
+                match self.handle_message(&message).await {
+                    Err(err) => {
+                        log::error!("{:?} while handling {:?}", err, message);
+                        return Err(err);
                     }
+                    Ok(Some(exit)) => return Ok(exit),
+                    Ok(None) => (),
                 }
             }
-        })
+        }
+    }
+
+    pub async fn task_finalize(mut self) -> Result<(), IPCError> {
+        log::trace!("task_finalize begin");
+        self.tracer.kill()?;
+        let output = self.tracer.wait_with_output().await?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::trace!("task_finalize ending");
+        if output.status.success() {
+            assert_eq!(stderr, "");
+            Ok(())
+        } else {
+            Err(IPCError::SandError {
+                status: output.status,
+                stderr: stderr.into_owned(),
+            })
+        }
     }
 
     pub async fn send_message(&mut self, message: &MessageToSand) -> Result<(), IPCError> {

@@ -52,11 +52,12 @@ async fn new_stdio_socket_wip(fd: u32) -> std::io::Result<std::os::unix::net::Un
         let (mut reader, mut writer) = local.split();
 
         let mut stdout = tokio::io::stdout();
-        let mut stdin = tokio::io::stdin();
+        //let mut stdin = tokio::io::stdin();
 
         let out_copy = tokio::io::copy(&mut reader, &mut stdout);
-        let in_copy = tokio::io::copy(&mut stdin, &mut writer);
-        tokio::join!(out_copy, in_copy);
+        //let in_copy = tokio::io::copy(&mut stdin, &mut writer);
+        //tokio::join!(out_copy, in_copy);
+        out_copy.await;
     });
     Ok(remote)
 }
@@ -257,7 +258,10 @@ impl Container {
     /// Wait for the container to finish running, if necessary, and return its
     /// exit status.
     pub async fn wait(self) -> Result<ExitStatus, RuntimeError> {
-        self.join.await?
+        log::trace!("wait starting");
+        let result = self.join.await?;
+        log::trace!("wait complete -> {:?}", result);
+        result
     }
 
     /// Prepare to run a new container, starting with an [ImageName] referencing

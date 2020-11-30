@@ -20,6 +20,7 @@ use std::{
         },
     },
     process::Command,
+    process::Stdio,
 };
 
 lazy_static! {
@@ -51,6 +52,9 @@ pub fn command(fd: RawFd) -> Result<Command, IPCError> {
         Ok(file) => file,
     };
     let mut cmd = Command::new(format!("/proc/self/fd/{}", file.as_raw_fd()));
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::piped());
     cmd.arg0("sand");
     cmd.env_clear();
     cmd.env("FD", fd.to_string());

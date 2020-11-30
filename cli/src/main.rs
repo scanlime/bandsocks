@@ -50,13 +50,16 @@ async fn main() {
             .spawn()
             .expect("container failed to start");
 
-        let status = container
-            .wait()
-            .await
-            .expect("failed waiting for container to stop");
-
-        if let Some(code) = status.code() {
-            std::process::exit(code);
+        match container.wait().await {
+            Ok(status) => {
+                if let Some(code) = status.code() {
+                    std::process::exit(code);
+                }
+            }
+            Err(err) => {
+                log::error!("{}", err);
+                std::process::exit(0xFF);
+            }
         }
     }
 }

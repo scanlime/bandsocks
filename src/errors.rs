@@ -134,6 +134,9 @@ pub enum IPCError {
     #[error("file queue full error")]
     FileQueueFullError(#[from] fd_queue::QueueFullError),
 
+    #[error("task join error: {0}")]
+    TaskJoinError(#[from] tokio::task::JoinError),
+
     #[error("invalid process ID")]
     InvalidPid,
 
@@ -154,6 +157,12 @@ pub enum IPCError {
 
     #[error("connection lost unexpectedly")]
     Disconnected,
+
+    #[error("exception from sandbox runtime, {status}\n{stderr}")]
+    SandError {
+        status: std::process::ExitStatus,
+        stderr: String,
+    },
 }
 
 #[derive(Error, Debug)]

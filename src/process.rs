@@ -9,8 +9,8 @@ use std::{
     fs::File,
     io::Read,
     os::unix::{ffi::OsStrExt, fs::FileExt, io::AsRawFd},
-    process::Child,
 };
+use tokio::process::Child;
 
 lazy_static! {
     static ref PAGE_SIZE: usize = determine_page_size();
