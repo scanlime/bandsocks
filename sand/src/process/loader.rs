@@ -126,7 +126,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
     }
 
     pub fn vdso(&self) -> &MemArea {
-        &self.trampoline.vdso
+        &self.trampoline.kernel_mem.vdso
     }
 
     pub fn randomize_brk(&mut self, brk_base: VPtr) {

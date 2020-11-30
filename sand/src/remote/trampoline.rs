@@ -3,7 +3,7 @@ use crate::{
     abi::SyscallInfo,
     process::{
         maps::{MapsIterator, MemArea, MemAreaName},
-        task::{StoppedTask, Task},
+        task::StoppedTask,
         Event,
     },
     protocol::{Errno, LogLevel, LogMessage, LogSyscall, VPtr},
@@ -14,6 +14,11 @@ use crate::{
 #[derive(Debug)]
 pub struct Trampoline<'q, 's, 't> {
     pub stopped_task: &'t mut StoppedTask<'q, 's>,
+    pub kernel_mem: KernelMemAreas,
+}
+
+#[derive(Debug)]
+pub struct KernelMemAreas {
     pub vdso: MemArea,
     pub vvar: MemArea,
     pub vsyscall: Option<MemArea>,
@@ -34,8 +39,8 @@ fn find_syscall<'q, 's>(
     )
 }
 
-impl<'q, 's, 't> Trampoline<'q, 's, 't> {
-    pub fn new(stopped_task: &'t mut StoppedTask<'q, 's>) -> Self {
+impl KernelMemAreas {
+    fn locate(stopped_task: &mut StoppedTask<'_, '_>) -> Self {
         let mut vdso = None;
         let mut vvar = None;
         let mut vsyscall = None;
@@ -85,8 +90,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         let vdso_syscall = find_syscall(stopped_task, &vdso).unwrap();
         let task_end = VPtr(task_end);
 
-        Trampoline {
-            stopped_task,
+        KernelMemAreas {
             vdso,
             vvar,
             vsyscall,
@@ -95,11 +99,39 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         }
     }
 
+    fn is_userspace_area(&self, area: &MemArea) -> bool {
+        // This tests for overlap (including identical device and name) rather than
+        // strict equality, since vvar can change size due to linux timer
+        // namespaces
+        if area.is_overlap(&self.vdso) {
+            return false;
+        }
+        if area.is_overlap(&self.vvar) {
+            return false;
+        }
+        if let Some(vsyscall) = self.vsyscall.as_ref() {
+            if area.is_overlap(vsyscall) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl<'q, 's, 't> Trampoline<'q, 's, 't> {
+    pub fn new(stopped_task: &'t mut StoppedTask<'q, 's>) -> Self {
+        let kernel_mem = KernelMemAreas::locate(stopped_task);
+        Trampoline {
+            stopped_task,
+            kernel_mem,
+        }
+    }
+
     pub async fn unmap_all_userspace_mem(&mut self) {
         loop {
             let mut to_unmap = None;
             for area in MapsIterator::new(self.stopped_task) {
-                if area != self.vdso && area != self.vvar && Some(&area) != self.vsyscall.as_ref() {
+                if self.kernel_mem.is_userspace_area(&area) {
                     to_unmap = Some(area);
                     break;
                 }
@@ -149,7 +181,7 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         // using the VDSO as a trampoline.
         let fake_syscall_nr = sc::nr::OPEN;
         let fake_syscall_arg = 0xffff_ffff_dddd_dddd_u64;
-        local_regs.ip = self.vdso_syscall.0 as u64;
+        local_regs.ip = self.kernel_mem.vdso_syscall.0 as u64;
         local_regs.sp = 0;
         SyscallInfo::nr_to_regs(fake_syscall_nr as isize, &mut local_regs);
         SyscallInfo::args_to_regs(&[fake_syscall_arg as isize; 6], &mut local_regs);

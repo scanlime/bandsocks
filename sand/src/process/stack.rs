@@ -34,7 +34,7 @@ impl StackBuilder {
         // sections: growing downward from BUILDER_SIZE_LIMIT is the stack
         // itself, and growing up from there is a temporary location to store
         // vectors that will go to the bottom of the stack later.
-        let top = randomize_stack_top(scratchpad.trampoline.task_end);
+        let top = randomize_stack_top(scratchpad.trampoline.kernel_mem.task_end);
         Ok(StackBuilder {
             memfd: scratchpad.memfd_temp().await?,
             top,

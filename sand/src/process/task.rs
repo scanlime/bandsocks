@@ -258,7 +258,14 @@ async fn unexpected_event_panic<'q, 's, 't>(
 ) -> ! {
     let mut regs: UserRegs = Default::default();
     ptrace::get_regs(sys_pid, &mut regs);
-    println!("task state: {:?}\n{:x?}", sys_pid, regs);
+    println!(
+        concat!(
+            "task: {:?}\n",
+            "stopped: {:x?}\n",
+            "current: {:x?}",
+        ),
+        sys_pid, stopped_task, regs
+    );
     if let Some(stopped_task) = stopped_task {
         print_maps_dump(stopped_task);
         print_stack_dump(stopped_task);

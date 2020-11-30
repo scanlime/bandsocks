@@ -41,20 +41,34 @@ impl MemArea {
         assert!(self.end >= self.start);
         self.end - self.start + 1
     }
+
+    pub fn is_overlap(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.read == other.read
+            && self.write == other.write
+            && self.execute == other.execute
+            && self.mayshare == other.mayshare
+            && self.dev_major == other.dev_major
+            && self.dev_minor == other.dev_minor
+            && self.inode == other.inode
+            && self.end > self.start
+            && other.end > other.start
+            && self.end.min(other.end) >= self.start.max(other.start)
+    }
 }
 
 impl core::fmt::Debug for MemArea {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(
             f,
-            "MemArea({:10?} {:16x}-{:16x} {}{}{}{} {}:{}:{}@{:x})",
-            self.name,
+            "MemArea({:16x}-{:16x} {}{}{}{} {:?} {}:{}:{}@{:x})",
             self.start,
             self.end,
             if self.read { "r" } else { "-" },
             if self.write { "w" } else { "-" },
             if self.execute { "x" } else { "-" },
             if self.mayshare { "s" } else { "p" },
+            self.name,
             self.dev_major,
             self.dev_minor,
             self.inode,
