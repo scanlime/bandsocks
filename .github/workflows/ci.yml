@@ -20,8 +20,8 @@ jobs:
     - name: Toolchain
       uses: actions-rs/toolchain@v1
       with:
-	profile: minimal
-	toolchain: nightly
+        profile: minimal
+        toolchain: nightly
     - name: Build
       run: cargo build --verbose
     - name: Run tests
