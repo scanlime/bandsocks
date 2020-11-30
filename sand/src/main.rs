@@ -43,5 +43,5 @@ fn main() -> usize {
     #[cfg(not(test))]
     unreachable!();
     #[cfg(test)]
-    bandsocks_sand::EXIT_SUCCESS
+    bandsocks_sand::EXIT_OK
 }

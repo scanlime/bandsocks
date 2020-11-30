@@ -113,10 +113,6 @@ impl<'q> Task<'q> {
                 unexpected_event_panic(task_data.sys_pid, None, event, ExpectedEvent::OpenProcess)
                     .await
             }
-            other => panic!(
-                "unexpected open_process reply, task={:x?}, received={:x?}",
-                task_data, other
-            ),
         }
     }
 
@@ -259,11 +255,7 @@ async fn unexpected_event_panic<'q, 's, 't>(
     let mut regs: UserRegs = Default::default();
     ptrace::get_regs(sys_pid, &mut regs);
     println!(
-        concat!(
-            "task: {:?}\n",
-            "stopped: {:x?}\n",
-            "current: {:x?}",
-        ),
+        concat!("task: {:?}\n", "stopped: {:x?}\n", "current: {:x?}",),
         sys_pid, stopped_task, regs
     );
     if let Some(stopped_task) = stopped_task {
