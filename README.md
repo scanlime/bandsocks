@@ -1,7 +1,7 @@
 🅱️🧦 bandsocks
 ================
 
-![Rust](https://github.com/scanlime/bandsocks/workflows/Rust/badge.svg)
+![Tests](https://github.com/scanlime/bandsocks/workflows/Tests/badge.svg)
 
 it's a sandbox!
 
