@@ -81,7 +81,10 @@ impl IPCServer {
             loop {
                 let available = buffer.begin_fill();
                 match self.stream.read(available.bytes).await? {
-                    len if len > 0 => buffer.commit_fill(len, 0),
+                    len if len > 0 => {
+                        log::trace!("available={} len={}", available.bytes.len(), len);
+                        buffer.commit_fill(len, 0)
+                    }
                     _ => return Err(IPCError::Disconnected),
                 }
                 while !buffer.is_empty() {

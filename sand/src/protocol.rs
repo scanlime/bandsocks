@@ -291,7 +291,7 @@ pub mod buffer {
 
         fn commit_fill(&mut self, len: usize) {
             let new_end = self.range.end + len;
-            assert!(new_end < self.array.len());
+            assert!(new_end <= self.array.len());
             self.range.end = new_end;
         }
 
