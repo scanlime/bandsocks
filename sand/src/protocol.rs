@@ -1027,7 +1027,7 @@ mod test {
         assert!(buf.is_empty());
         buf.push_back_byte(2).unwrap();
         assert_eq!(buf.pop_front::<bool>(), Err(buffer::Error::InvalidValue));
-        assert!(buf.is_empty());
+        assert_eq!(buf.as_slice().bytes, &[2]);
     }
 
     #[test]
@@ -1074,6 +1074,30 @@ mod test {
         assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg2));
         assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg3));
         assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg4));
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn incomplete_message() {
+        let mut buf = buffer::IPCBuffer::new();
+        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        buf.extend_bytes(&[0x00]).unwrap();
+        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        buf.push_back_file(SysFd(10)).unwrap();
+        buf.extend_bytes(&[0x99]).unwrap();
+        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        buf.push_back_file(SysFd(20)).unwrap();
+        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        buf.extend_bytes(&[0x99, 0x66, 0x66]).unwrap();
+        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        buf.extend_bytes(&[0x00]).unwrap();
+        assert_eq!(buf.pop_front::<MessageToSand>(), Ok(MessageToSand::Task {
+            task: VPid(0x66669999),
+            op: ToTask::OpenProcessReply(ProcessHandle {
+                mem: SysFd(10),
+                maps: SysFd(20)
+            })
+        }));
         assert!(buf.is_empty());
     }
 
