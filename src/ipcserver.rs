@@ -93,8 +93,13 @@ impl IPCServer {
                         Err(buffer::Error::UnexpectedEnd) => break,
                         Err(err) => return Err(err.into()),
                     };
-                    if let Some(exit) = self.handle_message(message).await? {
-                        return Ok(exit);
+                    match self.handle_message(&message).await {
+                        Err(err) => {
+                            log::error!("{:?} while handling {:?}", err, message);
+                            return Err(err);
+                        }
+                        Ok(Some(exit)) => return Ok(exit),
+                        Ok(None) => (),
                     }
                 }
             }
@@ -107,11 +112,11 @@ impl IPCServer {
 
     async fn handle_message(
         &mut self,
-        message: MessageFromSand,
+        message: &MessageFromSand,
     ) -> Result<Option<ExitStatus>, IPCError> {
         log::debug!(">{:x?}", message);
         match message {
-            MessageFromSand::Task { task, op } => self.handle_task_message(task, op).await,
+            MessageFromSand::Task { task, op } => self.handle_task_message(*task, op).await,
         }
     }
 
@@ -183,11 +188,11 @@ impl IPCServer {
     async fn handle_task_message(
         &mut self,
         task: VPid,
-        op: FromTask,
+        op: &FromTask,
     ) -> Result<Option<ExitStatus>, IPCError> {
         match op {
             FromTask::Log(level, message) => {
-                sand::task_log(task, level, message);
+                sand::task_log(task, *level, message.clone());
                 Ok(None)
             }
 
@@ -196,7 +201,7 @@ impl IPCServer {
                     Err(IPCError::WrongProcessState)
                 } else {
                     let process = Process::open(
-                        sys_pid,
+                        *sys_pid,
                         &self.tracer,
                         ProcessStatus {
                             current_dir: self.filesystem.open_root(),
@@ -217,7 +222,7 @@ impl IPCServer {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::get_working_dir(process, &self.filesystem, buffer, size).await;
+                        taskcall::get_working_dir(process, &self.filesystem, *buffer, *size).await;
                     self.task_size_reply(task, result).await
                 }
             },
@@ -226,7 +231,7 @@ impl IPCServer {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::change_working_dir(process, &self.filesystem, path).await;
+                        taskcall::change_working_dir(process, &self.filesystem, *path).await;
                     self.task_reply(task, result).await
                 }
             },
@@ -235,7 +240,7 @@ impl IPCServer {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::file_stat(process, &self.filesystem, fd, path, nofollow).await;
+                        taskcall::file_stat(process, &self.filesystem, *fd, *path, *nofollow).await;
                     self.task_stat_reply(task, result).await
                 }
             },
@@ -244,7 +249,7 @@ impl IPCServer {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::file_access(process, &self.filesystem, dir, path, mode).await;
+                        taskcall::file_access(process, &self.filesystem, *dir, *path, *mode).await;
                     self.task_reply(task, result).await
                 }
             },
@@ -258,7 +263,7 @@ impl IPCServer {
                 None => Err(IPCError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::file_open(process, &self.filesystem, dir, path, flags, mode)
+                        taskcall::file_open(process, &self.filesystem, *dir, *path, *flags, *mode)
                             .await;
                     self.task_file_reply(task, result).await
                 }
@@ -269,7 +274,7 @@ impl IPCServer {
                 Some(_process) => self.task_reply(task, Ok(())).await,
             },
 
-            FromTask::Exited(exit_code) => Ok(Some(ExitStatus { code: exit_code })),
+            FromTask::Exited(exit_code) => Ok(Some(ExitStatus { code: *exit_code })),
         }
     }
 }
