@@ -1,6 +1,8 @@
 🅱️🧦 bandsocks
 ================
 
+![Rust](https://github.com/scanlime/bandsocks/workflows/Rust/badge.svg)
+
 it's a sandbox!
 
 it's a container runtime!
