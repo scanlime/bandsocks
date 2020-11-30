@@ -328,6 +328,16 @@ impl<'f, S: ArrayLength<u8>, F: Fn(Dirent<'_>) -> V, V> Iterator for DirIterator
     }
 }
 
+#[allow(dead_code)]
+pub fn sleep(duration: &abi::TimeSpec) -> Result<(), Errno> {
+    let result = unsafe { syscall!(NANOSLEEP, duration as *const abi::TimeSpec, 0) as isize };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(Errno(result as i32))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::{lseek, open_self_fd, DirIterator, Dirent};
