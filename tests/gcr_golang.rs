@@ -1,4 +1,4 @@
-use bandsocks::{container::ContainerBuilder, Container};
+use bandsocks::{Container, ContainerBuilder};
 use tokio::runtime::Runtime;
 
 const IMAGE: &str = "gcr.io/google-samples/hello-app:1.0";

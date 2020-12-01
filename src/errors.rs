@@ -89,7 +89,8 @@ pub enum ImageError {
     #[error("unsupported type for rootfs in image config, {0:?}")]
     UnsupportedRootFilesystemType(String),
 
-    /// insecure configuration; refusing to run a manifest downloaded over HTTP with no content digest
+    /// insecure configuration; refusing to run a manifest downloaded over HTTP
+    /// with no content digest
     #[error("insecure configuration; refusing to run a manifest downloaded over HTTP with no content digest")]
     InsecureManifest,
 
@@ -108,7 +109,7 @@ pub enum ImageError {
 /// Errors that occur while a container is running
 #[derive(Error, Debug)]
 pub enum RuntimeError {
-/// io error
+    /// io error
     #[error("io error: {0}")]
     IOError(#[from] std::io::Error),
 

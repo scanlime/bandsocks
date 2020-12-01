@@ -33,7 +33,10 @@ pub struct IPCServer {
     process_table: HashMap<VPid, Process>,
 }
 
-async fn send_message(stream: &mut UnixStream, message: &MessageToSand) -> Result<(), RuntimeError> {
+async fn send_message(
+    stream: &mut UnixStream,
+    message: &MessageToSand,
+) -> Result<(), RuntimeError> {
     log::debug!("<{:x?}", message);
 
     let mut buffer = IPCBuffer::new();

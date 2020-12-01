@@ -9,7 +9,7 @@ use crate::{
     filesystem::{storage::FileStorage, vfs::Filesystem},
     image::{Image, ImageName},
     ipcserver::IPCServer,
-    registry::Client,
+    registry::RegistryClient,
     sand::protocol::InitArgsHeader,
 };
 use std::{ffi::CString, sync::Arc};
@@ -60,11 +60,11 @@ impl Container {
     /// Prepare to run a new container, starting with an [ImageName] referencing
     /// a repository server.
     ///
-    /// This is equivalent to using [Client::pull()] followed by
+    /// This is equivalent to using [RegistryClient::pull()] followed by
     /// [Container::new()], which as an alternative allows using custom
-    /// settings for [Client].
+    /// settings for [RegistryClient].
     pub async fn pull(name: &ImageName) -> Result<ContainerBuilder, ImageError> {
-        Container::new(Client::new()?.pull(name).await?)
+        Container::new(RegistryClient::new()?.pull(name).await?)
     }
 
     /// Wait for the container to finish running, if necessary, and return its

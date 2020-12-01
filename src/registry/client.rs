@@ -18,8 +18,7 @@ use memmap::Mmap;
 use reqwest::{
     header,
     header::{HeaderMap, HeaderValue},
-    Certificate, Client as NetworkClient, ClientBuilder as NetworkClientBuilder, RequestBuilder,
-    Response, Url,
+    Certificate, Client, ClientBuilder, RequestBuilder, Response, Url,
 };
 use std::{
     collections::HashSet,
@@ -34,20 +33,20 @@ use std::{
 use tokio::task;
 
 /// Builder for configuring custom [Client] instances
-pub struct ClientBuilder {
+pub struct RegistryClientBuilder {
     auth: Auth,
     cache_dir: Option<PathBuf>,
-    network: Option<NetworkClientBuilder>,
+    network: Option<ClientBuilder>,
     default_registry: Option<DefaultRegistry>,
     allowed_registries: Option<HashSet<Registry>>,
     allow_http_registries: bool,
 }
 
-impl ClientBuilder {
+impl RegistryClientBuilder {
     /// Start constructing a custom registry client
     pub fn new() -> Self {
-        ClientBuilder {
-            network: Some(NetworkClient::builder().user_agent(Client::default_user_agent())),
+        RegistryClientBuilder {
+            network: Some(Client::builder().user_agent(RegistryClient::default_user_agent())),
             cache_dir: None,
             default_registry: None,
             auth: Auth::new(),
@@ -88,7 +87,7 @@ impl ClientBuilder {
     /// This stores local data which has been downloaded and/or decompressed.
     /// Files here are read-only after they are created, and may be shared
     /// with other trusted processes. The default directory can be determined
-    /// with [Client::default_cache_dir()]
+    /// with [RegistryClient::default_cache_dir()]
     pub fn cache_dir(mut self, dir: &Path) -> Self {
         self.cache_dir = Some(dir.to_path_buf());
         self
@@ -133,9 +132,9 @@ impl ClientBuilder {
 
     /// Sets the `User-Agent` header used by this client
     ///
-    /// By default, the value returened by [Client::default_user_agent()] is
-    /// used, which identifies the version of `bandsocks` acting as a
-    /// client.
+    /// By default, the value returened by
+    /// [RegistryClient::default_user_agent()] is used, which identifies the
+    /// version of `bandsocks` acting as a client.
     pub fn user_agent<V>(mut self, value: V) -> Self
     where
         V: TryInto<HeaderValue>,
@@ -178,7 +177,7 @@ impl ClientBuilder {
     ///
     /// This registry is used for pulling images that do not specify a server.
     /// The default value if unset can be determined with
-    /// [Client::default_registry()]
+    /// [RegistryClient::default_registry()]
     ///
     /// The parameter is a [DefaultRegistry], which provides a few additional
     /// options for emulating registry quirks. When those aren't needed,
@@ -196,20 +195,20 @@ impl ClientBuilder {
         self
     }
 
-    /// Construct a Client using the parameters from this Builder
-    pub fn build(self) -> Result<Client, ImageError> {
+    /// Construct a RegistryClient using the parameters from this Builder
+    pub fn build(self) -> Result<RegistryClient, ImageError> {
         let cache_dir = match self.cache_dir {
             Some(dir) => dir,
-            None => Client::default_cache_dir()?,
+            None => RegistryClient::default_cache_dir()?,
         };
         log::info!("using cache directory {:?}", cache_dir);
-        Ok(Client {
+        Ok(RegistryClient {
             storage: FileStorage::new(cache_dir),
             allowed_registries: self.allowed_registries,
             allow_http_registries: self.allow_http_registries,
             default_registry: self
                 .default_registry
-                .unwrap_or_else(Client::default_registry),
+                .unwrap_or_else(RegistryClient::default_registry),
             auth: self.auth,
             network: match self.network {
                 Some(n) => Some(n.build()?),
@@ -225,24 +224,24 @@ impl ClientBuilder {
 /// cache storage location. One client can be used to download multiple images
 /// from multiple registries.
 #[derive(Clone)]
-pub struct Client {
+pub struct RegistryClient {
     storage: FileStorage,
     auth: Auth,
-    network: Option<NetworkClient>,
+    network: Option<Client>,
     default_registry: DefaultRegistry,
     allowed_registries: Option<HashSet<Registry>>,
     allow_http_registries: bool,
 }
 
-impl Client {
+impl RegistryClient {
     /// Construct a new registry client with default options
-    pub fn new() -> Result<Client, ImageError> {
-        Client::builder().build()
+    pub fn new() -> Result<RegistryClient, ImageError> {
+        RegistryClient::builder().build()
     }
 
     /// Construct a registry client with custom options, via ClientBuilder
-    pub fn builder() -> ClientBuilder {
-        ClientBuilder::new()
+    pub fn builder() -> RegistryClientBuilder {
+        RegistryClientBuilder::new()
     }
 
     /// Return the default `User-Agent` that we use if no other is set
@@ -265,7 +264,7 @@ impl Client {
     /// Return the default registry server
     ///
     /// This is the server used when nothing else has been specified either in
-    /// [ImageName] or [ClientBuilder].
+    /// [ImageName] or [RegistryClientBuilder].
     pub fn default_registry() -> DefaultRegistry {
         DefaultRegistry::new()
     }
@@ -293,7 +292,7 @@ impl Client {
         repository: &Repository,
         bucket: &'static str,
         object: T,
-    ) -> Result<(&'a NetworkClient, &'a mut Auth, RequestBuilder), ImageError>
+    ) -> Result<(&'a Client, &'a mut Auth, RequestBuilder), ImageError>
     where
         T: Display,
     {
@@ -504,8 +503,8 @@ impl Client {
     async fn pull_blob(&mut self, image: &ImageName, link: &Link) -> Result<Mmap, ImageError> {
         let (registry, repository) = self.default_registry.resolve_image_name(image);
         let key = StorageKey::Blob(ContentDigest::parse(&link.digest)?);
-        let content_type = Client::content_type_for_link(link)?;
-        Client::check_mmap_for_link(
+        let content_type = RegistryClient::content_type_for_link(link)?;
+        RegistryClient::check_mmap_for_link(
             link,
             match self.storage.mmap(&key)? {
                 Some(map) => {
@@ -542,8 +541,8 @@ impl Client {
     ) -> Result<Mmap, ImageError> {
         let (registry, repository) = self.default_registry.resolve_image_name(image);
         let key = StorageKey::Blob(ContentDigest::parse(&link.digest)?);
-        let content_type = Client::content_type_for_link(link)?;
-        Client::check_mmap_for_link(
+        let content_type = RegistryClient::content_type_for_link(link)?;
+        RegistryClient::check_mmap_for_link(
             link,
             match &key {
                 StorageKey::Blob(content_digest) => {

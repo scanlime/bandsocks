@@ -1,4 +1,4 @@
-use bandsocks::{container::ContainerBuilder, errors::RuntimeError, Container};
+use bandsocks::{Container, ContainerBuilder, RuntimeError};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::{runtime::Runtime, task};
 
@@ -55,7 +55,14 @@ fn busybox_sleep_sequential() {
     Runtime::new().unwrap().block_on(async {
         let builder = common().await.arg("sleep").arg("0.001");
         for _ in 0..NUM {
-            assert!(builder.clone().spawn().unwrap().wait().await.unwrap().success());
+            assert!(builder
+                .clone()
+                .spawn()
+                .unwrap()
+                .wait()
+                .await
+                .unwrap()
+                .success());
         }
     })
 }
@@ -89,10 +96,7 @@ fn busybox_bool_parallel() {
         for i in 0..NUM {
             let builder = builder.clone().arg(["true", "false"][i & 1]);
             tasks.push(task::spawn(async move {
-                Ok::<(usize, Option<i32>), RuntimeError>((
-                    i,
-                    builder.spawn()?.wait().await?.code(),
-                ))
+                Ok::<(usize, Option<i32>), RuntimeError>((i, builder.spawn()?.wait().await?.code()))
             }));
         }
         for _ in 0..NUM {

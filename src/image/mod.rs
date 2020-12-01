@@ -539,7 +539,7 @@ impl Repository {
     /// Parse a [prim@str] as a [Repository]
     ///
     /// ```
-    /// # use bandsocks::image::Repository;
+    /// # use bandsocks::Repository;
     /// let repo = Repository::parse("some/path").unwrap();
     /// let parts: Vec<&str> = repo.iter().collect();
     /// assert_eq!(parts, vec!["some", "path"])
@@ -821,7 +821,7 @@ impl ContentDigest {
     /// This hashes the content using the the `sha256` algorithm.
     ///
     /// ```
-    /// # use bandsocks::image::ContentDigest;
+    /// # use bandsocks::ContentDigest;
     /// let digest = ContentDigest::from_content(b"cat");
     /// assert_eq!(digest.as_str(), "sha256:77af778b51abd4a3c51c5ddd97204a9c3ae614ebccb75a606c3b6865aed6744e");
     /// ```
@@ -832,7 +832,7 @@ impl ContentDigest {
     /// Parse a [prim@str] as a [ContentDigest]
     ///
     /// ```
-    /// # use bandsocks::image::ContentDigest;
+    /// # use bandsocks::ContentDigest;
     /// let digest = ContentDigest::parse("format:00112233445566778899aabbccddeeff").unwrap();
     /// assert_eq!(digest.format_str(), "format");
     /// assert_eq!(digest.hex_str(), "00112233445566778899aabbccddeeff")

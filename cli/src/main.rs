@@ -1,6 +1,6 @@
 #[macro_use] extern crate clap;
 
-use bandsocks::{registry::Client, Container};
+use bandsocks::{Container, RegistryClient};
 use clap::{App, ArgMatches};
 use env_logger::{from_env, Env};
 use std::path::Path;
@@ -21,7 +21,7 @@ async fn main() {
         .parse()
         .expect("bad image reference");
 
-    let mut client = Client::builder();
+    let mut client = RegistryClient::builder();
     if let Some(dir) = matches.value_of("cache_dir") {
         client = client.cache_dir(Path::new(dir));
     }

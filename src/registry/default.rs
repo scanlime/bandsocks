@@ -5,7 +5,7 @@ use crate::image::{ImageName, Registry, Repository};
 /// Additional settings for compatibility with a default registry server
 ///
 /// If you don't need the additional options, you can convert a plain [Registry]
-/// [Into] a [DefaultRegistry]
+/// into a [DefaultRegistry]
 #[derive(Clone, Debug)]
 pub struct DefaultRegistry {
     /// Connect to the registry under this name
