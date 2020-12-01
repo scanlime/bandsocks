@@ -120,9 +120,8 @@ impl IPCServer {
         }
     }
 
-    pub async fn task_finalize(mut self) -> Result<(), IPCError> {
+    pub async fn task_finalize(self) -> Result<(), IPCError> {
         log::trace!("task_finalize begin");
-        self.tracer.kill()?;
         let output = self.tracer.wait_with_output().await?;
         let stderr = String::from_utf8_lossy(&output.stderr);
         log::trace!("task_finalize ending");
