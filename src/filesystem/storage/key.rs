@@ -72,7 +72,7 @@ fn path_encode(input: &str) -> String {
     let mut result = String::with_capacity(input.len() + 16);
     let mut changes = String::with_capacity(16);
     let mut in_replacement = false;
-    for (idx, ch) in input.chars().enumerate() {
+    for (idx, ch) in input.char_indices() {
         if ('a'..='z').contains(&ch) || ('0'..='9').contains(&ch) {
             // No change
             in_replacement = false;
@@ -91,6 +91,14 @@ fn path_encode(input: &str) -> String {
             push_base18_varint(&mut changes, (idx << 1) | 1);
             push_base18_varint(&mut changes, ch as usize);
         }
+    }
+    if result.is_empty() {
+        // Empty string not allowed, encode the replacement like a NUL byte just after
+        // the original end of the string.
+        in_replacement = false;
+        result.push('0');
+        push_base18_varint(&mut changes, (input.len() << 1) | 1);
+        push_base18_varint(&mut changes, 0);
     }
     if !changes.is_empty() {
         if !in_replacement {
@@ -151,15 +159,17 @@ mod test {
         assert_eq!(base18(99), "r4");
         assert_eq!(base18(999), "ri2");
         assert_eq!(base18(9999), "rwt0");
-        assert_eq!(base18(18*(18+1)), "ii0");
-        assert_eq!(base18(18*(18+1)-1), "zh");
-        assert_eq!(base18(18*(18*(18+1)+1)), "iii0");
-        assert_eq!(base18(18*(18*(18+1)+1)-1), "zzh");
+        assert_eq!(base18(18 * (18 + 1)), "ii0");
+        assert_eq!(base18(18 * (18 + 1) - 1), "zh");
+        assert_eq!(base18(18 * (18 * (18 + 1) + 1)), "iii0");
+        assert_eq!(base18(18 * (18 * (18 + 1) + 1) - 1), "zzh");
     }
 
     #[test]
     fn encode_paths() {
         assert_eq!(path_encode("blah"), "blah");
+        assert_eq!(path_encode("aaazzzz0909123248"), "aaazzzz0909123248");
+        assert_eq!(path_encode("0"), "0");
         assert_eq!(path_encode("blAh"), "blah-4");
         assert_eq!(path_encode("BLAH"), "blah-0246");
         assert_eq!(path_encode("b999lah"), "b999lah");
@@ -169,6 +179,22 @@ mod test {
         assert_eq!(path_encode(".foo?"), "foo-1s19r2");
         assert_eq!(path_encode("blah-4"), "blah-4-9r1");
         assert_eq!(path_encode("blah-4-9r1"), "blah-4-9r1-9r1dr1");
-        assert_eq!(path_encode("blah-4-9r1-9r1dr1"), "blah-4-9r1-9r1dr1-9r1dr1l0r1");
+        assert_eq!(
+            path_encode("blah-4-9r1-9r1dr1"),
+            "blah-4-9r1-9r1dr1-9r1dr1l0r1"
+        );
+        assert_eq!(path_encode(""), "0-10");
+        assert_eq!(path_encode("\x00"), "0-1030");
+        assert_eq!(path_encode("\x00\x00"), "0-103050");
+        assert_eq!(path_encode("x\x00"), "x-30");
+        assert_eq!(path_encode("X\x00"), "x-030");
+        assert_eq!(path_encode("💀"), "0-1mpyk090");
+        assert_eq!(path_encode("π"), "0-1oy150");
+        assert_eq!(path_encode("oop💀"), "oop-7mpyk0");
+        assert_eq!(path_encode("oopπ"), "oop-7oy1");
+        assert_eq!(path_encode("0💀0"), "0-0-3mpyk0");
+        assert_eq!(path_encode("0π0"), "0-0-3oy1");
+        assert_eq!(path_encode("0💀💀0"), "0-0-3mpyk0bmpyk0");
+        assert_eq!(path_encode("0ππ0"), "0-0-3oy17oy1");
     }
 }
