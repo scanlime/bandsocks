@@ -6,9 +6,9 @@
 #[allow(dead_code)]
 pub mod exit {
     pub const EXIT_OK: usize = 0;
-    pub const EXIT_PANIC: usize = 10;
-    pub const EXIT_DISCONNECTED: usize = 15;
-    pub const EXIT_IO_ERROR: usize = 20;
+    pub const EXIT_PANIC: usize = 60;
+    pub const EXIT_DISCONNECTED: usize = 61;
+    pub const EXIT_IO_ERROR: usize = 62;
 }
 
 /// Any message sent from the IPC server to the sand process
