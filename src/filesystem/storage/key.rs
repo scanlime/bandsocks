@@ -34,7 +34,7 @@ impl StorageKey {
             StorageKey::Temp(pid, random) => {
                 let mut path = base_dir.to_path_buf();
                 path.push("tmp");
-                path.push(path_encode(&format!("{}-{}", pid, random)));
+                path.push(format!("{}-{}", pid, random));
                 path.set_extension("tmp");
                 path
             }
@@ -49,7 +49,7 @@ impl StorageKey {
                 let mut path = base_dir.to_path_buf();
                 path.push("parts");
                 path.push(path_encode(content_digest.as_str()));
-                path.push(path_encode(&format!("{:x}-{:x}", range.start, range.end)));
+                path.push(format!("{:x}-{:x}", range.start, range.end));
                 path.set_extension("part");
                 path
             }
@@ -196,5 +196,109 @@ mod test {
         assert_eq!(path_encode("0π0"), "0-0-3oy1");
         assert_eq!(path_encode("0💀💀0"), "0-0-3mpyk0bmpyk0");
         assert_eq!(path_encode("0ππ0"), "0-0-3oy17oy1");
+    }
+
+    #[test]
+    fn storage_paths() {
+        assert_eq!(
+            StorageKey::Temp(1, 2)
+                .to_path(Path::new("root"))
+                .to_str()
+                .unwrap(),
+            "root/tmp/1-2.tmp"
+        );
+        assert_eq!(
+            StorageKey::Temp(9999999, 4444444)
+                .to_path(Path::new("root"))
+                .to_str()
+                .unwrap(),
+            "root/tmp/9999999-4444444.tmp"
+        );
+        assert_eq!(
+            StorageKey::Blob(
+                "bla-a1-a2-a3:00112233445566778899aabbccddeeff"
+                    .parse()
+                    .unwrap()
+            )
+            .to_path(Path::new("root"))
+            .to_str()
+            .unwrap(),
+            "root/blobs/bla-a1-a2-a3-00112233445566778899aabbccddeeff-7r1dr1j0r1p0m2.blob"
+        );
+        assert_eq!(
+            StorageKey::Blob("sha256:00112233445566778899aabbccddeeff".parse().unwrap())
+                .to_path(Path::new("root"))
+                .to_str()
+                .unwrap(),
+            "root/blobs/sha256-00112233445566778899aabbccddeeff-dm2.blob"
+        );
+        assert_eq!(
+            StorageKey::BlobPart(
+                "bla-a1-a2-a3:00112233445566778899aabbccddeeff"
+                    .parse()
+                    .unwrap(),
+                0x12345 .. 0xffff_ffff_ffff_ffff
+            )
+            .to_path(Path::new("root"))
+            .to_str()
+            .unwrap(),
+            "root/parts/bla-a1-a2-a3-00112233445566778899aabbccddeeff-7r1dr1j0r1p0m2/12345-ffffffffffffffff.part"
+        );
+        assert_eq!(
+            StorageKey::BlobPart(
+                "bla-a1-a2-a3:00112233445566778899aabbccddeeff"
+                    .parse()
+                    .unwrap(),
+                0..0
+            )
+            .to_path(Path::new("root"))
+            .to_str()
+            .unwrap(),
+            "root/parts/bla-a1-a2-a3-00112233445566778899aabbccddeeff-7r1dr1j0r1p0m2/0-0.part"
+        );
+        assert_eq!(
+            StorageKey::Manifest(
+                "taco-extreme.example.org".parse().unwrap(),
+                "foo/bar".parse().unwrap(),
+                "latest".parse().unwrap(),
+            )
+            .to_path(Path::new("root"))
+            .to_str()
+            .unwrap(),
+            "root/manifest/taco-extreme-example-org-9r1p0s1n1s1/foo-bar-7t1/latest.json",
+        );
+        assert_eq!(
+            StorageKey::Manifest(
+                "localhost:666".parse().unwrap(),
+                "brrrr".parse().unwrap(),
+                "sha256:00112233445566778899aabbccddeeff".parse().unwrap(),
+            )
+            .to_path(Path::new("root"))
+            .to_str()
+            .unwrap(),
+            "root/manifest/localhost-666-j0m2/brrrr/sha256-00112233445566778899aabbccddeeff-dm2.json"
+        );
+        assert_eq!(
+            StorageKey::Manifest(
+                "gcr.io".parse().unwrap(),
+                "library/emacs".parse().unwrap(),
+                "taggy-mc-tagface.1".parse().unwrap(),
+            )
+            .to_path(Path::new("root"))
+            .to_str()
+            .unwrap(),
+            "root/manifest/gcr-io-7s1/library-emacs-ft1/taggy-mc-tagface-1-br1hr1x0s1.json",
+        );
+        assert_eq!(
+            StorageKey::Manifest(
+                "registry-1.docker.io".parse().unwrap(),
+                "library/busybox".parse().unwrap(),
+                "1.2.400".parse().unwrap(),
+            )
+            .to_path(Path::new("root"))
+            .to_str()
+            .unwrap(),
+            "root/manifest/registry-1-docker-io-hr1l0s1z0s1/library-busybox-ft1/1-2-400-3s17s1.json"
+        );
     }
 }
