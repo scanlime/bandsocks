@@ -68,10 +68,25 @@ impl StorageKey {
 
 /// Encode any input string in a way which preserves uniqueness but only uses
 /// lowercase alphanumeric characters and dashes.
+///
+/// For lowercase alphanumeric strings, the encoding is identical to the input.
+/// Otherwise, the resulting string will have at least one dash, and the portion
+/// after the final dash is a list of characters which were replaced during
+/// encoding.
+///
+/// The replacement list is encoded as a list of variable size integers encoded
+/// alphanumerically. Replacements can either be a case swap of the original
+/// character, or they can be a specific character encoded into the replacement
+/// list. Indices in this list are measured in bytes relative to the last
+/// encoded index.
+///
+/// Empty strings are allowed in the input, but the output is never empty. The
+/// output never begins or ends with a dash.
 fn path_encode(input: &str) -> String {
     let mut result = String::with_capacity(input.len() + 16);
     let mut changes = String::with_capacity(16);
     let mut in_replacement = false;
+    let mut idx_base = 0;
     for (idx, ch) in input.char_indices() {
         if ('a'..='z').contains(&ch) || ('0'..='9').contains(&ch) {
             // No change
@@ -81,15 +96,17 @@ fn path_encode(input: &str) -> String {
             // Record case conversion
             in_replacement = false;
             result.push(ch.to_ascii_lowercase());
-            push_base18_varint(&mut changes, idx << 1);
+            push_base18_varint(&mut changes, (idx - idx_base) << 1);
+            idx_base = idx + 1;
         } else {
             // Character replacement
             if idx > 0 && !in_replacement {
                 result.push('-');
             }
             in_replacement = true;
-            push_base18_varint(&mut changes, (idx << 1) | 1);
+            push_base18_varint(&mut changes, ((idx - idx_base) << 1) | 1);
             push_base18_varint(&mut changes, ch as usize);
+            idx_base = idx + 1;
         }
     }
     if result.is_empty() {
