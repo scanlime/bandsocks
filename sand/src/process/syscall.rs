@@ -64,7 +64,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         _result: Result<FileStat, Errno>,
     ) -> isize {
         // to do
-        0
+        -1
     }
 
     async fn return_vptr_result(&mut self, result: Result<VPtr, Errno>) -> isize {
