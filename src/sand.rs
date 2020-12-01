@@ -7,7 +7,7 @@ const PROGRAM_DATA: &[u8] = include_bytes!(concat!(
     "/sand-target/release/bandsocks-sand"
 ));
 
-use crate::errors::IPCError;
+use crate::errors::RuntimeError;
 use protocol::{LogLevel, LogMessage, SysFd, VPid};
 use std::{
     fs::File,
@@ -23,10 +23,10 @@ use std::{
 };
 
 lazy_static! {
-    static ref PROGRAM_FILE: Result<File, IPCError> = create_program_file();
+    static ref PROGRAM_FILE: Result<File, RuntimeError> = create_program_file();
 }
 
-fn create_program_file() -> Result<File, IPCError> {
+fn create_program_file() -> Result<File, RuntimeError> {
     let memfd = memfd::MemfdOptions::default()
         .allow_sealing(true)
         .create("bandsocks-sand")?;
@@ -45,9 +45,9 @@ fn create_program_file() -> Result<File, IPCError> {
     Ok(memfd.into_file())
 }
 
-pub fn command(fd: RawFd) -> Result<Command, IPCError> {
+pub fn command(fd: RawFd) -> Result<Command, RuntimeError> {
     let file = match &*PROGRAM_FILE {
-        Err(err) => return Err(IPCError::ProgramAllocError(err.to_string())),
+        Err(err) => return Err(RuntimeError::ProgramAllocError(err.to_string())),
         Ok(file) => file,
     };
     let mut cmd = Command::new(format!("/proc/self/fd/{}", file.as_raw_fd()));

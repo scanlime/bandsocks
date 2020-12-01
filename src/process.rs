@@ -1,5 +1,5 @@
 use crate::{
-    errors::IPCError,
+    errors::RuntimeError,
     filesystem::vfs::VFile,
     sand::protocol::{ProcessHandle, SysFd, SysPid, VPtr, VString},
 };
@@ -49,7 +49,7 @@ impl Process {
         sys_pid: SysPid,
         tracer: &Child,
         status: ProcessStatus,
-    ) -> Result<Process, IPCError> {
+    ) -> Result<Process, RuntimeError> {
         // Check before and after opening the file, to prevent PID races
         check_can_open(sys_pid, tracer)?;
         let mem_file = open_mem_file(sys_pid)?;
@@ -70,19 +70,19 @@ impl Process {
         }
     }
 
-    pub fn read_bytes(&self, vptr: VPtr, buf: &mut [u8]) -> Result<(), IPCError> {
+    pub fn read_bytes(&self, vptr: VPtr, buf: &mut [u8]) -> Result<(), RuntimeError> {
         self.mem_file
             .read_exact_at(buf, vptr.0 as u64)
-            .map_err(|_| IPCError::MemAccess)
+            .map_err(|_| RuntimeError::MemAccess)
     }
 
-    pub fn read_string(&self, vstr: VString) -> Result<String, IPCError> {
+    pub fn read_string(&self, vstr: VString) -> Result<String, RuntimeError> {
         self.read_string_os(vstr)?
             .into_string()
-            .map_err(|_| IPCError::StringDecoding)
+            .map_err(|_| RuntimeError::StringDecoding)
     }
 
-    pub fn read_string_os(&self, vstr: VString) -> Result<OsString, IPCError> {
+    pub fn read_string_os(&self, vstr: VString) -> Result<OsString, RuntimeError> {
         let mut ptr = vstr.0;
         let mut result = OsString::new();
         let mut page_buffer = Vec::with_capacity(*PAGE_SIZE);
@@ -104,18 +104,18 @@ impl Process {
     }
 }
 
-fn open_mem_file(sys_pid: SysPid) -> Result<File, IPCError> {
+fn open_mem_file(sys_pid: SysPid) -> Result<File, RuntimeError> {
     // open for read only, write is not portable enough
     let path = format!("/proc/{}/mem", sys_pid.0);
     Ok(File::open(path)?)
 }
 
-fn open_maps_file(sys_pid: SysPid) -> Result<File, IPCError> {
+fn open_maps_file(sys_pid: SysPid) -> Result<File, RuntimeError> {
     let path = format!("/proc/{}/maps", sys_pid.0);
     Ok(File::open(path)?)
 }
 
-fn read_proc_status(sys_pid: SysPid) -> Result<String, IPCError> {
+fn read_proc_status(sys_pid: SysPid) -> Result<String, RuntimeError> {
     let path = format!("/proc/{}/status", sys_pid.0);
     let mut file = File::open(path)?;
     let mut string = String::with_capacity(4096);
@@ -123,20 +123,20 @@ fn read_proc_status(sys_pid: SysPid) -> Result<String, IPCError> {
     Ok(string)
 }
 
-fn check_can_open(sys_pid: SysPid, tracer: &Child) -> Result<(), IPCError> {
+fn check_can_open(sys_pid: SysPid, tracer: &Child) -> Result<(), RuntimeError> {
     lazy_static! {
         static ref RE: Regex = Regex::new(r"\nPid:\t(\d+)\n.*\nTracerPid:\t(\d+)\n").unwrap();
     }
     let status = read_proc_status(sys_pid)?;
     match RE.captures(&status) {
-        None => Err(IPCError::InvalidPid),
+        None => Err(RuntimeError::InvalidPid),
         Some(captures) => {
             let pid = captures.get(1).map(|s| s.as_str().parse());
             let tracer_pid = captures.get(2).map(|s| s.as_str().parse());
             if pid == Some(Ok(sys_pid.0)) && tracer_pid == Some(Ok(tracer.id())) {
                 Ok(())
             } else {
-                Err(IPCError::InvalidPid)
+                Err(RuntimeError::InvalidPid)
             }
         }
     }

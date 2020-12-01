@@ -1,6 +1,6 @@
 use crate::{
     container::ExitStatus,
-    errors::IPCError,
+    errors::RuntimeError,
     filesystem::{
         storage::FileStorage,
         vfs::{Filesystem, VFile},
@@ -33,7 +33,7 @@ pub struct IPCServer {
     process_table: HashMap<VPid, Process>,
 }
 
-async fn send_message(stream: &mut UnixStream, message: &MessageToSand) -> Result<(), IPCError> {
+async fn send_message(stream: &mut UnixStream, message: &MessageToSand) -> Result<(), RuntimeError> {
     log::debug!("<{:x?}", message);
 
     let mut buffer = IPCBuffer::new();
@@ -51,7 +51,7 @@ impl IPCServer {
         filesystem: Filesystem,
         storage: FileStorage,
         args_socket: &T,
-    ) -> Result<Self, IPCError> {
+    ) -> Result<Self, RuntimeError> {
         let (mut server_socket, child_socket) = UnixStream::pair()?;
         clear_close_on_exec_flag(child_socket.as_raw_fd());
 
@@ -82,7 +82,7 @@ impl IPCServer {
         })
     }
 
-    pub fn task(mut self) -> JoinHandle<Result<ExitStatus, IPCError>> {
+    pub fn task(mut self) -> JoinHandle<Result<ExitStatus, RuntimeError>> {
         task::spawn(async move {
             let result = self.task_message_loop().await;
             log::trace!("task_message_loop -> {:?}", result);
@@ -91,7 +91,7 @@ impl IPCServer {
         })
     }
 
-    pub async fn task_message_loop(&mut self) -> Result<ExitStatus, IPCError> {
+    pub async fn task_message_loop(&mut self) -> Result<ExitStatus, RuntimeError> {
         let mut buffer = IPCBuffer::new();
         loop {
             let available = buffer.begin_fill();
@@ -100,7 +100,7 @@ impl IPCServer {
                     log::trace!("available={} len={}", available.bytes.len(), len);
                     buffer.commit_fill(len, 0)
                 }
-                _ => return Err(IPCError::Disconnected),
+                _ => return Err(RuntimeError::Disconnected),
             }
             while !buffer.is_empty() {
                 let message = match buffer.pop_front() {
@@ -120,7 +120,7 @@ impl IPCServer {
         }
     }
 
-    pub async fn task_finalize(self) -> Result<(), IPCError> {
+    pub async fn task_finalize(self) -> Result<(), RuntimeError> {
         log::trace!("task_finalize begin");
         let output = self.tracer.wait_with_output().await?;
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -129,21 +129,21 @@ impl IPCServer {
             assert_eq!(stderr, "");
             Ok(())
         } else {
-            Err(IPCError::SandError {
+            Err(RuntimeError::SandError {
                 status: output.status,
                 stderr: stderr.into_owned(),
             })
         }
     }
 
-    pub async fn send_message(&mut self, message: &MessageToSand) -> Result<(), IPCError> {
+    pub async fn send_message(&mut self, message: &MessageToSand) -> Result<(), RuntimeError> {
         send_message(&mut self.stream, message).await
     }
 
     async fn handle_message(
         &mut self,
         message: &MessageFromSand,
-    ) -> Result<Option<ExitStatus>, IPCError> {
+    ) -> Result<Option<ExitStatus>, RuntimeError> {
         log::debug!(">{:x?}", message);
         match message {
             MessageFromSand::Task { task, op } => self.handle_task_message(*task, op).await,
@@ -154,7 +154,7 @@ impl IPCServer {
         &mut self,
         task: VPid,
         result: Result<(), Errno>,
-    ) -> Result<Option<ExitStatus>, IPCError> {
+    ) -> Result<Option<ExitStatus>, RuntimeError> {
         self.send_message(&MessageToSand::Task {
             task,
             op: ToTask::Reply(result),
@@ -167,7 +167,7 @@ impl IPCServer {
         &mut self,
         task: VPid,
         result: Result<usize, Errno>,
-    ) -> Result<Option<ExitStatus>, IPCError> {
+    ) -> Result<Option<ExitStatus>, RuntimeError> {
         self.send_message(&MessageToSand::Task {
             task,
             op: ToTask::SizeReply(result),
@@ -180,7 +180,7 @@ impl IPCServer {
         &mut self,
         task: VPid,
         result: Result<FileStat, Errno>,
-    ) -> Result<Option<ExitStatus>, IPCError> {
+    ) -> Result<Option<ExitStatus>, RuntimeError> {
         self.send_message(&MessageToSand::Task {
             task,
             op: ToTask::FileStatReply(result),
@@ -193,7 +193,7 @@ impl IPCServer {
         &mut self,
         task: VPid,
         result: Result<VFile, Errno>,
-    ) -> Result<Option<ExitStatus>, IPCError> {
+    ) -> Result<Option<ExitStatus>, RuntimeError> {
         // SysFd does not own the underlying file, which must remain allocated until the
         // outgoing message has been flushed.
         let storage = match result {
@@ -219,7 +219,7 @@ impl IPCServer {
         &mut self,
         task: VPid,
         op: &FromTask,
-    ) -> Result<Option<ExitStatus>, IPCError> {
+    ) -> Result<Option<ExitStatus>, RuntimeError> {
         match op {
             FromTask::Log(level, message) => {
                 sand::task_log(task, *level, message.clone());
@@ -228,7 +228,7 @@ impl IPCServer {
 
             FromTask::OpenProcess(sys_pid) => {
                 if self.process_table.contains_key(&task) {
-                    Err(IPCError::WrongProcessState)
+                    Err(RuntimeError::WrongProcessState)
                 } else {
                     let process = Process::open(
                         *sys_pid,
@@ -249,7 +249,7 @@ impl IPCServer {
             }
 
             FromTask::GetWorkingDir(buffer, size) => match self.process_table.get_mut(&task) {
-                None => Err(IPCError::WrongProcessState)?,
+                None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
                         taskcall::get_working_dir(process, &self.filesystem, *buffer, *size).await;
@@ -258,7 +258,7 @@ impl IPCServer {
             },
 
             FromTask::ChangeWorkingDir(path) => match self.process_table.get_mut(&task) {
-                None => Err(IPCError::WrongProcessState)?,
+                None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
                         taskcall::change_working_dir(process, &self.filesystem, *path).await;
@@ -267,7 +267,7 @@ impl IPCServer {
             },
 
             FromTask::FileStat { fd, path, nofollow } => match self.process_table.get_mut(&task) {
-                None => Err(IPCError::WrongProcessState)?,
+                None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
                         taskcall::file_stat(process, &self.filesystem, *fd, *path, *nofollow).await;
@@ -276,7 +276,7 @@ impl IPCServer {
             },
 
             FromTask::FileAccess { dir, path, mode } => match self.process_table.get_mut(&task) {
-                None => Err(IPCError::WrongProcessState)?,
+                None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
                         taskcall::file_access(process, &self.filesystem, *dir, *path, *mode).await;
@@ -290,7 +290,7 @@ impl IPCServer {
                 flags,
                 mode,
             } => match self.process_table.get_mut(&task) {
-                None => Err(IPCError::WrongProcessState)?,
+                None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
                         taskcall::file_open(process, &self.filesystem, *dir, *path, *flags, *mode)
@@ -300,7 +300,7 @@ impl IPCServer {
             },
 
             FromTask::ProcessKill(_vpid, _signal) => match self.process_table.get_mut(&task) {
-                None => Err(IPCError::WrongProcessState)?,
+                None => Err(RuntimeError::WrongProcessState)?,
                 Some(_process) => self.task_reply(task, Ok(())).await,
             },
 

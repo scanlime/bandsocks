@@ -2,84 +2,181 @@
 
 use thiserror::Error;
 
+/// Errors during container image preparation
 #[derive(Error, Debug)]
 pub enum ImageError {
+    /// invalid image reference format
     #[error("invalid image reference format: {0:?}")]
     InvalidReferenceFormat(String),
 
+    /// storage io error
     #[error("storage io error: {0}")]
     Storage(#[from] std::io::Error),
 
+    /// json error
     #[error("json error: {0}")]
     JSON(#[from] serde_json::Error),
 
+    /// asynchronous task failed during image preparation
     #[error("asynchronous task failed during image preparation")]
     TaskJoin(#[from] tokio::task::JoinError),
 
+    /// asynchronous image hashing task failed during image preparation
     #[error("asynchronous image hashing task failed during image preparation")]
     ByteChannelError(#[from] std::sync::mpsc::SendError<bytes::Bytes>),
 
+    /// network request error
     #[error("network request error: {0}")]
     NetworkRequest(#[from] reqwest::Error),
 
-    #[error("string in image configuratoin contained internal nul byte")]
+    /// string in image configuration contained internal nul byte
+    #[error("string in image configuration contained internal nul byte")]
     NulStringError(#[from] std::ffi::NulError),
 
+    /// registry server is not allowed by the current configuration
     #[error("registry server is not allowed by the current configuration: {0}")]
     RegistryNotAllowed(crate::image::Registry),
 
+    /// tar file format error
     #[error("tar file format error")]
     TARFileError,
 
+    /// virtual filesystem error while preparing image
     #[error("virtual filesystem error while preparing image: {0}")]
     ImageVFSError(#[from] VFSError),
 
+    /// data just written to the cache is missing
     #[error("data just written to the cache is missing")]
     StorageMissingAfterInsert,
 
+    /// i/o errors occurred, the content digest is not valid
     #[error("i/o errors occurred, the content digest is not valid")]
     ContentDigestIOError,
 
+    /// we are in offline mode, but a download was requested
     #[error("we are in offline mode, but a download was requested")]
     DownloadInOfflineMode,
 
+    /// can't determine where to cache image files
+    #[error("can't determine where to cache image files")]
+    NoDefaultCacheDir,
+
+    /// only v2 image manifests are supported
+    #[error("only v2 image manifests are supported")]
+    UnsupportedManifestType,
+
+    /// unsupported type for runtime config
+    #[error("unsupported type for runtime config, {0:?}")]
+    UnsupportedRuntimeConfigType(String),
+
+    /// unsupported type for image layer
+    #[error("unsupported type for image layer, {0:?}")]
+    UnsupportedLayerType(String),
+
+    /// invalid content type string
+    #[error("invalid content type string, {0:?}")]
+    InvalidContentType(String),
+
+    /// unexpected content size
+    #[error("unexpected content size")]
+    UnexpectedContentSize,
+
+    /// unable to locate decompressed layers by content hash
+    #[error("unable to locate decompressed layers by content hash")]
+    UnexpectedDecompressedLayerContent,
+
+    /// unsupported type for rootfs in image config
+    #[error("unsupported type for rootfs in image config, {0:?}")]
+    UnsupportedRootFilesystemType(String),
+
+    /// insecure configuration; refusing to run a manifest downloaded over HTTP with no content digest
+    #[error("insecure configuration; refusing to run a manifest downloaded over HTTP with no content digest")]
+    InsecureManifest,
+
+    /// registry server requested an unsupported type of authentication
+    #[error("registry server requested an unsupported type of authentication: {0:?}")]
+    UnsupportedAuthentication(String),
+
+    /// calculated digest of downloaded content is not what we asked for
     #[error("calculated digest of downloaded content is not what we asked for, expected {expected}, found {found}")]
     ContentDigestMismatch {
         expected: crate::image::ContentDigest,
         found: crate::image::ContentDigest,
     },
-
-    #[error("can't determine where to cache image files")]
-    NoDefaultCacheDir,
-
-    #[error("only v2 image manifests are supported")]
-    UnsupportedManifestType,
-
-    #[error("unsupported type for runtime config, {0:?}")]
-    UnsupportedRuntimeConfigType(String),
-
-    #[error("unsupported type for image layer, {0:?}")]
-    UnsupportedLayerType(String),
-
-    #[error("invalid content type string, {0:?}")]
-    InvalidContentType(String),
-
-    #[error("unexpected content size")]
-    UnexpectedContentSize,
-
-    #[error("unable to locate decompressed layers by content hash")]
-    UnexpectedDecompressedLayerContent,
-
-    #[error("unsupported type for rootfs in image config, {0:?}")]
-    UnsupportedRootFilesystemType(String),
-
-    #[error("insecure configuration; refusing to run a manifest downloaded over HTTP with no content digest")]
-    InsecureManifest,
-
-    #[error("registry server requested an unsupported type of authentication: {0:?}")]
-    UnsupportedAuthentication(String),
 }
 
+/// Errors that occur while a container is running
+#[derive(Error, Debug)]
+pub enum RuntimeError {
+/// io error
+    #[error("io error: {0}")]
+    IOError(#[from] std::io::Error),
+
+    /// protocol error
+    #[error("protocol error: {0}")]
+    ProtocolError(#[from] crate::sand::protocol::buffer::Error),
+
+    /// connection lost unexpectedly
+    #[error("connection lost unexpectedly")]
+    Disconnected,
+
+    /// file queue full error
+    #[error("file queue full error")]
+    FileQueueFullError(#[from] fd_queue::QueueFullError),
+
+    /// container image error
+    #[error("container image error: {0}")]
+    ImageError(#[from] ImageError),
+
+    /// task join error
+    #[error("task join error: {0}")]
+    TaskJoinError(#[from] tokio::task::JoinError),
+
+    /// virtual filesystem error
+    #[error("virtual filesystem error: {0}")]
+    VFSError(#[from] VFSError),
+
+    /// container has no configured entry point
+    #[error("container has no configured entry point")]
+    NoEntryPoint,
+
+    /// invalid process ID
+    #[error("invalid process ID")]
+    InvalidPid,
+
+    /// incorrect ipc process state
+    #[error("incorrect ipc process state")]
+    WrongProcessState,
+
+    /// string decoding error
+    #[error("string decoding error")]
+    StringDecoding,
+
+    /// failed to allocate sandbox process
+    #[error("failed to allocate sandbox process: {0}")]
+    ProgramAllocError(String),
+
+    /// memory access error
+    #[error("memory access error")]
+    MemAccess,
+
+    /// error in memory-backed file
+    #[error("error in memory-backed file: {0}")]
+    MemfdError(#[from] memfd::Error),
+
+    /// argument string contained internal nul byte
+    #[error("argument string contained internal nul byte")]
+    NulStringError(#[from] std::ffi::NulError),
+
+    /// exception from sandbox runtime
+    #[error("exception from sandbox runtime, {status}\n{stderr}")]
+    SandError {
+        status: std::process::ExitStatus,
+        stderr: String,
+    },
+}
+
+/// Errors from the virtual filesystem layer, convertible to an errno code
 #[derive(Error, Debug)]
 pub enum VFSError {
     #[error("unexpected filesystem image storage error")]
@@ -111,6 +208,7 @@ pub enum VFSError {
 }
 
 impl VFSError {
+    /// Convert this error to the equivalent kernel errno value
     pub fn to_errno(&self) -> libc::c_int {
         match self {
             VFSError::ImageStorageError => libc::EIO,
@@ -124,70 +222,4 @@ impl VFSError {
             VFSError::INodeRefCountError => libc::ENOMEM,
         }
     }
-}
-
-#[derive(Error, Debug)]
-pub enum IPCError {
-    #[error("ipc io error: {0}")]
-    IOError(#[from] std::io::Error),
-
-    #[error("ipc protocol error: {0}")]
-    ProtocolError(#[from] crate::sand::protocol::buffer::Error),
-
-    #[error("file queue full error")]
-    FileQueueFullError(#[from] fd_queue::QueueFullError),
-
-    #[error("task join error: {0}")]
-    TaskJoinError(#[from] tokio::task::JoinError),
-
-    #[error("invalid process ID")]
-    InvalidPid,
-
-    #[error("incorrect ipc process state")]
-    WrongProcessState,
-
-    #[error("string decoding error")]
-    StringDecoding,
-
-    #[error("failed to allocate sandbox process: {0}")]
-    ProgramAllocError(String),
-
-    #[error("memory access error")]
-    MemAccess,
-
-    #[error("error in memory-backed file: {0}")]
-    MemfdError(#[from] memfd::Error),
-
-    #[error("connection lost unexpectedly")]
-    Disconnected,
-
-    #[error("exception from sandbox runtime, {status}\n{stderr}")]
-    SandError {
-        status: std::process::ExitStatus,
-        stderr: String,
-    },
-}
-
-#[derive(Error, Debug)]
-pub enum RuntimeError {
-    #[error("runtime io error: {0}")]
-    IOError(#[from] std::io::Error),
-
-    #[error("virtual filesystem error: {0}")]
-    VFSError(#[from] VFSError),
-
-    #[error("interprocess communication error: {0}")]
-    IPCError(#[from] IPCError),
-
-    #[error("argument string contained internal nul byte")]
-    NulStringError(#[from] std::ffi::NulError),
-
-    #[error("task join error: {0}")]
-    TaskJoinError(#[from] tokio::task::JoinError),
-
-    #[error("container image error: {0}")]
-    ImageError(#[from] ImageError),
-
-    #[error("container has no configured entry point")]
-    NoEntryPoint,
 }
