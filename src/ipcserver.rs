@@ -8,8 +8,8 @@ use crate::{
     process::{Process, ProcessStatus},
     sand,
     sand::protocol::{
-        buffer, buffer::IPCBuffer, Errno, FileStat, FromTask, MessageFromSand, MessageToSand,
-        SysFd, ToTask, VPid,
+        buffer, buffer::IPCBuffer, exit::*, Errno, FileStat, FromTask, MessageFromSand,
+        MessageToSand, SysFd, ToTask, VPid,
     },
     taskcall,
 };
@@ -132,10 +132,17 @@ impl IPCServer {
             assert_eq!(stderr, "");
             Ok(())
         } else {
-            Err(RuntimeError::SandError {
-                status: output.status,
-                stderr: stderr.into_owned(),
-            })
+            let stderr = stderr.into_owned();
+            let status = output.status;
+            if status.code() == Some(EXIT_PANIC as i32) {
+                Err(RuntimeError::SandPanic { stderr })
+            } else if status.code() == Some(EXIT_DISCONNECTED as i32) {
+                Err(RuntimeError::SandReportsDisconnect { stderr })
+            } else if status.code() == Some(EXIT_IO_ERROR as i32) {
+                Err(RuntimeError::SandIOError { stderr })
+            } else {
+                Err(RuntimeError::SandUnexpectedStatus { status, stderr })
+            }
         }
     }
 

@@ -169,10 +169,28 @@ pub enum RuntimeError {
     #[error("argument string contained internal nul byte")]
     NulStringError(#[from] std::ffi::NulError),
 
-    /// exception from sandbox runtime
-    #[error("exception from sandbox runtime, {status}\n{stderr}")]
-    SandError {
+    /// unexpected exit status from sandbox runtime
+    #[error("unexpected exit from sandbox runtime, {status}\n{stderr}")]
+    SandUnexpectedStatus {
         status: std::process::ExitStatus,
+        stderr: String,
+    },
+
+    /// sandbox runtime reported an unexpected disconnect
+    #[error("sandbox runtime reports an unexpected disconnect\n{stderr}")]
+    SandReportsDisconnect {
+        stderr: String,
+    },
+
+    /// sandbox runtime reports a low-level I/O error
+    #[error("sandbox runtime reports a low-level I/O error\n{stderr}")]
+    SandIOError {
+        stderr: String,
+    },
+
+    /// panic from sandbox runtime
+    #[error("panic from sandbox runtime\n{stderr}")]
+    SandPanic {
         stderr: String,
     },
 }
