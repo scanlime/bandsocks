@@ -22,6 +22,9 @@ pub enum ImageError {
     #[error("network request error: {0}")]
     NetworkRequest(#[from] reqwest::Error),
 
+    #[error("string in image configuratoin contained internal nul byte")]
+    NulStringError(#[from] std::ffi::NulError),
+
     #[error("registry server is not allowed by the current configuration: {0}")]
     RegistryNotAllowed(crate::image::Registry),
 
@@ -176,14 +179,14 @@ pub enum RuntimeError {
     #[error("interprocess communication error: {0}")]
     IPCError(#[from] IPCError),
 
+    #[error("argument string contained internal nul byte")]
+    NulStringError(#[from] std::ffi::NulError),
+
     #[error("task join error: {0}")]
     TaskJoinError(#[from] tokio::task::JoinError),
 
     #[error("container image error: {0}")]
     ImageError(#[from] ImageError),
-
-    #[error("container has no configured image")]
-    NoImage,
 
     #[error("container has no configured entry point")]
     NoEntryPoint,

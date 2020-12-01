@@ -19,8 +19,7 @@ use std::{
             process::CommandExt,
         },
     },
-    process::Command,
-    process::Stdio,
+    process::{Command, Stdio},
 };
 
 lazy_static! {

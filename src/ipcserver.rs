@@ -47,13 +47,17 @@ async fn send_message(stream: &mut UnixStream, message: &MessageToSand) -> Resul
 }
 
 impl IPCServer {
-    pub async fn new(
+    pub async fn new<T: AsRawFd>(
         filesystem: Filesystem,
         storage: FileStorage,
-        args_fd: SysFd,
+        args_socket: &T,
     ) -> Result<Self, IPCError> {
         let (mut server_socket, child_socket) = UnixStream::pair()?;
         clear_close_on_exec_flag(child_socket.as_raw_fd());
+
+        let args_fd = args_socket.as_raw_fd();
+        assert_eq!(0, unsafe { libc::fcntl(args_fd, libc::F_SETFL, 0) });
+        let args_fd = SysFd(args_fd as u32);
 
         // Queue the init message before running the sand process. It will exit early if
         // it starts up idle.

@@ -43,8 +43,8 @@ async fn main() {
             log::warn!("pull-only mode, run arguments are being ignored")
         }
     } else {
-        let container = Container::new()
-            .image(&image)
+        let container = Container::new(image)
+            .expect("failed to construct container")
             .args(run_args)
             .envs(run_env)
             .spawn()

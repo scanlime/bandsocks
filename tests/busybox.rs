@@ -53,10 +53,9 @@ fn busybox_sleep_once() {
 fn busybox_sleep_sequential() {
     const NUM: usize = 100;
     Runtime::new().unwrap().block_on(async {
-        let mut builder = common().await;
-        builder.arg("sleep").arg("0.001");
+        let builder = common().await.arg("sleep").arg("0.001");
         for _ in 0..NUM {
-            assert!(builder.spawn().unwrap().wait().await.unwrap().success());
+            assert!(builder.clone().spawn().unwrap().wait().await.unwrap().success());
         }
     })
 }
@@ -65,9 +64,8 @@ fn busybox_sleep_sequential() {
 fn busybox_sleep_parallel() {
     const NUM: usize = 100;
     Runtime::new().unwrap().block_on(async {
-        let mut builder = common().await;
+        let builder = common().await.arg("sleep").arg("5.0");
         let mut tasks = FuturesUnordered::new();
-        builder.arg("sleep").arg("5.0");
         for _ in 0..NUM {
             let builder_copy = builder.clone();
             tasks.push(task::spawn(async move {
@@ -89,12 +87,11 @@ fn busybox_bool_parallel() {
         let builder = common().await;
         let mut tasks = FuturesUnordered::new();
         for i in 0..NUM {
-            let mut builder_copy = builder.clone();
-            builder_copy.arg(["true", "false"][i & 1]);
+            let builder = builder.clone().arg(["true", "false"][i & 1]);
             tasks.push(task::spawn(async move {
                 Ok::<(usize, Option<i32>), RuntimeError>((
                     i,
-                    builder_copy.spawn()?.wait().await?.code(),
+                    builder.spawn()?.wait().await?.code(),
                 ))
             }));
         }
