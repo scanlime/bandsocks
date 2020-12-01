@@ -170,6 +170,8 @@ mod test {
         assert_eq!(path_encode("blah"), "blah");
         assert_eq!(path_encode("aaazzzz0909123248"), "aaazzzz0909123248");
         assert_eq!(path_encode("0"), "0");
+        assert_eq!(path_encode("--bl----ah"), "bl-ah-1r13r19r1br1dr1fr1");
+        assert_eq!(path_encode("bl----ah"), "bl-ah-5r17r19r1br1");
         assert_eq!(path_encode("blAh"), "blah-4");
         assert_eq!(path_encode("BLAH"), "blah-0246");
         assert_eq!(path_encode("b999lah"), "b999lah");
