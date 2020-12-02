@@ -87,35 +87,40 @@ fn path_encode(input: &str) -> String {
     let mut changes = String::with_capacity(16);
     let mut in_replacement = false;
     let mut idx_base = 0;
+
+    let op_char_dropped = |rel_idx: usize| (rel_idx << 1) | 0; // ...iiiiiii0
+    let op_case_convert = |rel_idx: usize| (rel_idx << 2) | 1; // ...iiiiii01
+    let op_char_inserted = 3; // ...00000011
+    // reserved: all other ...xxxxxx11
+
     for (idx, ch) in input.char_indices() {
         if ('a'..='z').contains(&ch) || ('0'..='9').contains(&ch) {
             // No change
+            result.push(ch);
             in_replacement = false;
-            result.push(ch)
         } else if ('A'..='Z').contains(&ch) {
             // Record case conversion
-            in_replacement = false;
             result.push(ch.to_ascii_lowercase());
-            push_base18_varint(&mut changes, (idx - idx_base) << 1);
+            push_base18_varint(&mut changes, op_case_convert(idx - idx_base));
             idx_base = idx + 1;
+            in_replacement = false;
         } else {
             // Character replacement
             if idx > 0 && !in_replacement {
                 result.push('-');
             }
-            in_replacement = true;
-            push_base18_varint(&mut changes, ((idx - idx_base) << 1) | 1);
+            push_base18_varint(&mut changes, op_char_dropped(idx - idx_base));
             push_base18_varint(&mut changes, ch as usize);
             idx_base = idx + 1;
+            in_replacement = true;
         }
     }
+
     if result.is_empty() {
-        // Empty string not allowed, encode the replacement like a NUL byte just after
-        // the original end of the string.
-        in_replacement = false;
+        // Empty string not allowed
         result.push('0');
-        push_base18_varint(&mut changes, (input.len() << 1) | 1);
-        push_base18_varint(&mut changes, 0);
+        push_base18_varint(&mut changes, op_char_inserted);
+        in_replacement = false;
     }
     if !changes.is_empty() {
         if !in_replacement {
@@ -187,44 +192,51 @@ mod test {
         assert_eq!(path_encode("blah"), "blah");
         assert_eq!(path_encode("aaazzzz0909123248"), "aaazzzz0909123248");
         assert_eq!(path_encode("0"), "0");
-        assert_eq!(path_encode("--bl----ah"), "bl-ah-1r13r19r1br1dr1fr1");
-        assert_eq!(path_encode("bl----ah"), "bl-ah-5r17r19r1br1");
-        assert_eq!(path_encode("blAh"), "blah-4");
-        assert_eq!(path_encode("BLAH"), "blah-0246");
+        assert_eq!(path_encode("--bl----ah"), "bl-ah-0r10r14r10r10r10r1");
+        assert_eq!(path_encode("bl----ah"), "bl-ah-4r10r10r10r1");
+        assert_eq!(path_encode("blAh"), "blah-9");
+        assert_eq!(path_encode("BLAH"), "blah-1111");
         assert_eq!(path_encode("b999lah"), "b999lah");
-        assert_eq!(path_encode("foo-bar"), "foo-bar-7r1");
-        assert_eq!(path_encode("foob-ar"), "foob-ar-9r1");
-        assert_eq!(path_encode("foo::BAR!"), "foo-bar-7m29m2acehx0");
-        assert_eq!(path_encode(".foo?"), "foo-1s19r2");
-        assert_eq!(path_encode("blah-4"), "blah-4-9r1");
-        assert_eq!(path_encode("blah-4-9r1"), "blah-4-9r1-9r1dr1");
+        assert_eq!(path_encode("foo-bar"), "foo-bar-6r1");
+        assert_eq!(path_encode("foob-ar"), "foob-ar-8r1");
+        assert_eq!(path_encode("foo::BAR!"),"foo-bar-6m20m21110x0");
+        assert_eq!(path_encode(".foo?"), "foo-0s16r2");
+        assert_eq!(path_encode("blah-4"), "blah-4-8r1");
+        assert_eq!(path_encode("blah-4-9r1"), "blah-4-9r1-8r12r1");
         assert_eq!(
-            path_encode("blah-4-9r1-9r1dr1"),
-            "blah-4-9r1-9r1dr1-9r1dr1l0r1"
+            path_encode("blah-4-9r1-8r12r1"),
+            "blah-4-9r1-8r12r1-8r12r16r1"
         );
-        assert_eq!(path_encode(""), "0-10");
-        assert_eq!(path_encode("\x00"), "0-1030");
-        assert_eq!(path_encode("\x00\x00"), "0-103050");
-        assert_eq!(path_encode("x\x00"), "x-30");
-        assert_eq!(path_encode("X\x00"), "x-030");
-        assert_eq!(path_encode("💀"), "0-1mpyk090");
-        assert_eq!(path_encode("π"), "0-1oy150");
-        assert_eq!(path_encode("oop💀"), "oop-7mpyk0");
-        assert_eq!(path_encode("oopπ"), "oop-7oy1");
-        assert_eq!(path_encode("0💀0"), "0-0-3mpyk0");
-        assert_eq!(path_encode("0π0"), "0-0-3oy1");
-        assert_eq!(path_encode("0💀💀0"), "0-0-3mpyk0bmpyk0");
-        assert_eq!(path_encode("0ππ0"), "0-0-3oy17oy1");
+        assert_eq!(path_encode(""), "0-3");
+        assert_eq!(path_encode("0"), "0");
+        assert_eq!(path_encode("\x00"), "0-003");
+        assert_eq!(path_encode("0\x00"), "0-20");
+        assert_eq!(path_encode("\x00\x00"), "0-00003");
+        assert_eq!(path_encode("x\x00"), "x-20");
+        assert_eq!(path_encode("X\x00"), "x-100");
+        assert_eq!(path_encode("🐱.m4v"), "m4v-0xkyk06s1");
+        assert_eq!(path_encode("💀"), "0-0mpyk03");
+        assert_eq!(path_encode("💀💀💀"), "0-0mpyk06mpyk06mpyk03");
+        assert_eq!(path_encode("π"), "0-0oy13");
+        assert_eq!(path_encode("πππ"), "0-0oy12oy12oy13");
+        assert_eq!(path_encode("π\x000"), "0-0oy120");
+        assert_eq!(path_encode("π0"), "0-0oy1");
+        assert_eq!(path_encode("oop💀"), "oop-6mpyk0");
+        assert_eq!(path_encode("oopπ"), "oop-6oy1");
+        assert_eq!(path_encode("0💀0"), "0-0-2mpyk0");
+        assert_eq!(path_encode("0π0"), "0-0-2oy1");
+        assert_eq!(path_encode("0💀💀0"), "0-0-2mpyk06mpyk0");
+        assert_eq!(path_encode("0ππ0"), "0-0-2oy12oy1");
     }
 
     #[test]
     fn storage_paths() {
         assert_eq!(
             StorageKey::Temp(1, 2)
-                .to_path(Path::new("root"))
+                .to_path(Path::new("/some/directory/.OR_WHATEVER"))
                 .to_str()
                 .unwrap(),
-            "root/tmp/1-2.tmp"
+            "/some/directory/.OR_WHATEVER/tmp/1-2.tmp"
         );
         assert_eq!(
             StorageKey::Temp(9999999, 4444444)
@@ -242,14 +254,14 @@ mod test {
             .to_path(Path::new("root"))
             .to_str()
             .unwrap(),
-            "root/blobs/bla-a1-a2-a3-00112233445566778899aabbccddeeff-7r1dr1j0r1p0m2.blob"
+            "root/blobs/bla-a1-a2-a3-00112233445566778899aabbccddeeff-6r14r14r14m2.blob"
         );
         assert_eq!(
             StorageKey::Blob("sha256:00112233445566778899aabbccddeeff".parse().unwrap())
                 .to_path(Path::new("root"))
                 .to_str()
                 .unwrap(),
-            "root/blobs/sha256-00112233445566778899aabbccddeeff-dm2.blob"
+            "root/blobs/sha256-00112233445566778899aabbccddeeff-cm2.blob"
         );
         assert_eq!(
             StorageKey::BlobPart(
@@ -261,7 +273,7 @@ mod test {
             .to_path(Path::new("root"))
             .to_str()
             .unwrap(),
-            "root/parts/bla-a1-a2-a3-00112233445566778899aabbccddeeff-7r1dr1j0r1p0m2/12345-ffffffffffffffff.part"
+            "root/parts/bla-a1-a2-a3-00112233445566778899aabbccddeeff-6r14r14r14m2/12345-ffffffffffffffff.part"
         );
         assert_eq!(
             StorageKey::BlobPart(
@@ -273,7 +285,7 @@ mod test {
             .to_path(Path::new("root"))
             .to_str()
             .unwrap(),
-            "root/parts/bla-a1-a2-a3-00112233445566778899aabbccddeeff-7r1dr1j0r1p0m2/0-0.part"
+            "root/parts/bla-a1-a2-a3-00112233445566778899aabbccddeeff-6r14r14r14m2/0-0.part"
         );
         assert_eq!(
             StorageKey::Manifest(
@@ -284,7 +296,7 @@ mod test {
             .to_path(Path::new("root"))
             .to_str()
             .unwrap(),
-            "root/manifest/taco-extreme-example-org-9r1p0s1n1s1/foo-bar-7t1/latest.json",
+            "root/manifest/taco-extreme-example-org-8r1es1es1/foo-bar-6t1/latest.json",
         );
         assert_eq!(
             StorageKey::Manifest(
@@ -295,7 +307,7 @@ mod test {
             .to_path(Path::new("root"))
             .to_str()
             .unwrap(),
-            "root/manifest/localhost-666-j0m2/brrrr/sha256-00112233445566778899aabbccddeeff-dm2.json"
+            "root/manifest/localhost-666-i0m2/brrrr/sha256-00112233445566778899aabbccddeeff-cm2.json"
         );
         assert_eq!(
             StorageKey::Manifest(
@@ -306,7 +318,7 @@ mod test {
             .to_path(Path::new("root"))
             .to_str()
             .unwrap(),
-            "root/manifest/gcr-io-7s1/library-emacs-ft1/taggy-mc-tagface-1-br1hr1x0s1.json",
+            "root/manifest/gcr-io-6s1/library-emacs-et1/taggy-mc-tagface-1-ar14r1es1.json",
         );
         assert_eq!(
             StorageKey::Manifest(
@@ -317,7 +329,7 @@ mod test {
             .to_path(Path::new("root"))
             .to_str()
             .unwrap(),
-            "root/manifest/registry-1-docker-io-hr1l0s1z0s1/library-busybox-ft1/1-2-400-3s17s1.json"
+            "root/manifest/registry-1-docker-io-gr12s1cs1/library-busybox-et1/1-2-400-2s12s1.json"
         );
     }
 }
