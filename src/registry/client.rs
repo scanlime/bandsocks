@@ -32,7 +32,7 @@ use std::{
 };
 use tokio::task;
 
-/// Builder for configuring custom [Client] instances
+/// Builder for configuring custom [RegistryClient] instances
 pub struct RegistryClientBuilder {
     auth: Auth,
     cache_dir: Option<PathBuf>,
