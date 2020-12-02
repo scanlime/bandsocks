@@ -12,19 +12,27 @@ use crate::{
     registry::RegistryClient,
     sand::protocol::InitArgsHeader,
 };
-use std::{ffi::CString, sync::Arc};
+use std::{ffi::CString, os::unix::net::UnixStream, sync::Arc};
 use tokio::{
     io::{AsyncWriteExt, BufWriter},
+    task,
     task::JoinHandle,
 };
 
-/// A running container, analogous to [std::process::Child]
+/// A running container
+///
+/// Roughly analogous to [std::process::Child], but for a sandbox container.
 #[derive(Debug)]
 pub struct Container {
+    pub stdin: Option<UnixStream>,
+    pub stdout: Option<UnixStream>,
+    pub stderr: Option<UnixStream>,
     join: JoinHandle<Result<ExitStatus, RuntimeError>>,
 }
 
-/// Status of an exited container, analogous to [std::process::ExitStatus]
+/// Status of an exited container
+///
+/// Much like [std::process::ExitStatus]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExitStatus {
     pub(crate) code: i32,
@@ -38,6 +46,16 @@ impl ExitStatus {
     pub fn code(&self) -> Option<i32> {
         Some(self.code)
     }
+}
+
+/// Output from an exited container
+///
+/// Much like [std::process::Output]
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Output {
+    pub status: ExitStatus,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
 }
 
 impl Container {
@@ -76,6 +94,78 @@ impl Container {
         result
     }
 
+    /// Wait for the container to finish running, while connecting it to stdio
+    ///
+    /// Any stdio streams which haven't been taken from the [Container] or
+    /// overridden with [ContainerBuilder] will be forwarded to/from their real
+    /// equivalents until the container exits.
+    pub async fn interact(self) -> Result<ExitStatus, RuntimeError> {
+        log::trace!("interact starting");
+        let stdin = self.stdin;
+        let _ = task::spawn(async move {
+            if let Some(stream) = stdin {
+                let mut stream = tokio::net::UnixStream::from_std(stream)?;
+                tokio::io::copy(&mut tokio::io::stdin(), &mut stream).await?;
+            }
+            Ok::<(), tokio::io::Error>(())
+        });
+        let stdout = self.stdout;
+        let _ = task::spawn(async move {
+            if let Some(stream) = stdout {
+                let mut stream = tokio::net::UnixStream::from_std(stream)?;
+                tokio::io::copy(&mut stream, &mut tokio::io::stdout()).await?;
+            }
+            Ok::<(), tokio::io::Error>(())
+        });
+        let stderr = self.stderr;
+        let _ = task::spawn(async move {
+            if let Some(stream) = stderr {
+                let mut stream = tokio::net::UnixStream::from_std(stream)?;
+                tokio::io::copy(&mut stream, &mut tokio::io::stderr()).await?;
+            }
+            Ok::<(), tokio::io::Error>(())
+        });
+        let status = self.join.await??;
+        log::trace!("interact finished, {:?}", status);
+        Ok(status)
+    }
+
+    /// Capture the container's output and wait for it to finish
+    ///
+    /// This will capture stderr and stdout if they have not been
+    /// taken from the [Container] or overridden with [ContainerBuilder].
+    ///
+    /// If stdin has not been taken or overridden, it will be dropped.
+    pub async fn output(mut self) -> Result<Output, RuntimeError> {
+        self.stdin.take();
+
+        fn output_task(stream: Option<UnixStream>) -> JoinHandle<tokio::io::Result<Vec<u8>>> {
+            task::spawn(async move {
+                let mut buf = Vec::<u8>::new();
+                if let Some(stream) = stream {
+                    let mut stream = tokio::net::UnixStream::from_std(stream)?;
+                    tokio::io::copy(&mut stream, &mut buf).await?;
+                }
+                Ok(buf)
+            })
+        }
+        let stdout = output_task(self.stdout);
+        let stderr = output_task(self.stderr);
+
+        log::trace!("output wait starting");
+        let status = self.join.await??;
+        let stdout = stdout.await??;
+        let stderr = stderr.await??;
+        let result = Output {
+            status,
+            stdout,
+            stderr,
+        };
+
+        log::trace!("output wait complete -> {:?}", result);
+        Ok(result)
+    }
+
     pub(crate) fn exec(
         filesystem: Filesystem,
         storage: FileStorage,
@@ -83,6 +173,7 @@ impl Container {
         dir: CString,
         argv: Vec<CString>,
         env: Vec<CString>,
+        stdio: [Option<UnixStream>; 3],
     ) -> Result<Container, RuntimeError> {
         log::debug!(
             "exec file={:?} dir={:?} argv={:?} env={:?}",
@@ -106,7 +197,12 @@ impl Container {
             env_count: env.len(),
         };
 
+        let [stdin, stdout, stderr] = stdio;
+
         Ok(Container {
+            stdin,
+            stdout,
+            stderr,
             join: tokio::spawn(async move {
                 let ipc_task = {
                     let (args_local, args_remote) = fd_queue::tokio::UnixStream::pair()?;

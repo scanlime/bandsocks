@@ -1,5 +1,6 @@
 use bandsocks::{Container, ContainerBuilder, RuntimeError};
 use futures_util::stream::{FuturesUnordered, StreamExt};
+use std::{io, io::BufRead};
 use tokio::{runtime::Runtime, task};
 
 const IMAGE: &str =
@@ -26,9 +27,7 @@ fn busybox_true() {
         let container = common().await.arg("/bin/true").spawn().unwrap();
         let status = container.wait().await.unwrap();
         assert_eq!(status.code(), Some(0));
-        log::trace!("done??");
     });
-    log::trace!("done?1!");
 }
 
 #[test]
@@ -46,6 +45,49 @@ fn busybox_sleep_once() {
         let container = common().await.arg("sleep").arg("0.5").spawn().unwrap();
         let status = container.wait().await.unwrap();
         assert!(status.success());
+    })
+}
+
+#[test]
+fn busybox_cat_output() {
+    Runtime::new().unwrap().block_on(async {
+        let output = common()
+            .await
+            .args(&["cat", "/etc/passwd"])
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let stdout = std::str::from_utf8(&output.stdout);
+        assert_eq!(stdout, Ok(concat!(
+            "root:x:0:0:root:/root:/bin/sh\ndaemon:x:1:1:daemon:/usr/sbin:/bin/false\n",
+            "bin:x:2:2:bin:/bin:/bin/false\nsys:x:3:3:sys:/dev:/bin/false\n",
+            "sync:x:4:100:sync:/bin:/bin/sync\nmail:x:8:8:mail:/var/spool/mail:/bin/false\n",
+            "www-data:x:33:33:www-data:/var/www:/bin/false\noperator:x:37:37:Operator:/var:/bin/false\n",
+            "nobody:x:65534:65534:nobody:/home:/bin/false\n"
+        )));
+    })
+}
+
+#[test]
+fn busybox_version() {
+    Runtime::new().unwrap().block_on(async {
+        let output = common()
+            .await
+            .args(&["busybox", "--help"])
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let mut cursor = io::Cursor::new(&output.stdout);
+        let mut line = String::new();
+        cursor.read_line(&mut line).unwrap();
+        assert_eq!(
+            line,
+            "BusyBox v1.32.0 (2020-07-27 18:31:20 UTC) multi-call binary.\n"
+        );
     })
 }
 

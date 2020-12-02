@@ -208,7 +208,7 @@ impl IPCServer {
         // outgoing message has been flushed.
         let storage = match result {
             Err(e) => Err(e),
-            Ok(vfile) => match self.filesystem.vfile_storage(&self.storage, &vfile).await {
+            Ok(vfile) => match self.filesystem.vfile_open(&self.storage, &vfile).await {
                 Ok(file) => Ok(file),
                 Err(e) => Err(Errno(-e.to_errno())),
             },

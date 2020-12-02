@@ -16,4 +16,10 @@ mod registry;
 mod sand;
 mod taskcall;
 
-pub use crate::{container::*, errors::*, image::*, registry::*};
+pub use crate::{
+    container::*,
+    errors::*,
+    filesystem::{mount::*, socket::*},
+    image::*,
+    registry::*,
+};

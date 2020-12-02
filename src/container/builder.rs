@@ -1,13 +1,13 @@
 use crate::{
-    container::Container,
-    errors::{ImageError, RuntimeError},
-    filesystem::{storage::FileStorage, vfs::Filesystem},
+    container::{Container, ExitStatus, Output},
+    errors::{ImageError, RuntimeError, VFSError},
+    filesystem::{mount::Mount, socket::SharedStream, storage::FileStorage, vfs::Filesystem},
     manifest::ImageConfig,
 };
 use std::{
     ffi::{CString, NulError, OsStr},
-    os::unix::ffi::OsStrExt,
-    path::PathBuf,
+    os::unix::{ffi::OsStrExt, net::UnixStream},
+    path::{Path, PathBuf},
 };
 
 /// Setup for containers, starting at [Container::new()] and ending with
@@ -22,48 +22,22 @@ pub struct ContainerBuilder {
     cmd_override: Option<Vec<CString>>,
     env: Vec<CString>,
     arg_error: Result<(), NulError>,
-}
-
-async fn new_stdio_socket_wip(fd: u32) -> std::io::Result<std::os::unix::net::UnixStream> {
-    let (local, remote) = std::os::unix::net::UnixStream::pair()?;
-    tokio::task::spawn(async move {
-        log::warn!("stdio wip {}", fd);
-        let mut local = tokio::net::UnixStream::from_std(local).unwrap();
-        let (mut reader, _writer) = local.split();
-        let mut stdout = tokio::io::stdout();
-        let out_copy = tokio::io::copy(&mut reader, &mut stdout);
-        out_copy.await;
-    });
-    Ok(remote)
+    mount_error: Result<(), VFSError>,
+    stdio: [Option<SharedStream>; 3],
 }
 
 impl ContainerBuilder {
     pub(crate) fn new(
         config: &ImageConfig,
-        mut filesystem: Filesystem,
+        filesystem: Filesystem,
         storage: FileStorage,
     ) -> Result<Self, ImageError> {
-        let mut writer = filesystem.writer();
-        for fd in 0..=2 {
-            writer.write_unix_stream_factory(
-                std::path::Path::new(&format!("/proc/1/fd/{}", fd)),
-                crate::filesystem::vfs::Stat {
-                    ..Default::default()
-                },
-                std::sync::Arc::new(move || {
-                    Box::pin(async move {
-                        new_stdio_socket_wip(fd)
-                            .await
-                            .map_err(|_| crate::errors::VFSError::IO)
-                    })
-                }),
-            )?;
-        }
-
         Ok(ContainerBuilder {
             filesystem,
             storage,
             arg_error: Ok(()),
+            mount_error: Ok(()),
+            stdio: [None, None, None],
             working_dir: CString::new(config.working_dir.as_bytes())?,
             entrypoint: match &config.entrypoint {
                 None => Vec::new(),
@@ -93,9 +67,53 @@ impl ContainerBuilder {
         })
     }
 
+    /// Start a new [Container] using these settings, and wait for it to exit,
+    /// returning its exit status
+    ///
+    /// This is equivalent to calling spawn() first and then
+    /// [Container::wait()].
+    pub async fn run(self) -> Result<ExitStatus, RuntimeError> {
+        self.spawn()?.wait().await
+    }
+
+    /// Start a new [Container] using these settings, and wait for it to exit,
+    /// returning its output
+    ///
+    /// This is equivalent to calling spawn() first and then
+    /// [Container::output()].
+    pub async fn output(self) -> Result<Output, RuntimeError> {
+        self.spawn()?.output().await
+    }
+
+    /// start a new [container] using these settings, and wait for it to exit
+    /// with its stdio streams connected.
+    ///
+    /// this is equivalent to calling spawn() first and then
+    /// [Container::interact()].
+    pub async fn interact(self) -> Result<ExitStatus, RuntimeError> {
+        self.spawn()?.interact().await
+    }
+
     /// Start a new [Container] using the settings in this builder
-    pub fn spawn(self) -> Result<Container, RuntimeError> {
+    pub fn spawn(mut self) -> Result<Container, RuntimeError> {
         self.arg_error?;
+        self.mount_error?;
+
+        let mut local_stdio: [Option<UnixStream>; 3] = [None, None, None];
+        for fd in 0..3 {
+            let remote_stream = match self.stdio[fd].take() {
+                Some(stream) => stream,
+                None => {
+                    let (local, remote) = SharedStream::pair()?;
+                    local_stdio[fd] = Some(local);
+                    remote
+                }
+            };
+            remote_stream.mount(
+                &mut self.filesystem,
+                &Path::new(&format!("/proc/1/fd/{}", fd)),
+            )?;
+        }
 
         let mut argv = self.entrypoint;
         match self.cmd_override {
@@ -126,7 +144,41 @@ impl ContainerBuilder {
             self.working_dir,
             argv,
             self.env,
+            local_stdio,
         )
+    }
+
+    /// Mount an overlay on the container's filesystem
+    ///
+    /// [Mount] objects can write to the container's filesystem metadata at
+    /// startup, leaving static files and/or live communications channels.
+    pub fn mount<P, T>(mut self, path: P, mount: &T) -> Self
+    where
+        P: AsRef<Path>,
+        T: Mount,
+    {
+        self.mount_error = self
+            .mount_error
+            .and(mount.mount(&mut self.filesystem, path.as_ref()));
+        self
+    }
+
+    /// Attach stdin to a specific shared stream
+    pub fn stdin(mut self, stream: SharedStream) -> Self {
+        self.stdio[0] = Some(stream);
+        self
+    }
+
+    /// Attach stdout to a specific shared stream
+    pub fn stdout(mut self, stream: SharedStream) -> Self {
+        self.stdio[1] = Some(stream);
+        self
+    }
+
+    /// Attach stderr to a specific shared stream
+    pub fn stderr(mut self, stream: SharedStream) -> Self {
+        self.stdio[2] = Some(stream);
+        self
     }
 
     /// Append arguments to the container's command line
@@ -142,7 +194,10 @@ impl ContainerBuilder {
     }
 
     /// Append one argument to the container's command line
-    pub fn arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
+    pub fn arg<S>(mut self, arg: S) -> Self
+    where
+        S: AsRef<OsStr>,
+    {
         match CString::new(arg.as_ref().as_bytes()) {
             Err(e) => self.arg_error = Err(e),
             Ok(arg) => {
@@ -155,9 +210,12 @@ impl ContainerBuilder {
         self
     }
 
-    /// Override the current directory the entrypoint will run in
-    pub fn current_dir<P: AsRef<OsStr>>(mut self, dir: P) -> Self {
-        match CString::new(dir.as_ref().as_bytes()) {
+    /// Override the working directory the entrypoint will start in
+    pub fn working_dir<P>(mut self, dir: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
+        match CString::new(dir.as_ref().as_os_str().as_bytes()) {
             Err(e) => self.arg_error = Err(e),
             Ok(arg) => self.working_dir = arg,
         }

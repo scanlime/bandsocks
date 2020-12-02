@@ -196,7 +196,7 @@ pub enum RuntimeError {
 }
 
 /// Errors from the virtual filesystem layer, convertible to an errno code
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum VFSError {
     #[error("unexpected filesystem image storage error")]
     ImageStorageError,

@@ -1,15 +1,16 @@
 use crate::{
     errors::VFSError,
-    filesystem::storage::{FileStorage, StorageKey},
+    filesystem::{
+        socket::SharedStream,
+        storage::{FileStorage, StorageKey},
+    },
 };
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     fs::File,
-    future::Future,
-    os::unix::{io::AsRawFd, net::UnixStream},
+    os::unix::io::AsRawFd,
     path::{Path, PathBuf},
-    pin::Pin,
     sync::Arc,
 };
 
@@ -57,17 +58,13 @@ struct DirEntryRef {
 enum Node {
     NormalDirectory(BTreeMap<OsString, INodeNum>),
     FileStorage(StorageKey),
-    FileFactory(AsyncFactory<File>),
-    UnixStreamFactory(AsyncFactory<UnixStream>),
+    SharedStream(SharedStream),
     EmptyFile,
     SymbolicLink(PathBuf),
     Char(u32, u32),
     Block(u32, u32),
     Fifo,
 }
-
-pub type AsyncFactory<T> =
-    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<T, VFSError>> + Sync + Send>> + Sync + Send>;
 
 #[derive(Debug)]
 struct Limits {
@@ -166,7 +163,7 @@ impl<'s> Filesystem {
                         Ok(entry)
                     }
                 },
-                other => Err(VFSError::DirectoryExpected),
+                _ => Err(VFSError::DirectoryExpected),
             }
         }
     }
@@ -224,18 +221,18 @@ impl<'s> Filesystem {
         }
     }
 
-    pub async fn vfile_storage(
+    pub async fn vfile_open(
         &self,
         storage: &FileStorage,
         f: &VFile,
-    ) -> Result<Box<dyn AsRawFd + Sync + Send>, VFSError> {
+    ) -> Result<Arc<dyn AsRawFd + Sync + Send>, VFSError> {
         match &self.inodes[f.inode] {
             None => Err(VFSError::NotFound),
             Some(node) => match &node.data {
-                Node::EmptyFile => Ok(Box::new(
+                Node::EmptyFile => Ok(Arc::new(
                     File::open("/dev/null").map_err(|_| VFSError::ImageStorageError)?,
                 )),
-                Node::FileStorage(key) => Ok(Box::new(
+                Node::FileStorage(key) => Ok(Arc::new(
                     storage
                         .open_part(key)
                         .await
@@ -243,8 +240,7 @@ impl<'s> Filesystem {
                         .flatten()
                         .ok_or(VFSError::ImageStorageError)?,
                 )),
-                Node::FileFactory(factory) => Ok(Box::new(factory().await?)),
-                Node::UnixStreamFactory(factory) => Ok(Box::new(factory().await?)),
+                Node::SharedStream(stream) => stream.vfile_open(),
                 _ => Err(VFSError::FileExpected),
             },
         }
@@ -331,7 +327,7 @@ impl<'f> VFSWriter<'f> {
         self.inode_incref(child_value)?;
         let previous = match &mut self.get_inode_mut(parent)?.data {
             Node::NormalDirectory(map) => map.insert(child_name.to_os_string(), child_value),
-            other => Err(VFSError::DirectoryExpected)?,
+            _ => Err(VFSError::DirectoryExpected)?,
         };
         match previous {
             None => Ok(()),
@@ -407,22 +403,13 @@ impl<'f> VFSWriter<'f> {
         )
     }
 
-    pub fn write_file_factory(
+    pub fn write_shared_stream(
         &mut self,
         path: &Path,
         stat: Stat,
-        factory: AsyncFactory<File>,
+        stream: SharedStream,
     ) -> Result<(), VFSError> {
-        self.write_node_file(path, stat, Node::FileFactory(factory))
-    }
-
-    pub fn write_unix_stream_factory(
-        &mut self,
-        path: &Path,
-        stat: Stat,
-        factory: AsyncFactory<UnixStream>,
-    ) -> Result<(), VFSError> {
-        self.write_node_file(path, stat, Node::UnixStreamFactory(factory))
+        self.write_node_file(path, stat, Node::SharedStream(stream))
     }
 
     pub fn write_symlink(
