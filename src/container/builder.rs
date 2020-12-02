@@ -85,10 +85,10 @@ impl ContainerBuilder {
         self.spawn()?.output().await
     }
 
-    /// start a new [container] using these settings, and wait for it to exit
+    /// Start a new [Container] using these settings, and wait for it to exit
     /// with its stdio streams connected.
     ///
-    /// this is equivalent to calling spawn() first and then
+    /// This is equivalent to calling spawn() first and then
     /// [Container::interact()].
     pub async fn interact(self) -> Result<ExitStatus, RuntimeError> {
         self.spawn()?.interact().await
