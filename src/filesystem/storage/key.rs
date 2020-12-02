@@ -91,7 +91,7 @@ fn path_encode(input: &str) -> String {
     let op_char_dropped = |rel_idx: usize| (rel_idx << 1) | 0; // ...iiiiiii0
     let op_case_convert = |rel_idx: usize| (rel_idx << 2) | 1; // ...iiiiii01
     let op_char_inserted = 3; // ...00000011
-    // reserved: all other ...xxxxxx11
+                              // reserved: all other ...xxxxxx11
 
     for (idx, ch) in input.char_indices() {
         if ('a'..='z').contains(&ch) || ('0'..='9').contains(&ch) {
@@ -199,7 +199,7 @@ mod test {
         assert_eq!(path_encode("b999lah"), "b999lah");
         assert_eq!(path_encode("foo-bar"), "foo-bar-6r1");
         assert_eq!(path_encode("foob-ar"), "foob-ar-8r1");
-        assert_eq!(path_encode("foo::BAR!"),"foo-bar-6m20m21110x0");
+        assert_eq!(path_encode("foo::BAR!"), "foo-bar-6m20m21110x0");
         assert_eq!(path_encode(".foo?"), "foo-0s16r2");
         assert_eq!(path_encode("blah-4"), "blah-4-8r1");
         assert_eq!(path_encode("blah-4-9r1"), "blah-4-9r1-8r12r1");

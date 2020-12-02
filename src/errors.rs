@@ -178,21 +178,15 @@ pub enum RuntimeError {
 
     /// sandbox runtime reported an unexpected disconnect
     #[error("sandbox runtime reports an unexpected disconnect\n{stderr}")]
-    SandReportsDisconnect {
-        stderr: String,
-    },
+    SandReportsDisconnect { stderr: String },
 
     /// sandbox runtime reports a low-level I/O error
     #[error("sandbox runtime reports a low-level I/O error\n{stderr}")]
-    SandIOError {
-        stderr: String,
-    },
+    SandIOError { stderr: String },
 
     /// panic from sandbox runtime
     #[error("panic from sandbox runtime\n{stderr}")]
-    SandPanic {
-        stderr: String,
-    },
+    SandPanic { stderr: String },
 }
 
 /// Errors from the virtual filesystem layer, convertible to an errno code
