@@ -147,8 +147,8 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             }
 
             nr::UNAME => {
-                log_level = LogLevel::Warn;
-                0
+                let result = do_uname(self.stopped_task, arg_ptr(0)).await;
+                self.return_result(result).await
             }
 
             nr::SYSINFO => {
@@ -312,6 +312,59 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             )
         }
     }
+}
+
+async fn do_uname<'q, 's, 't>(
+    stopped_task: &'t mut StoppedTask<'q, 's>,
+    dest: VPtr,
+) -> Result<(), Errno> {
+    let mut tr = Trampoline::new(stopped_task);
+    let mut pad = Scratchpad::new(&mut tr).await?;
+    let temp = pad.memfd_temp().await?;
+    let result = Ok(());
+    let result = result.and(
+        pad.write_exact_bytes(
+            &temp,
+            dest.add(offset_of!(abi::UtsName, sysname)),
+            b"Linux\0",
+        )
+        .await,
+    );
+    let result = result.and(
+        pad.write_exact_bytes(
+            &temp,
+            dest.add(offset_of!(abi::UtsName, nodename)),
+            b"host\0",
+        )
+        .await,
+    );
+    let result = result.and(
+        pad.write_exact_bytes(
+            &temp,
+            dest.add(offset_of!(abi::UtsName, release)),
+            b"4.0.0-bandsocks\0",
+        )
+        .await,
+    );
+    let result = result.and(
+        pad.write_exact_bytes(
+            &temp,
+            dest.add(offset_of!(abi::UtsName, version)),
+            b"#1 SMP\0",
+        )
+        .await,
+    );
+    let result = result.and(
+        pad.write_exact_bytes(
+            &temp,
+            dest.add(offset_of!(abi::UtsName, machine)),
+            abi::PLATFORM_NAME_BYTES,
+        )
+        .await,
+    );
+    pad.free().await?;
+    temp.free(&mut tr).await?;
+    result
 }
 
 /// brk() is emulated using mmap because we can't change the host kernel's per

@@ -92,6 +92,25 @@ fn busybox_version() {
 }
 
 #[test]
+fn busybox_uname() {
+    Runtime::new().unwrap().block_on(async {
+        let output = common()
+            .await
+            .args(&["uname", "-a"])
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let stdout = std::str::from_utf8(&output.stdout).unwrap();
+        assert_eq!(
+            stdout,
+            "Linux host 4.0.0-bandsocks #1 SMP x86_64 GNU/Linux\n"
+        );
+    })
+}
+
+#[test]
 fn busybox_sleep_sequential() {
     const NUM: usize = 100;
     Runtime::new().unwrap().block_on(async {

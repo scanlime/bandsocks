@@ -170,6 +170,37 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
         }
     }
 
+    /// unlike mem::write_padded_bytes, this can be an unaligned buffer of
+    /// unaligned length
+    pub async fn write_exact_bytes(
+        &mut self,
+        temp: &TempRemoteFd,
+        ptr: VPtr,
+        bytes: &[u8],
+    ) -> Result<(), Errno> {
+        if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
+            return Err(Errno(-abi::EINVAL));
+        }
+        fault_or(write_padded_bytes(
+            self.trampoline.stopped_task,
+            self.page_ptr,
+            bytes,
+        ))?;
+        self.memmove(temp, ptr, self.page_ptr, bytes.len()).await
+    }
+
+    pub async fn memmove(
+        &mut self,
+        buffer: &TempRemoteFd,
+        dest: VPtr,
+        src: VPtr,
+        len: usize,
+    ) -> Result<(), Errno> {
+        let result = self.trampoline.pwrite_exact(&buffer.0, src, len, 0).await;
+        let result = result.and(self.trampoline.pread_exact(&buffer.0, dest, len, 0).await);
+        result
+    }
+
     pub async fn memfd_temp(&mut self) -> Result<TempRemoteFd, Errno> {
         Ok(TempRemoteFd(self.memfd_create(b"bandsocks-temp", 0).await?))
     }

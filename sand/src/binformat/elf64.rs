@@ -95,7 +95,9 @@ async fn replace_maps_with_new_stack(
 
     let elf_hwcap = raw_cpuid::cpuid!(1).edx as usize;
     let random_data_ptr = loader.stack_random_bytes(&mut stack, 16).await?;
-    let platform_str_ptr = loader.stack_bytes(&mut stack, b"x86_64\0").await?;
+    let platform_str_ptr = loader
+        .stack_bytes(&mut stack, abi::PLATFORM_NAME_BYTES)
+        .await?;
 
     let filename_len = 1 + loader.vstring_len(loader.filename())?;
     let filename_ptr = loader
