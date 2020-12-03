@@ -12,7 +12,7 @@ use crate::{
     registry::RegistryClient,
     sand::protocol::InitArgsHeader,
 };
-use std::{ffi::CString, io, os::unix::net::UnixStream, sync::Arc};
+use std::{ffi::CString, io, os::unix::net::UnixStream, sync::Arc, thread};
 use tokio::{
     io::{AsyncWriteExt, BufWriter},
     task,
@@ -107,16 +107,21 @@ impl Container {
     /// Any stdio streams which haven't been taken from the [Container] or
     /// overridden with [ContainerBuilder] will be forwarded to/from their real
     /// equivalents until the container exits.
+    ///
+    /// If stdin is available to forward, we will use a separate thread for
+    /// the blocking stdin reads. This thread may continue running after
+    /// the container itself exits, since `std`'s stdin reads cannot be
+    /// cancelled.
     pub async fn interact(self) -> Result<ExitStatus, RuntimeError> {
         log::trace!("interact starting");
-        let stdin = self.stdin;
-        let stdin = tokio::spawn(async move {
-            if let Some(stream) = stdin {
-                let mut stream = tokio::net::UnixStream::from_std(stream)?;
-                tokio::io::copy(&mut tokio::io::stdin(), &mut stream).await?;
-            }
-            Ok::<(), tokio::io::Error>(())
-        });
+        if let Some(mut stream) = self.stdin {
+            let _ = thread::Builder::new()
+                .name("stdin".to_string())
+                .spawn(move || {
+                    let _ = io::copy(&mut io::stdin(), &mut stream);
+                });
+        }
+
         let stdout = self.stdout;
         let stdout = tokio::spawn(async move {
             if let Some(stream) = stdout {
@@ -133,10 +138,10 @@ impl Container {
             }
             Ok::<(), tokio::io::Error>(())
         });
+
         let status = self.join.await??;
-        log::trace!("interact waiting for stdio");
-        let (stdin, stdout, stderr) = tokio::join!(stdin, stdout, stderr);
-        expect_broken_pipe(stdin?)?;
+        log::trace!("interact waiting for stdout/stderr");
+        let (stdout, stderr) = tokio::join!(stdout, stderr);
         expect_broken_pipe(stdout?)?;
         expect_broken_pipe(stderr?)?;
         log::trace!("interact finished, {:?}", status);
