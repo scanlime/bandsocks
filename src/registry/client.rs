@@ -201,7 +201,7 @@ impl RegistryClientBuilder {
             Some(dir) => dir,
             None => RegistryClient::default_cache_dir()?,
         };
-        log::info!("using cache directory {:?}", cache_dir);
+        log::debug!("using cache directory {:?}", cache_dir);
         Ok(RegistryClient {
             storage: FileStorage::new(cache_dir),
             allowed_registries: self.allowed_registries,
