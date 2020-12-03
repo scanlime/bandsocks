@@ -19,9 +19,10 @@
 //! =====
 //!
 //! Let's make it easy to run somewhat-untrusted computational workloads
-//! like media codecs from inside an existing async rust network app. There is
-//! no networking support. The container uses a virtual filesystem backed by
-//! read-only image contents and mounted I/O channels.
+//! like media codecs from inside an existing async rust app. There is
+//! no networking or traditional storage support inside containers. The
+//! container uses a virtual filesystem backed by read-only image contents and
+//! mounted I/O channels.
 //!
 //! Getting Started
 //! ===============
@@ -55,7 +56,7 @@
 //! a pass-through after files are opened via a slower emulated open() call.
 //!
 //! The emulated paths look a bit like User Mode Linux or gvisor. A ptrace-based
-//! runtime we just call `sand` is responsible for emulating operations like
+//! runtime we call `sand` is responsible for emulating operations like
 //! open() and exec() using only allowed syscalls. For filesystem access, `sand`
 //! uses an inter-process communication channel to request live file descriptors
 //! from the virtual filesystem.
