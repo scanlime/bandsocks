@@ -316,32 +316,34 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
 async fn do_brk<'q, 's, 't>(
     stopped_task: &'t mut StoppedTask<'q, 's>,
-    ptr: VPtr,
+    new_brk: VPtr,
 ) -> Result<VPtr, Errno> {
-    let mm = stopped_task.task.task_data.mm.clone();
-    assert_eq!(0, abi::page_offset(mm.brk.0));
-    assert_eq!(0, abi::page_offset(mm.brk_start.0));
-    let new_brk = VPtr(abi::page_round_up(ptr.max(mm.brk_start).0));
-    if new_brk != mm.brk {
-        let mut tr = Trampoline::new(stopped_task);
-        if new_brk == mm.brk_start {
-            tr.munmap(mm.brk_start, mm.brk.0 - mm.brk_start.0).await?;
-        } else if mm.brk == mm.brk_start {
-            tr.mmap_anonymous(
-                mm.brk_start,
-                new_brk.0 - mm.brk_start.0,
-                abi::PROT_READ | abi::PROT_WRITE,
-            )
-            .await?;
-        } else {
-            tr.mremap(
-                mm.brk_start,
-                mm.brk.0 - mm.brk_start.0,
-                new_brk.0 - mm.brk_start.0,
-            )
-            .await?;
+    let old_brk = stopped_task.task.task_data.mm.brk;
+    if new_brk.0 != 0 {
+        let brk_start = stopped_task.task.task_data.mm.brk_start;
+        let old_brk_page = VPtr(abi::page_round_up(brk_start.max(old_brk).0));
+        let new_brk_page = VPtr(abi::page_round_up(brk_start.max(new_brk).0));
+        if new_brk_page != old_brk_page {
+            let mut tr = Trampoline::new(stopped_task);
+            if new_brk_page == brk_start {
+                tr.munmap(brk_start, old_brk_page.0 - brk_start.0).await?;
+            } else if old_brk_page == brk_start {
+                tr.mmap_anonymous_noreplace(
+                    brk_start,
+                    new_brk_page.0 - brk_start.0,
+                    abi::PROT_READ | abi::PROT_WRITE,
+                )
+                .await?;
+            } else {
+                tr.mremap(
+                    brk_start,
+                    old_brk_page.0 - brk_start.0,
+                    new_brk_page.0 - brk_start.0,
+                )
+                .await?;
+            }
         }
-        tr.stopped_task.task.task_data.mm.brk = new_brk;
+        stopped_task.task.task_data.mm.brk = brk_start.max(new_brk);
     }
-    Ok(new_brk)
+    Ok(stopped_task.task.task_data.mm.brk)
 }

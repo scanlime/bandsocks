@@ -232,14 +232,21 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         }
     }
 
-    pub async fn mmap_anonymous(
+    pub async fn mmap_anonymous_noreplace(
         &mut self,
         addr: VPtr,
         length: usize,
         prot: isize,
-    ) -> Result<VPtr, Errno> {
-        let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS | abi::MAP_FIXED;
-        self.mmap(addr, length, prot, flags, &RemoteFd(0), 0).await
+    ) -> Result<(), Errno> {
+        let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS | abi::MAP_FIXED_NOREPLACE;
+        let result = self.mmap(addr, length, prot, flags, &RemoteFd(0), 0).await?;
+        if result == addr {
+            Ok(())
+        } else {
+            // kernel might not understand MAP_FIXED_NOREPLACE, it moved the mapping. undo.
+            self.munmap(result, length).await?;
+            Err(Errno(-abi::EEXIST))
+        }
     }
 
     pub async fn munmap(&mut self, addr: VPtr, length: usize) -> Result<(), Errno> {

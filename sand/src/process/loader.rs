@@ -145,7 +145,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         length: usize,
         offset: usize,
         prot: isize,
-    ) -> Result<VPtr, Errno> {
+    ) -> Result<(), Errno> {
         let flags = abi::MAP_PRIVATE | abi::MAP_FIXED;
         let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
         let sent_fd = scratchpad.send_fd(&self.file).await;
@@ -156,7 +156,8 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
             .mmap(addr, length, prot, flags, &sent_fd, offset)
             .await;
         self.trampoline.close(&sent_fd).await?;
-        result
+        assert_eq!(addr, result?);
+        Ok(())
     }
 
     pub async fn map_anonymous(
@@ -164,8 +165,8 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         addr: VPtr,
         length: usize,
         prot: isize,
-    ) -> Result<VPtr, Errno> {
-        self.trampoline.mmap_anonymous(addr, length, prot).await
+    ) -> Result<(), Errno> {
+        self.trampoline.mmap_anonymous_noreplace(addr, length, prot).await
     }
 
     pub async fn stack_begin(&mut self) -> Result<StackBuilder, Errno> {

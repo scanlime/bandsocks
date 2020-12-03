@@ -86,6 +86,7 @@ pub const MAP_PRIVATE: isize = 0x02;
 pub const MAP_ANONYMOUS: isize = 0x20;
 pub const MAP_FIXED: isize = 0x10;
 pub const MAP_GROWSDOWN: isize = 0x100;
+pub const MAP_FIXED_NOREPLACE: isize = 0x100000;
 
 // linux/include/uapi/asm-generic/mman-common.h
 pub const PROT_READ: isize = 1;
@@ -301,6 +302,7 @@ pub const ENOEXEC: i32 = 8;
 pub const ECHILD: i32 = 10;
 pub const EAGAIN: i32 = 11;
 pub const EFAULT: i32 = 14;
+pub const EEXIST: i32 = 17;
 pub const EINVAL: i32 = 22;
 pub const ENOSYS: i32 = 38;
 pub const ECONNRESET: i32 = 104;
