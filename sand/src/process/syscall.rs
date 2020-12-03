@@ -314,12 +314,14 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
     }
 }
 
+/// brk() is emulated using mmap because we can't change the host kernel's per
+/// process brk pointer from our loader without extra privileges.
 async fn do_brk<'q, 's, 't>(
     stopped_task: &'t mut StoppedTask<'q, 's>,
     new_brk: VPtr,
 ) -> Result<VPtr, Errno> {
-    let old_brk = stopped_task.task.task_data.mm.brk;
     if new_brk.0 != 0 {
+        let old_brk = stopped_task.task.task_data.mm.brk;
         let brk_start = stopped_task.task.task_data.mm.brk_start;
         let old_brk_page = VPtr(abi::page_round_up(brk_start.max(old_brk).0));
         let new_brk_page = VPtr(abi::page_round_up(brk_start.max(new_brk).0));
