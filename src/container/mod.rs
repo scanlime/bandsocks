@@ -136,8 +136,8 @@ impl Container {
     /// taken from the [Container] or overridden with [ContainerBuilder].
     ///
     /// If stdin has not been taken or overridden, it will be dropped.
-    pub async fn output(mut self) -> Result<Output, RuntimeError> {
-        self.stdin.take();
+    pub async fn output(self) -> Result<Output, RuntimeError> {
+        drop(self.stdin);
 
         fn output_task(stream: Option<UnixStream>) -> JoinHandle<tokio::io::Result<Vec<u8>>> {
             task::spawn(async move {
