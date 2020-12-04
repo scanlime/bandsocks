@@ -1,14 +1,15 @@
 pub mod protocol {
-    include! {concat!(
-        env!("OUT_DIR"),
-        "/sand/src/protocol.rs"
-    )}
+    include! {"../sand/src/protocol.rs"}
 }
 
+#[cfg(not(doc))]
 const PROGRAM_DATA: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
     "/sand/target/release/bandsocks-sand"
 ));
+
+#[cfg(doc)]
+const PROGRAM_DATA: &[u8] = b"";
 
 use crate::errors::RuntimeError;
 use protocol::{LogLevel, LogMessage, SysFd, VPid};
