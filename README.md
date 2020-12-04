@@ -13,9 +13,12 @@ it's highly experimental and doesn't actually work yet!
 🎶 🎹🧦 🎸🧦 🎸🧦 🎷🧦 🎺🧦 🥁🧦 🎶
 ```
 
+[![Docs][docs-badge]][docs-url]
 [![Crates.io][crates-badge]][crates-url]
 [![Build Status][actions-badge]][actions-url]
 
+[docs-badge]: https://docs.rs/bandsocks/badge.svg
+[docs-url]: https://docs.rs/bandsocks
 [crates-badge]: https://img.shields.io/crates/v/bandsocks.svg
 [crates-url]: https://crates.io/crates/bandsocks
 [actions-badge]: https://github.com/scanlime/bandsocks/workflows/Tests/badge.svg
