@@ -1,10 +1,13 @@
 pub mod protocol {
-    include!("../sand/src/protocol.rs");
+    include! {concat!(
+        env!("OUT_DIR"),
+        "/sand/src/protocol.rs"
+    )}
 }
 
 const PROGRAM_DATA: &[u8] = include_bytes!(concat!(
     env!("OUT_DIR"),
-    "/sand-target/release/bandsocks-sand"
+    "/sand/target/release/bandsocks-sand"
 ));
 
 use crate::errors::RuntimeError;

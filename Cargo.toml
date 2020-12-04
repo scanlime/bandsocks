@@ -39,6 +39,7 @@ env_logger = "0.7"
 
 [build-dependencies]
 build-deps = "0.1"
+fs_extra = "1.2.0"
 
 [workspace]
 members = ["cli"]
