@@ -1,12 +1,14 @@
 use build_deps::rerun_if_changed_paths;
-use std::{env::var, path::Path, process::Command};
+use std::{fs::copy, env::var, path::Path, process::Command};
 
 fn main() {
     let cargo = var("CARGO").unwrap();
     let out_dir = var("OUT_DIR").unwrap();
     let sand_target = Path::new(&out_dir).join("sand-target");
+    let sand_dir = Path::new("sand");
 
-    rerun_if_changed_paths("sand/Cargo.toml").unwrap();
+    rerun_if_changed_paths("sand/sand-Cargo.toml").unwrap();
+    rerun_if_changed_paths("sand/sand-Cargo.lock").unwrap();
     rerun_if_changed_paths("sand/src/**/*.rs").unwrap();
 
     // skip building sand when running in rust-language-server
@@ -14,7 +16,12 @@ fn main() {
         return;
     }
 
-    let sand_dir = "sand";
+    // the inner cargo files stay masked to keep "cargo publish" from insisting on
+    // skipping the directory because it thinks this is a properly separate
+    // crate.
+    copy(sand_dir.join("sand-Cargo.toml"), sand_dir.join("Cargo.toml")).unwrap();
+    copy(sand_dir.join("sand-Cargo.lock"), sand_dir.join("Cargo.lock")).unwrap();
+
     let args = &[
         "build",
         "--release",

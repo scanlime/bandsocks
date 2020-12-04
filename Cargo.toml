@@ -6,7 +6,6 @@ license = "Apache-2.0 OR MIT"
 repository = "https://github.com/scanlime/bandsocks"
 authors = ["Micah Elizabeth Scott <micah@scanlime.org>"]
 edition = "2018"
-include = [ "src/**/*.rs", "build.rs", "*.md", "tests/**/*.rs", "sand/Cargo.*", "sand/src/**/*.rs" ]
 
 [dependencies]
 
