@@ -1,5 +1,4 @@
-use std::process::Command;
-use std::fs::copy;
+use std::{fs::copy, process::Command};
 
 // This should use the same configuration as ../build.rs
 #[test]

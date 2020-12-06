@@ -78,6 +78,7 @@ pub enum LogLevel {
 pub enum LogMessage {
     Emulated(LogSyscall, VPtr),
     Remote(LogSyscall),
+    Signal(u8, VPtr),
 }
 
 #[derive(Clone, Eq, PartialEq, Deserialize, Serialize)]
@@ -1080,24 +1081,42 @@ mod test {
     #[test]
     fn incomplete_message() {
         let mut buf = buffer::IPCBuffer::new();
-        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        assert_eq!(
+            buf.pop_front::<MessageToSand>(),
+            Err(buffer::Error::UnexpectedEnd)
+        );
         buf.extend_bytes(&[0x00]).unwrap();
-        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        assert_eq!(
+            buf.pop_front::<MessageToSand>(),
+            Err(buffer::Error::UnexpectedEnd)
+        );
         buf.push_back_file(SysFd(10)).unwrap();
         buf.extend_bytes(&[0x99]).unwrap();
-        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        assert_eq!(
+            buf.pop_front::<MessageToSand>(),
+            Err(buffer::Error::UnexpectedEnd)
+        );
         buf.push_back_file(SysFd(20)).unwrap();
-        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        assert_eq!(
+            buf.pop_front::<MessageToSand>(),
+            Err(buffer::Error::UnexpectedEnd)
+        );
         buf.extend_bytes(&[0x99, 0x66, 0x66]).unwrap();
-        assert_eq!(buf.pop_front::<MessageToSand>(), Err(buffer::Error::UnexpectedEnd));
+        assert_eq!(
+            buf.pop_front::<MessageToSand>(),
+            Err(buffer::Error::UnexpectedEnd)
+        );
         buf.extend_bytes(&[0x00]).unwrap();
-        assert_eq!(buf.pop_front::<MessageToSand>(), Ok(MessageToSand::Task {
-            task: VPid(0x66669999),
-            op: ToTask::OpenProcessReply(ProcessHandle {
-                mem: SysFd(10),
-                maps: SysFd(20)
+        assert_eq!(
+            buf.pop_front::<MessageToSand>(),
+            Ok(MessageToSand::Task {
+                task: VPid(0x66669999),
+                op: ToTask::OpenProcessReply(ProcessHandle {
+                    mem: SysFd(10),
+                    maps: SysFd(20)
+                })
             })
-        }));
+        );
         assert!(buf.is_empty());
     }
 

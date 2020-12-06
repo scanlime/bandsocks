@@ -150,7 +150,7 @@ impl<'q> Task<'q> {
                     sig: abi::SIGCHLD,
                     code: abi::CLD_TRAPPED,
                     status: signal,
-                } if signal < 0x100 => self.handle_signal(signal).await,
+                } if signal < 0x100 => self.handle_signal(signal as u8).await,
 
                 Event::Signal {
                     sig: abi::SIGCHLD,
@@ -175,7 +175,11 @@ impl<'q> Task<'q> {
     }
 
     fn cont(&self) {
-        ptrace::cont(self.task_data.sys_pid);
+        if self.log_enabled(LogLevel::Trace) {
+            ptrace::single_step(self.task_data.sys_pid);
+        } else {
+            ptrace::cont(self.task_data.sys_pid);
+        }
     }
 
     fn as_stopped_task<'s>(&'s mut self, regs: &'s mut UserRegs) -> StoppedTask<'q, 's> {
@@ -183,14 +187,20 @@ impl<'q> Task<'q> {
         StoppedTask { task: self, regs }
     }
 
-    async fn handle_signal(&mut self, signal: u32) {
-        // to do
+    async fn handle_signal(&mut self, signal: u8) {
         let mut regs: UserRegs = Default::default();
         let mut stopped_task = self.as_stopped_task(&mut regs);
-        println!("task state:\n{:x?}", stopped_task.regs);
-        print_maps_dump(&mut stopped_task);
-        print_stack_dump(&mut stopped_task);
-        panic!("*** signal {} inside sandbox ***", signal);
+
+        if signal == 11 {
+            println!("task state:\n{:x?}", stopped_task.regs);
+            print_maps_dump(&mut stopped_task);
+            print_stack_dump(&mut stopped_task);
+            panic!("*** signal {} inside sandbox ***", signal);
+        }
+
+        let msg = LogMessage::Signal(signal, VPtr(stopped_task.regs.ip as usize));
+        self.log(LogLevel::Trace, msg);
+        self.cont();
     }
 
     async fn handle_fork(&mut self, child_pid: u32) {
