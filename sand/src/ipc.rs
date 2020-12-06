@@ -40,9 +40,11 @@ impl Socket {
     }
 
     fn setup_sigio(fd: &SysFd) {
+        // Note that we want blocking writes and non-blocking reads. See the flags in
+        // sendmsg/recvmsg.
         signal(abi::SIGIO, Socket::handle_sigio).expect("setting up sigio handler");
-        fcntl(fd, abi::F_SETFL, abi::FASYNC | abi::O_NONBLOCK).expect("setting socket flags");
         fcntl(fd, abi::F_SETOWN, getpid()).expect("setting socket owner");
+        fcntl(fd, abi::F_SETFL, abi::FASYNC).expect("setting socket flags");
     }
 
     extern "C" fn handle_sigio(num: u32) {
@@ -134,9 +136,9 @@ impl Socket {
             msg_controllen: cmsg.hdr.cmsg_len,
             msg_flags: 0,
         };
-        let flags = abi::MSG_DONTWAIT;
-        let result =
+        let flags = 0;
+        let mut result =
             unsafe { syscall!(SENDMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
-        assert_eq!(result as usize, buffer.as_slice().bytes.len());
+        assert_eq!(result, buffer.as_slice().bytes.len() as isize);
     }
 }
