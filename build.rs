@@ -24,7 +24,7 @@ fn main() {
 
     let mut opts = CopyOptions::new();
     opts.copy_inside = true;
-    opts.skip_exist = true;
+    opts.overwrite = true;
     copy("sand/sand-Cargo.toml", build_dir.join("Cargo.toml")).unwrap();
     copy("sand/sand-Cargo.lock", build_dir.join("Cargo.lock")).unwrap();
     copy_items(&["sand/src"], &build_dir, &opts).unwrap();
