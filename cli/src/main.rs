@@ -8,7 +8,7 @@ use std::path::Path;
 #[tokio::main]
 async fn main() {
     let yaml = load_yaml!("cli.yml");
-    let matches = App::from_yaml(yaml).get_matches();
+    let matches = App::from_yaml(yaml).version(crate_version!()).get_matches();
 
     let log_level = matches.value_of("log_level").unwrap();
     from_env(Env::default().default_filter_or(log_level)).init();
