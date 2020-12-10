@@ -1,6 +1,4 @@
 name: bandsocks
-version: "0.2.0"
-author: scanlime
 about: container runtime 🅱️ 🧦
 usage: bandsocks [options] [REGISTRY/]<IMAGE>[:TAG or @DIGEST] [--] [args...]
 args:

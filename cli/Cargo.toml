@@ -1,6 +1,6 @@
 [package]
 name = "bandsocks-cli"
-version = "0.2.1"
+version = "0.2.2"
 description = "Command line interface for running containers in bandsocks"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/scanlime/bandsocks"
@@ -12,7 +12,7 @@ name = "bandsocks"
 path = "src/main.rs"
 
 [dependencies]
-bandsocks = { version = "0.2", path = ".." }
+bandsocks = { version = "0.2.2", path = ".." }
 clap = { version = "2.33", features = ["yaml"] }
 env_logger = "0.7"
 log = "0.4"
