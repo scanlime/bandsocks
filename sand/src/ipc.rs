@@ -137,7 +137,7 @@ impl Socket {
             msg_flags: 0,
         };
         let flags = 0;
-        let mut result =
+        let result =
             unsafe { syscall!(SENDMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
         assert_eq!(result, buffer.as_slice().bytes.len() as isize);
     }

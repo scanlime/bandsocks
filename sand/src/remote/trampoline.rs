@@ -147,7 +147,6 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
 
         Syscall::orig_nr_to_regs(nr as isize, &mut local_regs);
         Syscall::args_to_regs(args, &mut local_regs);
-        let call = Syscall::from_regs(&local_regs);
 
         // Run the syscall until completion, trapping again on the way out
         ptrace::set_regs(pid, &local_regs);
