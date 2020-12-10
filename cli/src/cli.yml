@@ -40,6 +40,9 @@ args:
         long: ephemeral
         short: "0"
         help: set a random, disposable cache directory
+    - instruction_trace:
+        long: itrace
+        help: instruction trace, single-step execution and instruction logging
     - pull:
         long: pull
         help: download the image and verify its filesystem but do not run it

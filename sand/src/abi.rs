@@ -69,13 +69,13 @@ pub const PTRACE_O_TRACEEXEC: usize = 1 << PTRACE_EVENT_EXEC;
 pub const PTRACE_O_TRACEVFORK_DONE: usize = 1 << PTRACE_EVENT_VFORK_DONE;
 pub const PTRACE_O_TRACESECCOMP: usize = 1 << PTRACE_EVENT_SECCOMP;
 pub const PTRACE_O_EXITKILL: usize = 1 << 20;
-pub const PTRACE_SIG_TRACESYSGOOD: u32 = SIGTRAP | 0x80;
-pub const PTRACE_SIG_FORK: u32 = SIGTRAP | (PTRACE_EVENT_FORK << 8) as u32;
-pub const PTRACE_SIG_VFORK: u32 = SIGTRAP | (PTRACE_EVENT_VFORK << 8) as u32;
-pub const PTRACE_SIG_CLONE: u32 = SIGTRAP | (PTRACE_EVENT_CLONE << 8) as u32;
-pub const PTRACE_SIG_EXEC: u32 = SIGTRAP | (PTRACE_EVENT_EXEC << 8) as u32;
-pub const PTRACE_SIG_VFORK_DONE: u32 = SIGTRAP | (PTRACE_EVENT_VFORK_DONE << 8) as u32;
-pub const PTRACE_SIG_SECCOMP: u32 = SIGTRAP | (PTRACE_EVENT_SECCOMP << 8) as u32;
+pub const PTRACE_SIG_TRACESYSGOOD: u32 = SIGTRAP as u32 | 0x80;
+pub const PTRACE_SIG_FORK: u32 = SIGTRAP as u32 | (PTRACE_EVENT_FORK << 8) as u32;
+pub const PTRACE_SIG_VFORK: u32 = SIGTRAP as u32 | (PTRACE_EVENT_VFORK << 8) as u32;
+pub const PTRACE_SIG_CLONE: u32 = SIGTRAP as u32 | (PTRACE_EVENT_CLONE << 8) as u32;
+pub const PTRACE_SIG_EXEC: u32 = SIGTRAP as u32 | (PTRACE_EVENT_EXEC << 8) as u32;
+pub const PTRACE_SIG_VFORK_DONE: u32 = SIGTRAP as u32 | (PTRACE_EVENT_VFORK_DONE << 8) as u32;
+pub const PTRACE_SIG_SECCOMP: u32 = SIGTRAP as u32 | (PTRACE_EVENT_SECCOMP << 8) as u32;
 pub const PTRACE_SYSCALL_INFO_NONE: u8 = 0;
 pub const PTRACE_SYSCALL_INFO_ENTRY: u8 = 1;
 pub const PTRACE_SYSCALL_INFO_EXIT: u8 = 2;
@@ -103,84 +103,6 @@ pub const NT_PRSTATUS: usize = 1;
 pub struct IOVec {
     pub base: *mut u8,
     pub len: usize,
-}
-
-// user_regs_struct
-// linux/arch/x86/include/asm/user_64.h
-// linux/include/asm/user_64.h
-#[derive(Default, Clone)]
-#[repr(C)]
-pub struct UserRegs {
-    pub r15: u64,
-    pub r14: u64,
-    pub r13: u64,
-    pub r12: u64,
-    pub bp: u64,
-    pub bx: u64,
-    pub r11: u64,
-    pub r10: u64,
-    pub r9: u64,
-    pub r8: u64,
-    pub ax: u64,
-    pub cx: u64,
-    pub dx: u64,
-    pub si: u64,
-    pub di: u64,
-    pub orig_ax: u64,
-    pub ip: u64,
-    pub cs: u64,
-    pub flags: u64,
-    pub sp: u64,
-    pub ss: u64,
-    pub fs_base: u64,
-    pub gs_base: u64,
-    pub ds: u64,
-    pub es: u64,
-    pub fs: u64,
-    pub gs: u64,
-}
-
-impl core::fmt::Debug for UserRegs {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            concat!(
-                "UserRegs {{\n",
-                "  cs={:16x}  ip={:16x}  ss={:16x}  sp={:16x}  bp={:16x} oax={:16x}\n",
-                "  ax={:16x}  di={:16x}  si={:16x}  dx={:16x} r10={:16x}  r8={:16x}  r9={:16x}\n",
-                "  bx={:16x}  cx={:16x} r11={:16x} r12={:16x} r13={:16x} r14={:16x} r15={:16x}\n",
-                "  ds={:16x}  es={:16x}  fs={:16x}  gs={:16x} fs@={:16x} gs@={:16x} flg={:16x}\n",
-                "}}"
-            ),
-            self.cs,
-            self.ip,
-            self.ss,
-            self.sp,
-            self.bp,
-            self.orig_ax,
-            self.ax,
-            self.di,
-            self.si,
-            self.dx,
-            self.r10,
-            self.r8,
-            self.r9,
-            self.bx,
-            self.cx,
-            self.r11,
-            self.r12,
-            self.r13,
-            self.r14,
-            self.r15,
-            self.ds,
-            self.es,
-            self.fs,
-            self.gs,
-            self.fs_base,
-            self.gs_base,
-            self.flags,
-        )
-    }
 }
 
 // ELF machine constants
@@ -225,63 +147,6 @@ pub const AUDIT_ARCH_64BIT: u32 = 0x80000000;
 pub const AUDIT_ARCH_I386: u32 = EM_386 | AUDIT_ARCH_LE;
 pub const AUDIT_ARCH_X86_64: u32 = EM_X86_64 | AUDIT_ARCH_LE | AUDIT_ARCH_64BIT;
 
-// ptrace_syscall_info
-// linux/include/uapi/linux/ptrace.h
-#[derive(Debug, Default)]
-#[repr(C)]
-pub struct SyscallInfo {
-    pub op: u8,
-    pub pad0: u8,
-    pub pad1: u16,
-    pub arch: u32,
-    pub instruction_pointer: u64,
-    pub stack_pointer: u64,
-    pub nr: u64,
-    pub args: [u64; 6],
-    pub ret_data: u32,
-}
-
-impl SyscallInfo {
-    pub fn from_regs(regs: &UserRegs) -> Self {
-        SyscallInfo {
-            op: PTRACE_SYSCALL_INFO_SECCOMP,
-            arch: AUDIT_ARCH_X86_64,
-            instruction_pointer: regs.ip,
-            stack_pointer: regs.sp,
-            nr: regs.orig_ax,
-            args: [regs.di, regs.si, regs.dx, regs.r10, regs.r8, regs.r9],
-            ..Default::default()
-        }
-    }
-
-    pub fn args_to_regs(args: &[isize], regs: &mut UserRegs) {
-        assert!(args.len() <= 6);
-        regs.di = *args.get(0).unwrap_or(&0) as u64;
-        regs.si = *args.get(1).unwrap_or(&0) as u64;
-        regs.dx = *args.get(2).unwrap_or(&0) as u64;
-        regs.r10 = *args.get(3).unwrap_or(&0) as u64;
-        regs.r8 = *args.get(4).unwrap_or(&0) as u64;
-        regs.r9 = *args.get(5).unwrap_or(&0) as u64;
-    }
-
-    pub fn nr_to_regs(nr: isize, regs: &mut UserRegs) {
-        regs.ax = nr as u64;
-    }
-
-    pub fn ret_to_regs(ret_data: isize, regs: &mut UserRegs) {
-        regs.ax = ret_data as u64;
-    }
-
-    pub fn ret_from_regs(regs: &UserRegs) -> isize {
-        regs.ax as isize
-    }
-
-    // syscall number to resume, or SYSCALL_BLOCKED to skip
-    pub fn orig_nr_to_regs(nr: isize, regs: &mut UserRegs) {
-        regs.orig_ax = nr as u64;
-    }
-}
-
 // Special syscall number
 pub const SYSCALL_BLOCKED: isize = -1;
 
@@ -309,19 +174,19 @@ pub const ECONNRESET: i32 = 104;
 
 // signo
 // linux/include/uapi/asm-generic/signal.h
-pub const SIGINT: u32 = 2;
-pub const SIGTRAP: u32 = 5;
-pub const SIGBUS: u32 = 7;
-pub const SIGKILL: u32 = 9;
-pub const SIGUSR1: u32 = 10;
-pub const SIGUSR2: u32 = 12;
-pub const SIGSEGV: u32 = 11;
-pub const SIGCHLD: u32 = 17;
-pub const SIGCONT: u32 = 18;
-pub const SIGSTOP: u32 = 19;
-pub const SIGURG: u32 = 23;
-pub const SIGIO: u32 = 29;
-pub const SIGSYS: u32 = 31;
+pub const SIGINT: u8 = 2;
+pub const SIGTRAP: u8 = 5;
+pub const SIGBUS: u8 = 7;
+pub const SIGKILL: u8 = 9;
+pub const SIGUSR1: u8 = 10;
+pub const SIGUSR2: u8 = 12;
+pub const SIGSEGV: u8 = 11;
+pub const SIGCHLD: u8 = 17;
+pub const SIGCONT: u8 = 18;
+pub const SIGSTOP: u8 = 19;
+pub const SIGURG: u8 = 23;
+pub const SIGIO: u8 = 29;
+pub const SIGSYS: u8 = 31;
 
 // linux/include/uapi/linux/fs.h
 pub const SEEK_SET: isize = 0;

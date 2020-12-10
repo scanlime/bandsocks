@@ -3,8 +3,7 @@ use crate::{
         task::{TaskData, TaskMemManagement, TaskSocketPair},
         Process, TaskFn,
     },
-    protocol::{SysPid, VPid},
-    tracer::TracerSettings,
+    protocol::{SysPid, TracerSettings, VPid},
 };
 use core::{future::Future, pin::Pin};
 use heapless::FnvIndexMap;

@@ -3,6 +3,8 @@ use crate::{
     errors::{ImageError, RuntimeError, VFSError},
     filesystem::{mount::Mount, socket::SharedStream, storage::FileStorage, vfs::Filesystem},
     manifest::ImageConfig,
+    sand,
+    sand::protocol::TracerSettings,
 };
 use std::{
     ffi::{CString, NulError, OsStr},
@@ -24,6 +26,7 @@ pub struct ContainerBuilder {
     arg_error: Result<(), NulError>,
     mount_error: Result<(), VFSError>,
     stdio: [Option<SharedStream>; 3],
+    tracer_settings: TracerSettings,
 }
 
 impl ContainerBuilder {
@@ -35,6 +38,10 @@ impl ContainerBuilder {
         Ok(ContainerBuilder {
             filesystem,
             storage,
+            tracer_settings: TracerSettings {
+                max_log_level: sand::max_log_level(),
+                instruction_trace: false,
+            },
             arg_error: Ok(()),
             mount_error: Ok(()),
             stdio: [None, None, None],
@@ -145,6 +152,7 @@ impl ContainerBuilder {
             argv,
             self.env,
             local_stdio,
+            self.tracer_settings,
         )
     }
 
@@ -284,6 +292,15 @@ impl ContainerBuilder {
     /// configuration
     pub fn env_clear(mut self) -> Self {
         self.env.clear();
+        self
+    }
+
+    /// Run the container in single-step mode
+    ///
+    /// This is extremely verbose, and intended only for debugging or reporting
+    /// internal problems with the sandbox runtime.
+    pub fn instruction_trace(mut self) -> Self {
+        self.tracer_settings.instruction_trace = true;
         self
     }
 }

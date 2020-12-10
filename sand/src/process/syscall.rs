@@ -1,9 +1,8 @@
 use crate::{
     abi,
-    abi::SyscallInfo,
     process::{loader::Loader, task::StoppedTask},
     protocol::{
-        Errno, FileStat, FromTask, LogLevel, LogMessage, LogSyscall, SysFd, ToTask, VPtr, VString,
+        abi::Syscall, Errno, FileStat, FromTask, LogLevel, LogMessage, SysFd, ToTask, VPtr, VString,
     },
     remote::{scratchpad::Scratchpad, trampoline::Trampoline, RemoteFd},
 };
@@ -12,12 +11,12 @@ use sc::nr;
 #[derive(Debug)]
 pub struct SyscallEmulator<'q, 's, 't> {
     stopped_task: &'t mut StoppedTask<'q, 's>,
-    call: SyscallInfo,
+    call: Syscall,
 }
 
 impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
     pub fn new(stopped_task: &'t mut StoppedTask<'q, 's>) -> Self {
-        let call = SyscallInfo::from_regs(stopped_task.regs);
+        let call = Syscall::from_regs(stopped_task.regs);
         SyscallEmulator { stopped_task, call }
     }
 
@@ -300,16 +299,13 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_result(Err(Errno(-abi::ENOSYS))).await
             }
         };
-        SyscallInfo::ret_to_regs(result, self.stopped_task.regs);
+        self.call.ret = result;
+        Syscall::ret_to_regs(self.call.ret, self.stopped_task.regs);
 
         if self.stopped_task.task.log_enabled(log_level) {
-            self.stopped_task.task.log(
-                log_level,
-                LogMessage::Emulated(
-                    LogSyscall(self.call.nr, self.call.args, result),
-                    VPtr(self.call.instruction_pointer as usize),
-                ),
-            )
+            self.stopped_task
+                .task
+                .log(log_level, LogMessage::Emulated(self.call.clone()))
         }
     }
 }

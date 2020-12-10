@@ -1,12 +1,14 @@
 use crate::{
     abi,
-    abi::{SyscallInfo, UserRegs},
     nolibc::{fcntl, socketpair},
     process::{maps::print_maps_dump, syscall::SyscallEmulator, Event, EventSource, MessageSender},
-    protocol::{FromTask, LogLevel, LogMessage, ProcessHandle, SysFd, SysPid, ToTask, VPid, VPtr},
+    protocol::{
+        abi::{Syscall, UserRegs},
+        FromTask, LogLevel, LogMessage, ProcessHandle, SysFd, SysPid, ToTask, TracerSettings, VPid,
+        VPtr,
+    },
     ptrace,
     remote::{mem::print_stack_dump, RemoteFd},
-    tracer::TracerSettings,
 };
 use core::fmt::{self, Debug, Formatter};
 
@@ -82,9 +84,9 @@ impl<'q> Task<'q> {
             &mut events,
             task_data.sys_pid,
             Event::Signal {
-                sig: abi::SIGCHLD,
+                sig: abi::SIGCHLD as u32,
                 code: abi::CLD_TRAPPED,
-                status: abi::SIGSTOP,
+                status: abi::SIGSTOP as u32,
             },
         )
         .await;
@@ -94,7 +96,7 @@ impl<'q> Task<'q> {
             &mut events,
             task_data.sys_pid,
             Event::Signal {
-                sig: abi::SIGCHLD,
+                sig: abi::SIGCHLD as u32,
                 code: abi::CLD_TRAPPED,
                 status: abi::PTRACE_SIG_EXEC,
             },
@@ -131,33 +133,31 @@ impl<'q> Task<'q> {
         loop {
             let event = self.events.next().await;
             match event {
-                Event::Signal {
-                    sig: abi::SIGCHLD,
-                    code: abi::CLD_TRAPPED,
-                    status: abi::PTRACE_SIG_FORK,
-                } => {
+                Event::Signal { sig, code, status }
+                    if sig == abi::SIGCHLD as u32
+                        && code == abi::CLD_TRAPPED
+                        && status == abi::PTRACE_SIG_FORK =>
+                {
                     let child_pid = ptrace::geteventmsg(self.task_data.sys_pid) as u32;
                     self.handle_fork(child_pid).await
                 }
-
-                Event::Signal {
-                    sig: abi::SIGCHLD,
-                    code: abi::CLD_TRAPPED,
-                    status: abi::PTRACE_SIG_SECCOMP,
-                } => self.handle_seccomp_trap().await,
-
-                Event::Signal {
-                    sig: abi::SIGCHLD,
-                    code: abi::CLD_TRAPPED,
-                    status: signal,
-                } if signal < 0x100 => self.handle_signal(signal as u8).await,
-
-                Event::Signal {
-                    sig: abi::SIGCHLD,
-                    code: abi::CLD_EXITED,
-                    status,
-                } => return self.handle_exited(status).await,
-
+                Event::Signal { sig, code, status }
+                    if sig == abi::SIGCHLD as u32
+                        && code == abi::CLD_TRAPPED
+                        && status == abi::PTRACE_SIG_SECCOMP =>
+                {
+                    self.handle_seccomp_trap().await
+                }
+                Event::Signal { sig, code, status }
+                    if sig == abi::SIGCHLD as u32 && code == abi::CLD_TRAPPED && status < 0x100 =>
+                {
+                    self.handle_signal(status as u8).await
+                }
+                Event::Signal { sig, code, status }
+                    if sig == abi::SIGCHLD as u32 && code == abi::CLD_EXITED =>
+                {
+                    return self.handle_exited(status).await
+                }
                 event => {
                     let mut regs: UserRegs = Default::default();
                     let sys_pid = self.task_data.sys_pid;
@@ -175,7 +175,7 @@ impl<'q> Task<'q> {
     }
 
     fn cont(&self) {
-        if self.log_enabled(LogLevel::Trace) {
+        if self.task_data.tracer_settings.instruction_trace {
             ptrace::single_step(self.task_data.sys_pid);
         } else {
             ptrace::cont(self.task_data.sys_pid);
@@ -190,16 +190,21 @@ impl<'q> Task<'q> {
     async fn handle_signal(&mut self, signal: u8) {
         let mut regs: UserRegs = Default::default();
         let mut stopped_task = self.as_stopped_task(&mut regs);
+        let mut log_level = LogLevel::Trace;
 
-        if signal == 11 {
+        if signal == abi::SIGSEGV {
             println!("task state:\n{:x?}", stopped_task.regs);
             print_maps_dump(&mut stopped_task);
             print_stack_dump(&mut stopped_task);
             panic!("*** signal {} inside sandbox ***", signal);
         }
 
-        let msg = LogMessage::Signal(signal, VPtr(stopped_task.regs.ip as usize));
-        self.log(LogLevel::Trace, msg);
+        if signal == abi::SIGTRAP {
+            log_level = stopped_task.task.task_data.tracer_settings.max_log_level;
+        }
+
+        let msg = LogMessage::Signal(signal, stopped_task.regs.clone());
+        self.log(log_level, msg);
         self.cont();
     }
 
@@ -216,7 +221,7 @@ impl<'q> Task<'q> {
         let mut regs: UserRegs = Default::default();
         let mut stopped_task = self.as_stopped_task(&mut regs);
         SyscallEmulator::new(&mut stopped_task).dispatch().await;
-        SyscallInfo::orig_nr_to_regs(abi::SYSCALL_BLOCKED, &mut stopped_task.regs);
+        Syscall::orig_nr_to_regs(abi::SYSCALL_BLOCKED, &mut stopped_task.regs);
         ptrace::set_regs(sys_pid, &stopped_task.regs);
         self.cont();
     }

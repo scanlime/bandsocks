@@ -1,8 +1,7 @@
 use crate::{
     abi,
-    abi::UserRegs,
     process::loader::{FileHeader, Loader},
-    protocol::{Errno, VPtr},
+    protocol::{abi::UserRegs, Errno, VPtr},
 };
 use core::mem::size_of;
 use goblin::elf64::{header, header::Header, program_header, program_header::ProgramHeader};
@@ -74,8 +73,8 @@ fn init_registers(
 ) {
     let prev_regs = loader.userspace_regs().clone();
     loader.userspace_regs().clone_from(&UserRegs {
-        sp: stack_ptr.0 as u64,
-        ip: ehdr.e_entry + load_base.0 as u64,
+        sp: stack_ptr.0,
+        ip: ehdr.e_entry as usize + load_base.0,
         cs: prev_regs.cs,
         ss: prev_regs.ss,
         ds: prev_regs.ds,

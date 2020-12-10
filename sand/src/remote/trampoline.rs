@@ -1,12 +1,11 @@
 use crate::{
     abi,
-    abi::SyscallInfo,
     process::{
         maps::{MapsIterator, MemArea, MemAreaName},
         task::StoppedTask,
         Event,
     },
-    protocol::{Errno, LogLevel, LogMessage, LogSyscall, VPtr},
+    protocol::{abi::Syscall, Errno, LogLevel, LogMessage, VPtr},
     ptrace,
     remote::{mem::find_bytes, RemoteFd},
 };
@@ -146,16 +145,16 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         let pid = self.stopped_task.task.task_data.sys_pid;
         let mut local_regs = self.stopped_task.regs.clone();
 
-        SyscallInfo::orig_nr_to_regs(nr as isize, &mut local_regs);
-        SyscallInfo::args_to_regs(args, &mut local_regs);
-        let call = SyscallInfo::from_regs(&local_regs);
+        Syscall::orig_nr_to_regs(nr as isize, &mut local_regs);
+        Syscall::args_to_regs(args, &mut local_regs);
+        let call = Syscall::from_regs(&local_regs);
 
         // Run the syscall until completion, trapping again on the way out
         ptrace::set_regs(pid, &local_regs);
         ptrace::trace_syscall(pid);
         self.stopped_task
             .expect_event_or_panic(Event::Signal {
-                sig: abi::SIGCHLD,
+                sig: abi::SIGCHLD as u32,
                 code: abi::CLD_TRAPPED,
                 status: abi::PTRACE_SIG_TRACESYSGOOD,
             })
@@ -163,13 +162,13 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         ptrace::get_regs(pid, &mut local_regs);
 
         // Save the results from the remote call
-        let result = SyscallInfo::ret_from_regs(&local_regs);
+        let result = Syscall::ret_from_regs(&local_regs);
 
         let log_level = LogLevel::Debug;
         if self.stopped_task.task.log_enabled(log_level) {
             self.stopped_task.task.log(
                 log_level,
-                LogMessage::Remote(LogSyscall(call.nr, call.args, result)),
+                LogMessage::Remote(Syscall::from_regs(&local_regs)),
             )
         }
 
@@ -178,25 +177,25 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         // This can't be done without relying on userspace at all, as far as I
         // can tell, but we can reduce the dependency as much as possible by
         // using the VDSO as a trampoline.
-        let fake_syscall_nr = sc::nr::OPEN;
-        let fake_syscall_arg = 0xffff_ffff_dddd_dddd_u64;
-        local_regs.ip = self.kernel_mem.vdso_syscall.0 as u64;
+        let fake_syscall_nr = sc::nr::OPEN as isize;
+        let fake_syscall_arg = 0xffff_ffff_dddd_dddd_u64 as isize;
+        local_regs.ip = self.kernel_mem.vdso_syscall.0;
         local_regs.sp = 0;
-        SyscallInfo::nr_to_regs(fake_syscall_nr as isize, &mut local_regs);
-        SyscallInfo::args_to_regs(&[fake_syscall_arg as isize; 6], &mut local_regs);
+        Syscall::nr_to_regs(fake_syscall_nr, &mut local_regs);
+        Syscall::args_to_regs(&[fake_syscall_arg; 6], &mut local_regs);
 
         ptrace::set_regs(pid, &local_regs);
         ptrace::single_step(pid);
         self.stopped_task
             .expect_event_or_panic(Event::Signal {
-                sig: abi::SIGCHLD,
+                sig: abi::SIGCHLD as u32,
                 code: abi::CLD_TRAPPED,
                 status: abi::PTRACE_SIG_SECCOMP,
             })
             .await;
         ptrace::get_regs(pid, &mut local_regs);
-        let info = SyscallInfo::from_regs(&local_regs);
-        assert_eq!(info.nr, fake_syscall_nr as u64);
+        let info = Syscall::from_regs(&local_regs);
+        assert_eq!(info.nr, fake_syscall_nr);
         assert_eq!(info.args, [fake_syscall_arg; 6]);
 
         ptrace::set_regs(pid, &self.stopped_task.regs);
@@ -239,7 +238,9 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
         prot: isize,
     ) -> Result<(), Errno> {
         let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS | abi::MAP_FIXED_NOREPLACE;
-        let result = self.mmap(addr, length, prot, flags, &RemoteFd(0), 0).await?;
+        let result = self
+            .mmap(addr, length, prot, flags, &RemoteFd(0), 0)
+            .await?;
         if result == addr {
             Ok(())
         } else {

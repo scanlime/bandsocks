@@ -9,7 +9,7 @@ use crate::{
     sand,
     sand::protocol::{
         buffer, buffer::IPCBuffer, exit::*, Errno, FileStat, FromTask, MessageFromSand,
-        MessageToSand, SysFd, ToTask, VPid,
+        MessageToSand, SysFd, ToTask, TracerSettings, VPid,
     },
     taskcall,
 };
@@ -54,6 +54,7 @@ impl IPCServer {
         filesystem: Filesystem,
         storage: FileStorage,
         args_socket: &T,
+        tracer_settings: TracerSettings,
     ) -> Result<Self, RuntimeError> {
         let (mut server_socket, child_socket) = UnixStream::pair()?;
         clear_close_on_exec_flag(child_socket.as_raw_fd());
@@ -68,7 +69,7 @@ impl IPCServer {
             &mut server_socket,
             &MessageToSand::Init {
                 args: args_fd,
-                max_log_level: sand::max_log_level(),
+                tracer_settings,
             },
         )
         .await?;

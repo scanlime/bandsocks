@@ -1,4 +1,7 @@
-use crate::{abi, protocol::SysPid};
+use crate::{
+    abi,
+    protocol::{abi::UserRegs, SysPid},
+};
 use core::{mem, ptr::null};
 use sc::syscall;
 
@@ -65,9 +68,9 @@ pub fn setoptions(pid: SysPid) {
     }
 }
 
-pub fn get_regs(pid: SysPid, regs: &mut abi::UserRegs) {
+pub fn get_regs(pid: SysPid, regs: &mut UserRegs) {
     let mut iovec = abi::IOVec {
-        base: regs as *mut abi::UserRegs as *mut u8,
+        base: regs as *mut UserRegs as *mut u8,
         len: mem::size_of_val(regs),
     };
     match unsafe {
@@ -85,9 +88,9 @@ pub fn get_regs(pid: SysPid, regs: &mut abi::UserRegs) {
     assert_eq!(iovec.len, mem::size_of_val(regs));
 }
 
-pub fn set_regs(pid: SysPid, regs: &abi::UserRegs) {
+pub fn set_regs(pid: SysPid, regs: &UserRegs) {
     let mut iovec = abi::IOVec {
-        base: regs as *const abi::UserRegs as *mut u8,
+        base: regs as *const UserRegs as *mut u8,
         len: mem::size_of_val(regs),
     };
     match unsafe {

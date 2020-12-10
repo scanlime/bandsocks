@@ -10,7 +10,7 @@ use crate::{
     image::{Image, ImageName},
     ipcserver::IPCServer,
     registry::RegistryClient,
-    sand::protocol::InitArgsHeader,
+    sand::protocol::{InitArgsHeader, TracerSettings},
 };
 use std::{ffi::CString, io, os::unix::net::UnixStream, sync::Arc, thread};
 use tokio::{
@@ -192,6 +192,7 @@ impl Container {
         argv: Vec<CString>,
         env: Vec<CString>,
         stdio: [Option<UnixStream>; 3],
+        tracer_settings: TracerSettings,
     ) -> Result<Container, RuntimeError> {
         log::debug!(
             "exec file={:?} dir={:?} argv={:?} env={:?}",
@@ -225,9 +226,10 @@ impl Container {
                 let ipc_task = {
                     let (args_local, args_remote) = fd_queue::tokio::UnixStream::pair()?;
                     let mut args_buf = BufWriter::new(args_local);
-                    let ipc_task = IPCServer::new(filesystem, storage, &args_remote)
-                        .await?
-                        .task();
+                    let ipc_task =
+                        IPCServer::new(filesystem, storage, &args_remote, tracer_settings)
+                            .await?
+                            .task();
 
                     args_buf.write_all(args_header.as_bytes()).await?;
                     args_buf.write_all(&dir).await?;

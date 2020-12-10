@@ -48,7 +48,7 @@ impl Socket {
     }
 
     extern "C" fn handle_sigio(num: u32) {
-        assert_eq!(num, abi::SIGIO);
+        assert_eq!(num, abi::SIGIO as u32);
         SIGIO_FLAG.store(true, Ordering::SeqCst);
     }
 

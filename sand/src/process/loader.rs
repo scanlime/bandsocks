@@ -1,9 +1,7 @@
 use crate::{
-    abi,
-    abi::UserRegs,
-    binformat, nolibc,
+    abi, binformat, nolibc,
     process::{maps::MemArea, stack::StackBuilder, task::StoppedTask},
-    protocol::{Errno, FromTask, SysFd, ToTask, VPtr, VString},
+    protocol::{abi::UserRegs, Errno, FromTask, SysFd, ToTask, VPtr, VString},
     remote::{
         mem::{fault_or, read_string_array, vstring_len},
         scratchpad::Scratchpad,
@@ -166,7 +164,9 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         length: usize,
         prot: isize,
     ) -> Result<(), Errno> {
-        self.trampoline.mmap_anonymous_noreplace(addr, length, prot).await
+        self.trampoline
+            .mmap_anonymous_noreplace(addr, length, prot)
+            .await
     }
 
     pub async fn stack_begin(&mut self) -> Result<StackBuilder, Errno> {

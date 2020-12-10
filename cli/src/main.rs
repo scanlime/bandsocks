@@ -43,12 +43,15 @@ async fn main() {
             log::warn!("pull-only mode, run arguments are being ignored")
         }
     } else {
-        let container = Container::new(image)
+        let mut container = Container::new(image)
             .expect("failed to construct container")
             .args(run_args)
-            .envs(run_env)
-            .spawn()
-            .expect("container failed to start");
+            .envs(run_env);
+
+        if matches.is_present("instruction_trace") {
+            container = container.instruction_trace();
+        }
+        let container = container.spawn().expect("container failed to start");
 
         match container.interact().await {
             Ok(status) => {

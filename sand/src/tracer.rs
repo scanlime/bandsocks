@@ -7,7 +7,9 @@ use crate::{
         task::{TaskMemManagement, TaskSocketPair},
         Event, TaskFn,
     },
-    protocol::{LogLevel, MessageFromSand, MessageToSand, SysFd, SysPid, VPid, VPtr},
+    protocol::{
+        LogLevel, MessageFromSand, MessageToSand, SysFd, SysPid, TracerSettings, VPid, VPtr,
+    },
     ptrace,
     ptrace::RawExecArgs,
 };
@@ -24,16 +26,12 @@ pub struct Tracer<'t, F: Future<Output = ()>> {
     process_table: ProcessTable<'t, F>,
 }
 
-#[derive(Debug, Clone)]
-pub struct TracerSettings {
-    pub max_log_level: LogLevel,
-}
-
 impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     pub fn new(ipc: Socket, task_fn: TaskFn<'t, F>) -> Self {
         Tracer {
             settings: TracerSettings {
                 max_log_level: LogLevel::Off,
+                instruction_trace: false,
             },
             process_table: ProcessTable::new(task_fn),
             ipc,
@@ -92,9 +90,9 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
             MessageToSand::Task { task, op } => self.task_event(task, Event::Message(op)),
             MessageToSand::Init {
                 args,
-                max_log_level,
+                tracer_settings,
             } => {
-                self.as_mut().project().settings.max_log_level = max_log_level;
+                *self.as_mut().project().settings = tracer_settings;
                 self.init_loader(&args);
             }
         }

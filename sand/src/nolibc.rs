@@ -156,7 +156,7 @@ pub unsafe fn open(name: &[u8], flags: usize, mode: usize) -> Result<SysFd, Errn
     }
 }
 
-pub fn signal(signum: u32, handler: extern "C" fn(u32)) -> Result<(), Errno> {
+pub fn signal(signum: u8, handler: extern "C" fn(u32)) -> Result<(), Errno> {
     let sigaction = abi::SigAction {
         sa_flags: abi::SA_RESTORER,
         sa_handler: handler,
