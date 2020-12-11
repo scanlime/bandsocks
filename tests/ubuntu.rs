@@ -28,17 +28,37 @@ fn ubuntu_true() {
         assert_eq!(status.code(), Some(0));
     })
 }
+ */
 
+/*
 #[test]
 fn ubuntu_ldso() {
     Runtime::new().unwrap().block_on(async {
         let container = common()
             .await
-            .arg("/usr/lib/x86_64-linux-gnu/ld-2.31.so")
+            .arg("/lib/x86_64-linux-gnu/ld-2.32.so")
             .spawn()
             .unwrap();
-        let status = container.wait().await.unwrap();
-        assert_eq!(status.code(), Some(0));
+        let output = container.output().await.unwrap();
+        assert_eq!(output.status.code(), Some(127));
+        assert!(!output.stderr.is_empty());
+        assert!(!output.stdout.is_empty());
     })
 }
  */
+
+#[test]
+fn ubuntu_ldso_auxv() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common()
+            .await
+            .env("LD_SHOW_AUXV", "1")
+            .arg("/lib/x86_64-linux-gnu/ld-2.32.so")
+            .spawn()
+            .unwrap();
+        let output = container.output().await.unwrap();
+        assert_eq!(output.status.code(), Some(127));
+        assert!(!output.stderr.is_empty());
+        assert!(!output.stdout.is_empty());
+    })
+}

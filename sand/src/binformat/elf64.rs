@@ -1,5 +1,5 @@
 use crate::{
-    abi,
+    abi, nolibc,
     process::loader::{FileHeader, Loader},
     protocol::{abi::UserRegs, Errno, VPtr},
 };
@@ -18,6 +18,48 @@ fn elf64_program_header(loader: &Loader, ehdr: &Header, idx: u16) -> Result<Prog
         bytes,
     )?;
     Ok(header)
+}
+
+struct LoadAddr {
+    ehdr_addr: VPtr,
+    interp_addr: VPtr,
+    load_offset: usize,
+}
+
+impl LoadAddr {
+    fn new(loader: &Loader, ehdr: &Header) -> Result<LoadAddr, Errno> {
+        let load_offset = LoadAddr::determine_load_offset(ehdr);
+        let ehdr_addr = LoadAddr::determine_ehdr_addr(loader, ehdr)?.add(load_offset);
+        let interp_addr = ehdr_addr;
+        Ok(LoadAddr {
+            ehdr_addr,
+            interp_addr,
+            load_offset,
+        })
+    }
+
+    fn determine_ehdr_addr(loader: &Loader, ehdr: &Header) -> Result<VPtr, Errno> {
+        let mut addr = 0;
+        // Same technique linux's elf loader uses: vaddr - offset for the first LOAD
+        for idx in 0..ehdr.e_phnum {
+            let phdr = elf64_program_header(&loader, &ehdr, idx)?;
+            if phdr.p_type == program_header::PT_LOAD {
+                addr = (phdr.p_vaddr - phdr.p_offset) as usize;
+                break;
+            }
+        }
+        Ok(VPtr(addr))
+    }
+
+    fn determine_load_offset(ehdr: &Header) -> usize {
+        if ehdr.e_type == header::ET_DYN {
+            let rnd = nolibc::getrandom_usize();
+            let rnd_mask = ((1 << abi::MMAP_RND_BITS) - 1) & !abi::PAGE_MASK;
+            abi::TASK_UNMAPPED_BASE + (rnd & rnd_mask)
+        } else {
+            0
+        }
+    }
 }
 
 pub fn detect(fh: &FileHeader) -> bool {
@@ -50,31 +92,18 @@ fn phdr_prot(phdr: &ProgramHeader) -> isize {
 
 pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errno> {
     let ehdr = elf64_header(loader.file_header());
-    let load_base = VPtr(match ehdr.e_type {
-        header::ET_EXEC => 0,
-        header::ET_DYN => {
-            // to do: calculate this at a more suitable location, and randomize it
-            0x1_0000_0000
-        }
-        _ => unreachable!(),
-    });
-
-    let stack_ptr = replace_maps_with_new_stack(&mut loader, load_base, &ehdr).await?;
-    load_segments(&mut loader, load_base, &ehdr).await?;
-    init_registers(&mut loader, stack_ptr, load_base, &ehdr);
+    let lad = LoadAddr::new(&loader, &ehdr)?;
+    let stack_ptr = replace_maps_with_new_stack(&mut loader, &ehdr, &lad).await?;
+    load_segments(&mut loader, &ehdr, &lad).await?;
+    init_registers(&mut loader, &ehdr, &lad, stack_ptr);
     Ok(())
 }
 
-fn init_registers(
-    loader: &mut Loader<'_, '_, '_>,
-    stack_ptr: VPtr,
-    load_base: VPtr,
-    ehdr: &Header,
-) {
+fn init_registers(loader: &mut Loader<'_, '_, '_>, ehdr: &Header, lad: &LoadAddr, stack_ptr: VPtr) {
     let prev_regs = loader.userspace_regs().clone();
     loader.userspace_regs().clone_from(&UserRegs {
         sp: stack_ptr.0,
-        ip: ehdr.e_entry as usize + load_base.0,
+        ip: ehdr.e_entry as usize + lad.load_offset,
         cs: prev_regs.cs,
         ss: prev_regs.ss,
         ds: prev_regs.ds,
@@ -86,8 +115,8 @@ fn init_registers(
 
 async fn replace_maps_with_new_stack(
     loader: &mut Loader<'_, '_, '_>,
-    load_base: VPtr,
     ehdr: &Header,
+    lad: &LoadAddr,
 ) -> Result<VPtr, Errno> {
     let mut stack = loader.stack_begin().await?;
     let mut argc = 0;
@@ -141,17 +170,17 @@ async fn replace_maps_with_new_stack(
                 abi::AT_CLKTCK,
                 abi::USER_HZ,
                 abi::AT_PHDR,
-                load_base.0 + ehdr.e_phoff as usize,
+                lad.ehdr_addr.add(ehdr.e_phoff as usize).0,
                 abi::AT_PHENT,
                 size_of::<ProgramHeader>(),
                 abi::AT_PHNUM,
                 ehdr.e_phnum as usize,
                 abi::AT_BASE,
-                load_base.0,
+                lad.interp_addr.0,
                 abi::AT_FLAGS,
                 0,
                 abi::AT_ENTRY,
-                load_base.0 + ehdr.e_entry as usize,
+                lad.load_offset + ehdr.e_entry as usize,
                 abi::AT_UID,
                 0, //to do
                 abi::AT_EUID,
@@ -189,8 +218,8 @@ async fn replace_maps_with_new_stack(
 
 async fn load_segments(
     loader: &mut Loader<'_, '_, '_>,
-    load_base: VPtr,
     ehdr: &Header,
+    lad: &LoadAddr,
 ) -> Result<VPtr, Errno> {
     let mut brk = VPtr(0);
 
@@ -201,7 +230,7 @@ async fn load_segments(
         {
             let prot = phdr_prot(&phdr);
             let page_alignment = abi::page_offset(phdr.p_vaddr as usize);
-            let start_ptr = VPtr(phdr.p_vaddr as usize - page_alignment + load_base.0);
+            let start_ptr = VPtr(phdr.p_vaddr as usize - page_alignment + lad.load_offset);
             let file_size_aligned = abi::page_round_up(phdr.p_filesz as usize + page_alignment);
             let file_offset_aligned = phdr.p_offset as usize - page_alignment;
             let mem_size_aligned = abi::page_round_up(phdr.p_memsz as usize + page_alignment);
@@ -210,6 +239,8 @@ async fn load_segments(
                 loader
                     .map_anonymous(start_ptr, mem_size_aligned, prot)
                     .await?;
+                // FIXME: also need to zero the non-page-aligned portion of the
+                // bss
             }
             if phdr.p_filesz > 0 {
                 loader
@@ -222,5 +253,5 @@ async fn load_segments(
     }
 
     loader.randomize_brk(brk);
-    Ok(load_base.add(ehdr.e_entry as usize))
+    Ok(VPtr(ehdr.e_entry as usize).add(lad.load_offset))
 }

@@ -294,6 +294,17 @@ pub const PAGE_SHIFT: usize = 12;
 pub const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
 pub const PAGE_MASK: usize = PAGE_SIZE - 1;
 
+/// linux/arch/x86/include/asm/page_64_types.h
+pub const TASK_SIZE: usize = (1 << 47) - PAGE_SIZE;
+
+/// linux/arch/x86/include/asm/processor.h
+pub const TASK_UNMAPPED_BASE: usize = (TASK_SIZE / 3) & !PAGE_MASK;
+
+/// linux/arch/x86/include/asm/elf.h
+pub const ELF_ET_DYN_BASE: usize = (TASK_SIZE / 3 * 2) & !PAGE_MASK;
+
+pub const MMAP_RND_BITS: usize = 28;
+
 pub fn page_offset(addr: usize) -> usize {
     addr & PAGE_MASK
 }
