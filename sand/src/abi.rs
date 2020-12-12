@@ -303,6 +303,10 @@ pub const TASK_UNMAPPED_BASE: usize = (TASK_SIZE / 3) & !PAGE_MASK;
 /// linux/arch/x86/include/asm/elf.h
 pub const ELF_ET_DYN_BASE: usize = (TASK_SIZE / 3 * 2) & !PAGE_MASK;
 
+// ELF x86_64 ABI spec, initial thread stack
+pub const ELF_STACK_ALIGN: usize = 16;
+pub const ELF_STACK_ALIGN_MASK: usize = ELF_STACK_ALIGN - 1;
+
 pub const MMAP_RND_BITS: usize = 28;
 
 pub fn page_offset(addr: usize) -> usize {

@@ -76,22 +76,28 @@ impl StackBuilder {
         ptr
     }
 
+    pub fn skip_bytes(&mut self, length: usize) -> Result<VPtr, Errno> {
+        let ptr = VPtr(self.bottom.0 - length);
+        let stack_size = self.top.0 - ptr.0;
+        if stack_size > BUILDER_SIZE_LIMIT {
+            return Err(Errno(-abi::E2BIG));
+        }
+        self.bottom = ptr;
+        Ok(ptr)
+    }
+
     pub async fn push_remote_bytes(
         &mut self,
         trampoline: &mut Trampoline<'_, '_, '_>,
         addr: VPtr,
         length: usize,
     ) -> Result<VPtr, Errno> {
-        let ptr = VPtr(self.bottom.0 - length);
+        let ptr = self.skip_bytes(length)?;
         let stack_size = self.top.0 - ptr.0;
-        if stack_size > BUILDER_SIZE_LIMIT {
-            return Err(Errno(-abi::E2BIG));
-        }
         let file_offset = BUILDER_SIZE_LIMIT - stack_size;
         trampoline
             .pwrite_exact(&self.memfd.0, addr, length, file_offset)
             .await?;
-        self.bottom = ptr;
         Ok(ptr)
     }
 
@@ -147,6 +153,14 @@ impl StackBuilder {
         self.bottom = ptr;
         self.num_stored_vectors = 0;
         Ok(ptr)
+    }
+
+    pub fn stored_vector_count(&self) -> usize {
+        self.num_stored_vectors
+    }
+
+    pub fn stored_vector_bytes(&self) -> usize {
+        self.stored_vector_count() * size_of::<usize>()
     }
 
     /// store a small number of usize vectors, for later adding via

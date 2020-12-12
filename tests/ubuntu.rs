@@ -30,7 +30,6 @@ fn ubuntu_true() {
 }
  */
 
-/*
 #[test]
 fn ubuntu_ldso() {
     Runtime::new().unwrap().block_on(async {
@@ -42,10 +41,9 @@ fn ubuntu_ldso() {
         let output = container.output().await.unwrap();
         assert_eq!(output.status.code(), Some(127));
         assert!(!output.stderr.is_empty());
-        assert!(!output.stdout.is_empty());
+        assert!(output.stdout.is_empty());
     })
 }
- */
 
 #[test]
 fn ubuntu_ldso_auxv() {

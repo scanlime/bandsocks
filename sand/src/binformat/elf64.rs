@@ -3,7 +3,7 @@ use crate::{
     process::loader::{FileHeader, Loader},
     protocol::{abi::UserRegs, Errno, VPtr},
 };
-use core::mem::size_of;
+use core::mem::{size_of, size_of_val};
 use goblin::elf64::{header, header::Header, program_header, program_header::ProgramHeader};
 
 fn elf64_header(fh: &FileHeader) -> Header {
@@ -207,12 +207,24 @@ async fn replace_maps_with_new_stack(
         )
         .await?;
 
-    stack.align(16);
+    // argc goes at the lowest stack address, but we don't know it until we've
+    // prepared the vectors above it.
+    let argc_vec: [usize; 1] = [argc];
+
+    stack.align(abi::ELF_STACK_ALIGN);
+    let total_vector_len = stack.stored_vector_bytes() + size_of_val(&argc_vec);
+    if 0 != (total_vector_len & abi::ELF_STACK_ALIGN_MASK) {
+        let padding = abi::ELF_STACK_ALIGN - (total_vector_len & abi::ELF_STACK_ALIGN_MASK);
+        stack.skip_bytes(padding)?;
+    }
+
     loader.stack_stored_vectors(&mut stack).await?;
-    loader.store_vectors(&mut stack, &[argc]).await?;
+    loader.store_vectors(&mut stack, &argc_vec).await?;
     let sp = loader.stack_stored_vectors(&mut stack).await?;
     loader.unmap_all_userspace_mem().await;
     loader.stack_finish(stack).await?;
+
+    assert_eq!(sp.0 & abi::ELF_STACK_ALIGN_MASK, 0);
     Ok(sp)
 }
 
