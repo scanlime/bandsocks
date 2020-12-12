@@ -86,7 +86,8 @@ impl Socket {
             msg_flags: 0,
         };
         let flags = abi::MSG_DONTWAIT;
-        let result = unsafe { syscall!(RECVMSG, self.file.fd.0, &mut msghdr as *mut MsgHdr, flags) };
+        let result =
+            unsafe { syscall!(RECVMSG, self.file.fd.0, &mut msghdr as *mut MsgHdr, flags) };
         match result as isize {
             len if len > 0 => {
                 let num_files = if cmsg.hdr.cmsg_len == 0 {
@@ -139,8 +140,14 @@ impl Socket {
             msg_flags: 0,
         };
         let flags = 0;
-        let result =
-            unsafe { syscall!(SENDMSG, self.file.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
+        let result = unsafe {
+            syscall!(
+                SENDMSG,
+                self.file.fd.0,
+                &msghdr as *const abi::MsgHdr,
+                flags
+            ) as isize
+        };
         assert_eq!(result, buffer.as_slice().bytes.len() as isize);
     }
 }

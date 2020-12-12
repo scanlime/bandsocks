@@ -1,5 +1,4 @@
-use core::fmt;
-use core::default::Default;
+use core::{default::Default, fmt};
 
 /// Exit codes returned by the sand process
 pub mod exit {
@@ -81,4 +80,3 @@ impl VPtr {
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct VString(pub VPtr);
-

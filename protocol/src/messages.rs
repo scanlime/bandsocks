@@ -1,5 +1,4 @@
-use crate::types::*;
-use crate::abi;
+use crate::{abi, types::*};
 
 /// Any message sent from the IPC server to the sand process
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]

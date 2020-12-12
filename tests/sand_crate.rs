@@ -1,4 +1,4 @@
-use std::{fs::copy, process::Command, os::unix::fs::symlink, path::Path};
+use std::{fs::copy, os::unix::fs::symlink, path::Path, process::Command};
 
 // This should use the same configuration as ../build.rs
 #[test]

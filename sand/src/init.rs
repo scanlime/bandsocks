@@ -1,5 +1,4 @@
-use crate::protocol::{InitArgsHeader};
-use crate::nolibc::File;
+use crate::{nolibc::File, protocol::InitArgsHeader};
 use sc::syscall;
 use smalloca::smalloca_default;
 

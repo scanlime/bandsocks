@@ -13,16 +13,15 @@ compile_error!("bandsocks currently only supports x86_64");
 #[macro_use]
 extern crate std;
 
-#[cfg(test)]
-mod tests;
+#[cfg(test)] mod tests;
 
 pub mod abi;
 pub mod buffer;
 pub mod de;
 pub mod ser;
 
-mod types;
 mod messages;
+mod types;
 
-pub use types::*;
 pub use messages::*;
+pub use types::*;
