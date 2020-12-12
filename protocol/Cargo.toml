@@ -1,0 +1,16 @@
+[package]
+name = "bandsocks-protocol"
+version = "0.2.0"
+description = "Interprocess communication protocol used internally in bandsocks"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/scanlime/bandsocks"
+authors = ["Micah Elizabeth Scott <micah@scanlime.org>"]
+edition = "2018"
+
+[dependencies]
+
+generic-array = "0.14"
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+hash32 = "0.1"
+hash32-derive = "0.1"
+

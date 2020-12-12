@@ -9,13 +9,11 @@ edition = "2018"
 
 [dependencies]
 
+bandsocks-protocol = { version = "0.2", path = "protocol" }
 bytes = "0.5"
 fd-queue = { version = "1.0.0-beta.2", features = [ "tokio-fd" ] }
 flate2 = "1.0.19"
 futures-util = "0.3"
-generic-array = "0.14"
-hash32 = "0.1"
-hash32-derive = "0.1"
 http = "0.2"
 lazy_static = "1.4"
 libc = "0.2"
@@ -42,4 +40,4 @@ build-deps = "0.1"
 fs_extra = "1.2.0"
 
 [workspace]
-members = ["cli"]
+members = ["cli", "protocol"]

@@ -230,7 +230,7 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
 
     pub async fn send_fd(&mut self, local: &SysFd) -> Result<RemoteFd, Errno> {
         let socket_pair = &self.trampoline.stopped_task.task.task_data.socket_pair;
-        let local_socket_fd = socket_pair.tracer.0;
+        let local_socket_fd = socket_pair.tracer.fd.0;
         let remote_socket_fd = socket_pair.remote.0;
 
         #[derive(Debug, Clone)]

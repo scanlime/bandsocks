@@ -1,4 +1,5 @@
 use crate::{
+    nolibc::File,
     parser,
     parser::{ByteReader, Token},
     process::task::StoppedTask,
@@ -83,12 +84,13 @@ type MapsBufferSize = U512;
 
 pub struct MapsIterator<'q, 's, 't> {
     stopped_task: PhantomData<&'t mut StoppedTask<'q, 's>>,
-    stream: ByteReader<'t, MapsBufferSize>,
+    stream: ByteReader<MapsBufferSize>,
 }
 
 impl<'q, 's, 't> MapsIterator<'q, 's, 't> {
     pub fn new(stopped_task: &'t mut StoppedTask<'q, 's>) -> Self {
-        let stream = ByteReader::from_sysfd(&stopped_task.task.process_handle.maps);
+        let maps_file = File::new(stopped_task.task.process_handle.maps);
+        let stream = ByteReader::from_file(maps_file);
         MapsIterator {
             stopped_task: PhantomData,
             stream,
@@ -173,14 +175,14 @@ pub fn print_maps_dump(stopped_task: &mut StoppedTask) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::protocol::SysFd;
-    use std::{fs::File, os::unix::io::AsRawFd};
+    use crate::{nolibc::File, protocol::SysFd};
+    use std::{fs, os::unix::io::AsRawFd};
 
     #[test]
     fn self_maps() {
-        let f = File::open("/proc/thread-self/maps").unwrap();
-        let sys_fd = SysFd(f.as_raw_fd() as u32);
-        let r = ByteReader::<MapsBufferSize>::from_sysfd(&sys_fd);
+        let std_file = fs::File::open("/proc/thread-self/maps").unwrap();
+        let nolibc_file = File::new(SysFd(std_file.as_raw_fd() as u32));
+        let r = ByteReader::<MapsBufferSize>::from_file(nolibc_file);
         let iter = MapsIterator {
             stopped_task: PhantomData,
             stream: r,

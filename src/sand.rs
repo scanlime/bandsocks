@@ -1,6 +1,4 @@
-pub mod protocol {
-    include! {"../sand/src/protocol.rs"}
-}
+pub use bandsocks_protocol as protocol;
 
 #[cfg(not(doc))]
 const PROGRAM_DATA: &[u8] = include_bytes!(concat!(
@@ -12,16 +10,13 @@ const PROGRAM_DATA: &[u8] = include_bytes!(concat!(
 const PROGRAM_DATA: &[u8] = b"";
 
 use crate::errors::RuntimeError;
-use protocol::{LogLevel, LogMessage, SysFd, VPid};
+use protocol::{LogLevel, LogMessage, VPid};
 use std::{
     fs::File,
     io::Write,
-    os::{
-        raw::c_int,
-        unix::{
-            io::{AsRawFd, RawFd},
-            process::CommandExt,
-        },
+    os::unix::{
+        io::{AsRawFd, RawFd},
+        process::CommandExt,
     },
     process::{Command, Stdio},
 };
@@ -62,12 +57,6 @@ pub fn command(fd: RawFd) -> Result<Command, RuntimeError> {
     cmd.env_clear();
     cmd.env("FD", fd.to_string());
     Ok(cmd)
-}
-
-impl AsRawFd for SysFd {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0 as c_int
-    }
 }
 
 pub fn max_log_level() -> LogLevel {

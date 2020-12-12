@@ -16,18 +16,28 @@ fn main() {
     let cargo = var("CARGO").unwrap();
     let out_dir = var("OUT_DIR").unwrap();
     let build_dir = Path::new(&out_dir).join("sand");
-    create_dir_all(&build_dir).unwrap();
+    let protocol_dir = build_dir.join("protocol");
+    create_dir_all(&protocol_dir).unwrap();
 
     rerun_if_changed_paths("sand/sand-Cargo.toml").unwrap();
     rerun_if_changed_paths("sand/sand-Cargo.lock").unwrap();
     rerun_if_changed_paths("sand/src/**/*.rs").unwrap();
+    rerun_if_changed_paths("protocol/**/*.rs").unwrap();
+    rerun_if_changed_paths("protocol/Cargo.toml").unwrap();
 
     let mut opts = CopyOptions::new();
     opts.copy_inside = true;
     opts.overwrite = true;
+
     copy("sand/sand-Cargo.toml", build_dir.join("Cargo.toml")).unwrap();
     copy("sand/sand-Cargo.lock", build_dir.join("Cargo.lock")).unwrap();
     copy_items(&["sand/src"], &build_dir, &opts).unwrap();
+    copy_items(
+        &["protocol/src", "protocol/Cargo.toml"],
+        &protocol_dir,
+        &opts,
+    )
+    .unwrap();
 
     let args = &["build", "--release"];
 

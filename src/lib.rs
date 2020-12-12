@@ -72,7 +72,6 @@ compile_error!("bandsocks only works on linux or android");
 
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate serde;
-#[macro_use] extern crate hash32_derive;
 
 mod container;
 mod errors;

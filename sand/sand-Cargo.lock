@@ -19,16 +19,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
+name = "bandsocks-protocol"
+version = "0.2.0"
+dependencies = [
+ "generic-array 0.14.4",
+ "hash32",
+ "hash32-derive",
+ "serde",
+]
+
+[[package]]
 name = "bandsocks-sand"
 version = "0.2.0"
 dependencies = [
  "as-slice",
+ "bandsocks-protocol",
  "compiler_builtins",
  "file_limit",
  "generic-array 0.14.4",
  "goblin",
  "hash32",
- "hash32-derive",
  "heapless",
  "memoffset",
  "pin-project",

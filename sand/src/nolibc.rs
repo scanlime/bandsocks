@@ -26,12 +26,23 @@ macro_rules! println {
     });
 }
 
+pub fn write_stderr(msg: fmt::Arguments) {
+    if fmt::write(&mut File::stderr(), msg).is_err() {
+        exit(crate::EXIT_IO_ERROR);
+    }
+}
+
 pub const PROC_SELF_EXE: &[u8] = b"/proc/self/exe\0";
 pub const PROC_SELF_FD: &[u8] = b"/proc/self/fd\0";
 
-impl fmt::Write for SysFd {
+#[derive(Debug, Eq, PartialEq)]
+pub struct File {
+    pub fd: SysFd,
+}
+
+impl fmt::Write for File {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        if s.len() == unsafe { syscall!(WRITE, self.0, s.as_ptr() as usize, s.len()) } {
+        if s.len() == unsafe { syscall!(WRITE, self.fd.0, s.as_ptr() as usize, s.len()) } {
             Ok(())
         } else {
             Err(fmt::Error)
@@ -39,9 +50,43 @@ impl fmt::Write for SysFd {
     }
 }
 
-impl SysFd {
+impl File {
+    /// # Safety
+    /// Needs a NUL-terminated C string.
+    /// Also note this will fail if run after the seccomp policy is installed.
+    pub unsafe fn open(name: &[u8], flags: usize, mode: usize) -> Result<File, Errno> {
+        match syscall!(OPEN, name.as_ptr(), flags, mode) as isize {
+            result if result >= 0 => Ok(File::new(SysFd(result as u32))),
+            err => Err(Errno(err as i32)),
+        }
+    }
+
+    pub fn new(fd: SysFd) -> File {
+        File { fd }
+    }
+
+    pub fn open_self_fd() -> Result<File, Errno> {
+        let flags = abi::O_RDONLY | abi::O_CLOEXEC | abi::O_DIRECTORY;
+        unsafe { File::open(&PROC_SELF_FD, flags, 0) }
+    }
+
+    pub fn open_self_exe() -> Result<File, Errno> {
+        let flags = abi::O_RDONLY | abi::O_CLOEXEC;
+        unsafe { File::open(&PROC_SELF_EXE, flags, 0) }
+    }
+
+    pub fn dup2(oldf: &File, newf: &File) -> Result<(), Errno> {
+        let result = unsafe { syscall!(DUP2, oldf.fd.0, newf.fd.0) as isize };
+        if result >= 0 {
+            assert_eq!(result as u32, newf.fd.0);
+            Ok(())
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
     pub fn close(&self) -> Result<(), Errno> {
-        let result = unsafe { syscall!(CLOSE, self.0) as isize };
+        let result = unsafe { syscall!(CLOSE, self.fd.0) as isize };
         if result == 0 {
             Ok(())
         } else {
@@ -54,7 +99,7 @@ impl SysFd {
         while offset < bytes.len() {
             let slice = &mut bytes[offset..];
             let result = unsafe {
-                syscall!(READ, self.0, slice.as_mut_ptr() as usize, slice.len()) as isize
+                syscall!(READ, self.fd.0, slice.as_mut_ptr() as usize, slice.len()) as isize
             };
             if result <= 0 {
                 return Err(Errno(result as i32));
@@ -63,6 +108,75 @@ impl SysFd {
             }
         }
         Ok(())
+    }
+
+    pub fn socketpair(domain: usize, ty: usize, protocol: usize) -> Result<(File, File), Errno> {
+        let mut pair = [0u32; 4];
+        let result =
+            unsafe { syscall!(SOCKETPAIR, domain, ty, protocol, pair.as_mut_ptr()) as isize };
+        if result == 0 {
+            Ok((File::new(SysFd(pair[0])), File::new(SysFd(pair[1]))))
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub fn stdin() -> File {
+        File::new(SysFd(0))
+    }
+
+    pub fn stdout() -> File {
+        File::new(SysFd(1))
+    }
+
+    pub fn stderr() -> File {
+        File::new(SysFd(2))
+    }
+
+    pub fn fcntl(&self, op: usize, arg: usize) -> Result<isize, Errno> {
+        match unsafe { syscall!(FCNTL, self.fd.0, op, arg) } as isize {
+            result if result >= 0 => Ok(result),
+            other => Err(Errno(other as i32)),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn lseek(&self, pos: usize, whence: isize) -> Result<usize, Errno> {
+        let result = unsafe { syscall!(LSEEK, self.fd.0, pos, whence) as isize };
+        if result >= 0 {
+            Ok(result as usize)
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub fn getdents(&self, buffer: &mut [u8]) -> Result<usize, Errno> {
+        let result =
+            unsafe { syscall!(GETDENTS64, self.fd.0, buffer.as_mut_ptr(), buffer.len()) as isize };
+        if result >= 0 {
+            Ok(result as usize)
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub fn pread(&self, bytes: &mut [u8], offset: usize) -> Result<usize, Errno> {
+        let result = unsafe {
+            syscall!(PREAD64, self.fd.0, bytes.as_mut_ptr(), bytes.len(), offset) as isize
+        };
+        if result >= 0 {
+            Ok(result as usize)
+        } else {
+            Err(Errno(result as i32))
+        }
+    }
+
+    pub fn pread_exact(&self, bytes: &mut [u8], offset: usize) -> Result<(), Errno> {
+        match self.pread(bytes, offset) {
+            Ok(len) if len == bytes.len() => Ok(()),
+            Ok(_) => Err(Errno(-abi::EIO)),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -73,34 +187,6 @@ pub fn getpid() -> usize {
 pub fn exit(code: usize) -> ! {
     unsafe { syscall!(EXIT, code) };
     unreachable!()
-}
-
-pub fn socketpair(domain: usize, ty: usize, protocol: usize) -> Result<(SysFd, SysFd), Errno> {
-    let mut pair = [0u32; 4];
-    let result = unsafe { syscall!(SOCKETPAIR, domain, ty, protocol, pair.as_mut_ptr()) as isize };
-    if result == 0 {
-        Ok((SysFd(pair[0]), SysFd(pair[1])))
-    } else {
-        Err(Errno(result as i32))
-    }
-}
-
-pub fn stdin() -> SysFd {
-    SysFd(0)
-}
-
-pub fn stdout() -> SysFd {
-    SysFd(1)
-}
-
-pub fn stderr() -> SysFd {
-    SysFd(2)
-}
-
-pub fn write_stderr(msg: fmt::Arguments) {
-    if fmt::write(&mut stderr(), msg).is_err() {
-        exit(crate::EXIT_IO_ERROR);
-    }
 }
 
 /// # Safety
@@ -146,16 +232,6 @@ unsafe extern "C" fn sigreturn() {
     unreachable!();
 }
 
-/// # Safety
-/// Needs a NUL-terminated C string.
-/// Also note this will fail if run after the seccomp policy is installed.
-pub unsafe fn open(name: &[u8], flags: usize, mode: usize) -> Result<SysFd, Errno> {
-    match syscall!(OPEN, name.as_ptr(), flags, mode) as isize {
-        result if result >= 0 => Ok(SysFd(result as u32)),
-        err => Err(Errno(err as i32)),
-    }
-}
-
 pub fn signal(signum: u8, handler: extern "C" fn(u32)) -> Result<(), Errno> {
     let sigaction = abi::SigAction {
         sa_flags: abi::SA_RESTORER,
@@ -177,50 +253,6 @@ pub fn signal(signum: u8, handler: extern "C" fn(u32)) -> Result<(), Errno> {
     }
 }
 
-pub fn fcntl(fd: &SysFd, op: usize, arg: usize) -> Result<isize, Errno> {
-    match unsafe { syscall!(FCNTL, fd.0, op, arg) } as isize {
-        result if result >= 0 => Ok(result),
-        other => Err(Errno(other as i32)),
-    }
-}
-
-#[allow(dead_code)]
-pub fn lseek(fd: &SysFd, pos: usize, whence: isize) -> Result<usize, Errno> {
-    let result = unsafe { syscall!(LSEEK, fd.0, pos, whence) as isize };
-    if result >= 0 {
-        Ok(result as usize)
-    } else {
-        Err(Errno(result as i32))
-    }
-}
-
-pub fn getdents(fd: &SysFd, buffer: &mut [u8]) -> Result<usize, Errno> {
-    let result = unsafe { syscall!(GETDENTS64, fd.0, buffer.as_mut_ptr(), buffer.len()) as isize };
-    if result >= 0 {
-        Ok(result as usize)
-    } else {
-        Err(Errno(result as i32))
-    }
-}
-
-pub fn pread(fd: &SysFd, bytes: &mut [u8], offset: usize) -> Result<usize, Errno> {
-    let result =
-        unsafe { syscall!(PREAD64, fd.0, bytes.as_mut_ptr(), bytes.len(), offset) as isize };
-    if result >= 0 {
-        Ok(result as usize)
-    } else {
-        Err(Errno(result as i32))
-    }
-}
-
-pub fn pread_exact(fd: &SysFd, bytes: &mut [u8], offset: usize) -> Result<(), Errno> {
-    match pread(fd, bytes, offset) {
-        Ok(len) if len == bytes.len() => Ok(()),
-        Ok(_) => Err(Errno(-abi::EIO)),
-        Err(e) => Err(e),
-    }
-}
-
 pub fn getrandom(bytes: &mut [u8], flags: isize) -> Result<usize, Errno> {
     let result = unsafe { syscall!(GETRANDOM, bytes.as_mut_ptr(), bytes.len(), flags) as isize };
     if result >= 0 {
@@ -236,37 +268,17 @@ pub fn getrandom_usize() -> usize {
     usize::from_ne_bytes(bytes)
 }
 
-pub fn open_self_fd() -> Result<SysFd, Errno> {
-    let flags = abi::O_RDONLY | abi::O_CLOEXEC | abi::O_DIRECTORY;
-    unsafe { open(&PROC_SELF_FD, flags, 0) }
-}
-
-pub fn open_self_exe() -> Result<SysFd, Errno> {
-    let flags = abi::O_RDONLY | abi::O_CLOEXEC;
-    unsafe { open(&PROC_SELF_EXE, flags, 0) }
-}
-
-pub fn dup2(oldfd: &SysFd, newfd: &SysFd) -> Result<(), Errno> {
-    let result = unsafe { syscall!(DUP2, oldfd.0, newfd.0) as isize };
-    if result >= 0 {
-        assert_eq!(result as u32, newfd.0);
-        Ok(())
-    } else {
-        Err(Errno(result as i32))
-    }
-}
-
 pub struct DirIterator<'f, S: ArrayLength<u8>, F: Fn(Dirent<'_>) -> V, V> {
-    dir_fd: &'f SysFd,
+    dir: &'f File,
     buf: Vec<u8, S>,
     buf_position: usize,
     callback: F,
 }
 
 impl<'f, S: ArrayLength<u8>, F: Fn(Dirent<'_>) -> V, V> DirIterator<'f, S, F, V> {
-    pub fn new(dir_fd: &'f SysFd, callback: F) -> Self {
+    pub fn new(dir: &'f File, callback: F) -> Self {
         DirIterator {
-            dir_fd,
+            dir,
             callback,
             buf: Vec::new(),
             buf_position: 0,
@@ -291,7 +303,7 @@ impl<'f, S: ArrayLength<u8>, F: Fn(Dirent<'_>) -> V, V> Iterator for DirIterator
         if self.buf_position == self.buf.len() {
             unsafe {
                 let buffer = slice::from_raw_parts_mut(self.buf.as_mut_ptr(), self.buf.capacity());
-                match getdents(&self.dir_fd, buffer) {
+                match self.dir.getdents(buffer) {
                     Err(err) => return Some(Err(err)),
                     Ok(len) => {
                         assert!(len <= self.buf.capacity());
@@ -340,11 +352,11 @@ pub fn sleep(duration: &abi::TimeSpec) -> Result<(), Errno> {
 
 #[cfg(test)]
 mod test {
-    use super::{lseek, open_self_fd, DirIterator, Dirent};
+    use super::{DirIterator, Dirent, File};
     use crate::abi;
     use std::{
         collections::HashSet,
-        fs::File,
+        fs,
         os::unix::io::{FromRawFd, IntoRawFd, RawFd},
         string::String,
     };
@@ -352,7 +364,7 @@ mod test {
 
     #[test]
     fn self_fd_iter() {
-        let dir_fd = open_self_fd().unwrap();
+        let fds_dir = File::open_self_fd().unwrap();
 
         let mut fds_created: HashSet<RawFd> = HashSet::new();
         let mut fds_seen: HashSet<RawFd> = HashSet::new();
@@ -360,7 +372,7 @@ mod test {
 
         file_limit::set_to_max().unwrap();
         for _ in 0..3000 {
-            fds_created.insert(File::open("/dev/null").unwrap().into_raw_fd());
+            fds_created.insert(fs::File::open("/dev/null").unwrap().into_raw_fd());
         }
 
         fn callback(dirent: Dirent<'_>) -> (u8, String) {
@@ -371,7 +383,7 @@ mod test {
         }
 
         // testing small buffers specifically; 64 bytes only holds about 2 dirents
-        let mut iter = DirIterator::<U64, _, _>::new(&dir_fd, callback);
+        let mut iter = DirIterator::<U64, _, _>::new(&fds_dir, callback);
 
         for result in &mut iter {
             let (d_type, d_name) = result.unwrap();
@@ -382,7 +394,7 @@ mod test {
                 let fd: RawFd = d_name.parse().unwrap();
                 assert!(fds_seen.insert(fd));
                 if fds_created.contains(&fd) {
-                    unsafe { File::from_raw_fd(fd) };
+                    unsafe { fs::File::from_raw_fd(fd) };
                     assert!(fds_closed.insert(fd));
                 }
             }
@@ -393,8 +405,8 @@ mod test {
         assert_eq!(fds_created, fds_closed);
 
         // seek and re-read, with the same fd
-        lseek(&dir_fd, 0, abi::SEEK_SET).unwrap();
-        let iter = DirIterator::<U64, _, _>::new(&dir_fd, callback);
+        fds_dir.lseek(0, abi::SEEK_SET).unwrap();
+        let iter = DirIterator::<U64, _, _>::new(&fds_dir, callback);
         for result in iter {
             let (d_type, d_name) = result.unwrap();
             if d_type == abi::DT_DIR {
@@ -407,6 +419,6 @@ mod test {
             }
         }
 
-        dir_fd.close().unwrap();
+        fds_dir.close().unwrap();
     }
 }

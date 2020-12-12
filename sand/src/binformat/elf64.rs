@@ -13,7 +13,7 @@ fn elf64_header(fh: &FileHeader) -> Header {
 fn elf64_program_header(loader: &Loader, ehdr: &Header, idx: u16) -> Result<ProgramHeader, Errno> {
     let mut header = Default::default();
     let bytes = unsafe { plain::as_mut_bytes(&mut header) };
-    loader.read_file(
+    loader.read_file_exact(
         ehdr.e_phoff as usize + ehdr.e_phentsize as usize * idx as usize,
         bytes,
     )?;

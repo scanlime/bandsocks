@@ -1,9 +1,19 @@
-// The protocol is defined here canonically and then imported
-// by the runtime crate along with our finished binary.
-// This depends on only: core, serde, generic-array
+#![no_std]
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+compile_error!("bandsocks only works on linux or android");
+
+#[cfg(not(target_arch = "x86_64"))]
+compile_error!("bandsocks currently only supports x86_64");
+
+#[macro_use] extern crate serde;
+#[macro_use] extern crate hash32_derive;
+
+#[cfg(test)]
+#[macro_use]
+extern crate std;
 
 /// Exit codes returned by the sand process
-#[allow(dead_code)]
 pub mod exit {
     pub const EXIT_OK: usize = 0;
     pub const EXIT_PANIC: usize = 60;
@@ -43,7 +53,6 @@ pub struct InitArgsHeader {
 }
 
 impl InitArgsHeader {
-    #[allow(dead_code)]
     pub fn as_bytes(&self) -> &[u8] {
         unsafe {
             core::slice::from_raw_parts(
@@ -53,7 +62,6 @@ impl InitArgsHeader {
         }
     }
 
-    #[allow(dead_code)]
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
             core::slice::from_raw_parts_mut(
@@ -174,12 +182,10 @@ impl core::fmt::Debug for VPtr {
 }
 
 impl VPtr {
-    #[allow(dead_code)]
     pub fn null() -> VPtr {
         VPtr(0)
     }
 
-    #[allow(dead_code)]
     pub fn add(&self, count: usize) -> VPtr {
         VPtr(self.0 + count)
     }
@@ -190,7 +196,6 @@ impl VPtr {
 pub struct VString(pub VPtr);
 
 /// Definitions that overlap between the kernel ABI and the sand IPC protocol
-#[allow(dead_code)]
 pub mod abi {
 
     #[derive(PartialEq, Eq, Ord, PartialOrd, Clone, Serialize, Deserialize)]

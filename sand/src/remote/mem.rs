@@ -1,5 +1,6 @@
 use crate::{
-    abi, nolibc,
+    abi,
+    nolibc::File,
     parser::{ByteReader, Stream},
     process::task::StoppedTask,
     protocol::{Errno, VPtr, VString},
@@ -16,7 +17,8 @@ pub fn fault_or<T>(result: Result<T, ()>) -> Result<T, Errno> {
 }
 
 pub fn read_bytes(stopped_task: &mut StoppedTask, ptr: VPtr, bytes: &mut [u8]) -> Result<(), ()> {
-    nolibc::pread_exact(&stopped_task.task.process_handle.mem, bytes, ptr.0).map_err(|_errno| ())
+    let mem_file = File::new(stopped_task.task.process_handle.mem);
+    mem_file.pread_exact(bytes, ptr.0).map_err(|_errno| ())
 }
 
 /// safety: type must be repr(C) and have no invalid bit patterns
@@ -130,8 +132,8 @@ pub fn vstring_len(stopped_task: &mut StoppedTask, ptr: VString) -> Result<usize
     type BufSize = U128;
     let addr = ptr.0 .0;
     let alignment = addr % BufSize::USIZE;
-    let mem = &stopped_task.task.process_handle.mem;
-    let mut buf = ByteReader::<BufSize>::from_sysfd_at(mem, addr - alignment);
+    let mem_file = File::new(stopped_task.task.process_handle.mem);
+    let mut buf = ByteReader::<BufSize>::from_file_at(mem_file, addr - alignment);
     for _ in 0..alignment {
         match buf.next() {
             Some(Ok(_byte)) => (),

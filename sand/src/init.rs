@@ -1,21 +1,22 @@
-use crate::protocol::{InitArgsHeader, SysFd};
+use crate::protocol::{InitArgsHeader};
+use crate::nolibc::File;
 use sc::syscall;
 use smalloca::smalloca_default;
 
-fn read_header(fd: &SysFd) -> InitArgsHeader {
+fn read_header(file: &File) -> InitArgsHeader {
     let mut header: InitArgsHeader = Default::default();
-    fd.read_exact(header.as_bytes_mut()).unwrap();
+    file.read_exact(header.as_bytes_mut()).unwrap();
     header
 }
 
-pub fn with_args_from_fd(fd: &SysFd) -> ! {
-    let header = read_header(fd);
+pub fn with_args_file(file: &File) -> ! {
+    let header = read_header(file);
     // alloca() one buffer to hold the text content we are reading
     smalloca_default(
         header.dir_len + header.filename_len + header.argv_len + header.envp_len,
         |bytes: &mut [u8]| {
-            fd.read_exact(bytes).unwrap();
-            fd.close().unwrap();
+            file.read_exact(bytes).unwrap();
+            file.close().unwrap();
 
             let (dir, bytes) = bytes.split_at(header.dir_len);
             let (filename, bytes) = bytes.split_at(header.filename_len);

@@ -1,20 +1,19 @@
 use crate::{
     abi,
-    nolibc::{fcntl, socketpair},
+    nolibc::File,
     process::{maps::print_maps_dump, syscall::SyscallEmulator, Event, EventSource, MessageSender},
     protocol::{
         abi::{Syscall, UserRegs},
-        FromTask, LogLevel, LogMessage, ProcessHandle, SysFd, SysPid, ToTask, TracerSettings, VPid,
-        VPtr,
+        FromTask, LogLevel, LogMessage, ProcessHandle, SysPid, ToTask, TracerSettings, VPid, VPtr,
     },
     ptrace,
     remote::{mem::print_stack_dump, RemoteFd},
 };
 use core::fmt::{self, Debug, Formatter};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TaskSocketPair {
-    pub tracer: SysFd,
+    pub tracer: File,
     pub remote: RemoteFd,
 }
 
@@ -25,7 +24,7 @@ pub struct TaskMemManagement {
     pub brk_start: VPtr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TaskData {
     pub vpid: VPid,
     pub sys_pid: SysPid,
@@ -55,11 +54,13 @@ pub struct StoppedTask<'q, 's> {
 impl TaskSocketPair {
     pub fn new_inheritable() -> Self {
         let (tracer, remote) =
-            socketpair(abi::AF_UNIX, abi::SOCK_STREAM, 0).expect("task socket pair");
-        fcntl(&tracer, abi::F_SETFD, abi::F_CLOEXEC).expect("task socket fcntl");
-        fcntl(&remote, abi::F_SETFD, 0).expect("task socket fcntl");
+            File::socketpair(abi::AF_UNIX, abi::SOCK_STREAM, 0).expect("task socket pair");
+        tracer
+            .fcntl(abi::F_SETFD, abi::F_CLOEXEC)
+            .expect("task socket fcntl");
+        remote.fcntl(abi::F_SETFD, 0).expect("task socket fcntl");
         // The file will be inherited
-        let remote = RemoteFd(remote.0);
+        let remote = RemoteFd(remote.fd.0);
         TaskSocketPair { tracer, remote }
     }
 }

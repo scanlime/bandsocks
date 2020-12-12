@@ -16,7 +16,10 @@ use crate::{
 use fd_queue::{tokio::UnixStream, EnqueueFd};
 use std::{
     collections::HashMap,
-    os::unix::{io::AsRawFd, prelude::RawFd},
+    os::{
+        raw::c_int,
+        unix::{io::AsRawFd, prelude::RawFd},
+    },
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -33,6 +36,14 @@ pub struct IPCServer {
     process_table: HashMap<VPid, Process>,
 }
 
+struct SysFdStd(SysFd);
+
+impl AsRawFd for SysFdStd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0 .0 as c_int
+    }
+}
+
 async fn send_message(
     stream: &mut UnixStream,
     message: &MessageToSand,
@@ -42,7 +53,7 @@ async fn send_message(
     let mut buffer = IPCBuffer::new();
     buffer.push_back(message)?;
     for file in buffer.as_slice().files {
-        stream.enqueue(file)?;
+        stream.enqueue(&SysFdStd(*file))?;
     }
     stream.write_all(buffer.as_slice().bytes).await?;
     stream.flush().await?;

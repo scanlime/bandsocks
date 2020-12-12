@@ -1,7 +1,8 @@
 use crate::{
     abi, binformat, nolibc,
+    nolibc::File,
     process::{maps::MemArea, stack::StackBuilder, task::StoppedTask},
-    protocol::{abi::UserRegs, Errno, FromTask, SysFd, ToTask, VPtr, VString},
+    protocol::{abi::UserRegs, Errno, FromTask, ToTask, VPtr, VString},
     remote::{
         mem::{fault_or, read_string_array, vstring_len},
         scratchpad::Scratchpad,
@@ -11,7 +12,7 @@ use crate::{
 
 pub struct Loader<'q, 's, 't> {
     trampoline: Trampoline<'q, 's, 't>,
-    file: SysFd,
+    file: File,
     filename: VString,
     file_header: FileHeader,
     argv: VPtr,
@@ -59,11 +60,11 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
                 mode: 0,
             },
             ToTask::FileReply(result),
-            result
-        )?;
+            File::new(result?)
+        );
 
         let mut header_bytes = [0u8; abi::BINPRM_BUF_SIZE];
-        nolibc::pread(&file, &mut header_bytes, 0)?;
+        file.pread(&mut header_bytes, 0)?;
         let file_header = FileHeader {
             bytes: header_bytes,
         };
@@ -107,8 +108,8 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         fault_or(vstring_len(&mut self.trampoline.stopped_task, ptr))
     }
 
-    pub fn read_file(&self, offset: usize, bytes: &mut [u8]) -> Result<usize, Errno> {
-        nolibc::pread(&self.file, bytes, offset)
+    pub fn read_file_exact(&self, offset: usize, bytes: &mut [u8]) -> Result<(), Errno> {
+        self.file.pread_exact(bytes, offset)
     }
 
     pub async fn exec(self) -> Result<(), Errno> {
@@ -146,7 +147,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
     ) -> Result<(), Errno> {
         let flags = abi::MAP_PRIVATE | abi::MAP_FIXED;
         let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
-        let sent_fd = scratchpad.send_fd(&self.file).await;
+        let sent_fd = scratchpad.send_fd(&self.file.fd).await;
         scratchpad.free().await?;
         let sent_fd = sent_fd?;
         let result = self

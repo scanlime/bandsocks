@@ -1,3 +1,5 @@
+cargo-features = ["strip"]
+
 [package]
 name = "bandsocks-sand"
 version = "0.2.0"
@@ -10,11 +12,11 @@ edition = "2018"
 [dependencies]
 
 as-slice = "0.1"
+bandsocks-protocol = { version = "0.2", path = "protocol" }
 compiler_builtins = { version = "0.1", features = [ "compiler-builtins", "mem" ] }
 generic-array = "0.14"
 goblin = { version = "0.2", default-features = false, features = ["elf64"] }
 hash32 = "0.1"
-hash32-derive = "0.1"
 heapless = "0.5"
 memoffset = "0.5"
 pin-project = "1"
@@ -31,7 +33,7 @@ typenum = "1.12"
 file_limit = "0.0"
 
 [workspace]
-# Separate workspace, with our own build profiles:
+members = ["protocol"]
 
 [profile.release]
 lto = 'fat'
@@ -39,6 +41,7 @@ codegen-units = 1
 incremental = false
 panic = 'abort'
 opt-level = 's'
+strip = 'symbols'
 
 [profile.dev]
 lto = 'fat'
@@ -46,3 +49,5 @@ codegen-units = 1
 incremental = false
 panic = 'abort'
 opt-level = 's'
+strip = 'symbols'
+

@@ -45,6 +45,7 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 name = "bandsocks"
 version = "0.2.2"
 dependencies = [
+ "bandsocks-protocol",
  "build-deps",
  "bytes",
  "env_logger",
@@ -53,9 +54,6 @@ dependencies = [
  "flate2",
  "fs_extra",
  "futures-util",
- "generic-array",
- "hash32",
- "hash32-derive",
  "http",
  "lazy_static",
  "libc",
@@ -83,6 +81,16 @@ dependencies = [
  "env_logger",
  "log",
  "tokio",
+]
+
+[[package]]
+name = "bandsocks-protocol"
+version = "0.2.0"
+dependencies = [
+ "generic-array",
+ "hash32",
+ "hash32-derive",
+ "serde",
 ]
 
 [[package]]

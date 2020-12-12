@@ -1,8 +1,8 @@
-use crate::{nolibc::pread, protocol::SysFd};
+use crate::nolibc::File;
 use heapless::{ArrayLength, Vec};
 
-pub struct ByteReader<'f, T: ArrayLength<u8>> {
-    file: Option<&'f SysFd>,
+pub struct ByteReader<T: ArrayLength<u8>> {
+    file: Option<File>,
     file_position: usize,
     buf_position: usize,
     buf: Vec<u8, T>,
@@ -17,12 +17,12 @@ pub trait Stream {
 // They track the file pointer seprately, and re-generate their contents
 // only when we re-read offset zero. The kernel assumes the file offsets
 // increase as expected, it does not support arbitrary seeks.
-impl<'f, T: ArrayLength<u8>> ByteReader<'f, T> {
-    pub fn from_sysfd(file: &'f SysFd) -> Self {
-        ByteReader::from_sysfd_at(file, 0)
+impl<T: ArrayLength<u8>> ByteReader<T> {
+    pub fn from_file(file: File) -> Self {
+        ByteReader::from_file_at(file, 0)
     }
 
-    pub fn from_sysfd_at(file: &'f SysFd, file_position: usize) -> Self {
+    pub fn from_file_at(file: File, file_position: usize) -> Self {
         ByteReader {
             file: Some(file),
             file_position,
@@ -42,7 +42,7 @@ impl<'f, T: ArrayLength<u8>> ByteReader<'f, T> {
     }
 }
 
-impl<'f, T: ArrayLength<u8>> Stream for ByteReader<'f, T> {
+impl<T: ArrayLength<u8>> Stream for ByteReader<T> {
     fn peek(&mut self) -> Option<Result<u8, ()>> {
         if let Some(file) = &self.file {
             if self.buf_position == self.buf.len() {
@@ -50,7 +50,7 @@ impl<'f, T: ArrayLength<u8>> Stream for ByteReader<'f, T> {
                 unsafe {
                     let buffer =
                         core::slice::from_raw_parts_mut(self.buf.as_mut_ptr(), self.buf.capacity());
-                    match pread(file, buffer, self.file_position) {
+                    match file.pread(buffer, self.file_position) {
                         Err(_) => return Some(Err(())),
                         Ok(len) => {
                             assert!(len as usize <= self.buf.capacity());
@@ -269,9 +269,9 @@ pub fn switch<'a, T: Stream, V>(s: &mut T, tokens: &'a mut [Token<V>]) -> Result
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::protocol::SysFd;
+    use crate::{nolibc::File, protocol::SysFd};
     use heapless::consts::*;
-    use std::{fs::File, os::unix::io::AsRawFd};
+    use std::{fs, os::unix::io::AsRawFd};
 
     #[test]
     fn blah() {
@@ -359,9 +359,9 @@ mod test {
 
     #[test]
     fn dev_zero() {
-        let f = File::open("/dev/zero").unwrap();
-        let sys_fd = SysFd(f.as_raw_fd() as u32);
-        let mut r = ByteReader::<U2>::from_sysfd(&sys_fd);
+        let std_file = fs::File::open("/dev/zero").unwrap();
+        let nolibc_file = File::new(SysFd(std_file.as_raw_fd() as u32));
+        let mut r = ByteReader::<U2>::from_file(nolibc_file);
         assert_eq!(r.next(), Some(Ok(0)));
         assert_eq!(r.next(), Some(Ok(0)));
         assert_eq!(r.next(), Some(Ok(0)));
@@ -372,18 +372,18 @@ mod test {
 
     #[test]
     fn dev_null() {
-        let f = File::open("/dev/null").unwrap();
-        let sys_fd = SysFd(f.as_raw_fd() as u32);
-        let mut r = ByteReader::<U32>::from_sysfd(&sys_fd);
+        let std_file = fs::File::open("/dev/null").unwrap();
+        let nolibc_file = File::new(SysFd(std_file.as_raw_fd() as u32));
+        let mut r = ByteReader::<U32>::from_file(nolibc_file);
         assert_eq!(r.next(), None);
         assert_eq!(r.next(), None);
     }
 
     #[test]
     fn proc_atomicity() {
-        let f = File::open("/proc/thread-self/syscall").unwrap();
-        let sys_fd = SysFd(f.as_raw_fd() as u32);
-        let mut r = ByteReader::<U1>::from_sysfd(&sys_fd);
+        let std_file = fs::File::open("/proc/thread-self/syscall").unwrap();
+        let nolibc_file = File::new(SysFd(std_file.as_raw_fd() as u32));
+        let mut r = ByteReader::<U1>::from_file(nolibc_file);
         let syscall_nr = u64_dec(&mut r).unwrap();
         spaces(&mut r).unwrap();
         let arg_1 = u64_0x(&mut r).unwrap();
@@ -404,7 +404,7 @@ mod test {
         byte(&mut r, b'\n').unwrap();
         eof(&mut r).unwrap();
         assert_eq!(sc::nr::PREAD64 as u64, syscall_nr);
-        assert_eq!(arg_1, f.as_raw_fd() as u64);
+        assert_eq!(arg_1, std_file.as_raw_fd() as u64);
         assert_eq!(arg_2, r.buf.as_ptr() as usize as u64);
         assert_eq!(arg_3, 1);
         assert_eq!(arg_4, 0);

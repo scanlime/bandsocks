@@ -1,7 +1,7 @@
 use crate::{
     abi,
     abi::{CMsgHdr, IOVec, MsgHdr},
-    nolibc::{exit, fcntl, getpid, signal},
+    nolibc::{exit, getpid, signal, File},
     protocol::{
         buffer,
         buffer::{FilesMax, IPCBuffer},
@@ -20,7 +20,7 @@ use typenum::Unsigned;
 static SIGIO_FLAG: AtomicBool = AtomicBool::new(true);
 
 pub struct Socket {
-    fd: SysFd,
+    file: File,
     recv_buffer: IPCBuffer,
 }
 
@@ -31,20 +31,22 @@ struct CMsgBuffer {
 }
 
 impl Socket {
-    pub fn from_sys_fd(fd: &SysFd) -> Socket {
-        Socket::setup_sigio(fd);
+    pub fn new(file: File) -> Socket {
+        Socket::setup_sigio(&file);
         Socket {
-            fd: fd.clone(),
+            file,
             recv_buffer: IPCBuffer::new(),
         }
     }
 
-    fn setup_sigio(fd: &SysFd) {
+    fn setup_sigio(file: &File) {
         // Note that we want blocking writes and non-blocking reads. See the flags in
         // sendmsg/recvmsg.
         signal(abi::SIGIO, Socket::handle_sigio).expect("setting up sigio handler");
-        fcntl(fd, abi::F_SETOWN, getpid()).expect("setting socket owner");
-        fcntl(fd, abi::F_SETFL, abi::FASYNC).expect("setting socket flags");
+        file.fcntl(abi::F_SETOWN, getpid())
+            .expect("setting socket owner");
+        file.fcntl(abi::F_SETFL, abi::FASYNC)
+            .expect("setting socket flags");
     }
 
     extern "C" fn handle_sigio(num: u32) {
@@ -84,7 +86,7 @@ impl Socket {
             msg_flags: 0,
         };
         let flags = abi::MSG_DONTWAIT;
-        let result = unsafe { syscall!(RECVMSG, self.fd.0, &mut msghdr as *mut MsgHdr, flags) };
+        let result = unsafe { syscall!(RECVMSG, self.file.fd.0, &mut msghdr as *mut MsgHdr, flags) };
         match result as isize {
             len if len > 0 => {
                 let num_files = if cmsg.hdr.cmsg_len == 0 {
@@ -138,7 +140,7 @@ impl Socket {
         };
         let flags = 0;
         let result =
-            unsafe { syscall!(SENDMSG, self.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
+            unsafe { syscall!(SENDMSG, self.file.fd.0, &msghdr as *const abi::MsgHdr, flags) as isize };
         assert_eq!(result, buffer.as_slice().bytes.len() as isize);
     }
 }
