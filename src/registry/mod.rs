@@ -1,8 +1,10 @@
 //! Support for downloading container images from a registry server
 
 mod auth;
+mod builder;
 mod client;
 mod default;
 
-pub use client::*;
-pub use default::*;
+pub use builder::RegistryClientBuilder;
+pub use client::RegistryClient;
+pub use default::DefaultRegistry;
