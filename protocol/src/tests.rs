@@ -1,4 +1,4 @@
-use bandsocks_protocol::*;
+use crate::*;
 
 #[test]
 fn bools() {
