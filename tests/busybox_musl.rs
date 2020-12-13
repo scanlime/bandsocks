@@ -1,6 +1,9 @@
 use bandsocks::{Container, ContainerBuilder, RuntimeError};
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use std::{io, io::BufRead};
+use std::{
+    io::{BufRead, Cursor},
+    str::from_utf8,
+};
 use tokio::{runtime::Runtime, task};
 
 const IMAGE: &str =
@@ -59,7 +62,7 @@ fn busybox_cat_output() {
             .unwrap();
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
-        let stdout = std::str::from_utf8(&output.stdout);
+        let stdout = from_utf8(&output.stdout);
         assert_eq!(stdout, Ok(concat!(
             "root:x:0:0:root:/root:/bin/sh\ndaemon:x:1:1:daemon:/usr/sbin:/bin/false\n",
             "bin:x:2:2:bin:/bin:/bin/false\nsys:x:3:3:sys:/dev:/bin/false\n",
@@ -81,7 +84,7 @@ fn busybox_version() {
             .unwrap();
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
-        let mut cursor = io::Cursor::new(&output.stdout);
+        let mut cursor = Cursor::new(&output.stdout);
         let mut line = String::new();
         cursor.read_line(&mut line).unwrap();
         assert_eq!(
@@ -102,7 +105,7 @@ fn busybox_uname() {
             .unwrap();
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
-        let stdout = std::str::from_utf8(&output.stdout).unwrap();
+        let stdout = from_utf8(&output.stdout).unwrap();
         assert_eq!(
             stdout,
             "Linux host 4.0.0-bandsocks #1 SMP x86_64 GNU/Linux\n"
