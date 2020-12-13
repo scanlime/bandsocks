@@ -23,14 +23,54 @@ fn pull() {
 /*
 #[test]
 fn ubuntu_true() {
-    env_logger::init();
     Runtime::new().unwrap().block_on(async {
         let container = common().await.arg("/bin/true").spawn().unwrap();
         let status = container.wait().await.unwrap();
         assert_eq!(status.code(), Some(0));
     })
 }
- */
+
+#[test]
+fn ubuntu_false() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common().await.arg("/bin/false").spawn().unwrap();
+        let status = container.wait().await.unwrap();
+        assert_eq!(status.code(), Some(1));
+    })
+}
+
+#[test]
+fn ubuntu_ldso_true() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common()
+            .await
+            .arg("/lib/x86_64-linux-gnu/ld-2.32.so")
+            .arg("/bin/true")
+            .spawn()
+            .unwrap();
+        let output = container.output().await.unwrap();
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    })
+}
+
+#[test]
+fn ubuntu_ldso_false() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common()
+            .await
+            .arg("/lib/x86_64-linux-gnu/ld-2.32.so")
+            .arg("/bin/false")
+            .spawn()
+            .unwrap();
+        let output = container.output().await.unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    })
+}
+*/
 
 #[test]
 fn ubuntu_ldso() {
