@@ -4,6 +4,7 @@ use crate::{
     parser::{ByteReader, Token},
     process::task::StoppedTask,
     protocol::VPtr,
+    remote::mem::find_bytes,
 };
 use core::{iter::Iterator, marker::PhantomData};
 use heapless::consts::*;
@@ -169,6 +170,106 @@ pub fn print_maps_dump(stopped_task: &mut StoppedTask) {
     println!("maps dump:");
     for area in MapsIterator::new(stopped_task) {
         println!("{:x?}", area);
+    }
+}
+
+#[derive(Debug)]
+pub struct KernelMemAreas {
+    pub vdso: MemArea,
+    pub vvar: MemArea,
+    pub vsyscall: Option<MemArea>,
+    pub vdso_syscall: VPtr,
+    pub task_end: VPtr,
+}
+
+fn find_syscall<'q, 's>(
+    stopped_task: &mut StoppedTask<'q, 's>,
+    vdso: &MemArea,
+) -> Result<VPtr, ()> {
+    const X86_64_SYSCALL: [u8; 2] = [0x0f, 0x05];
+    find_bytes(
+        stopped_task,
+        VPtr(vdso.start),
+        vdso.end - vdso.start,
+        &X86_64_SYSCALL,
+    )
+}
+
+impl KernelMemAreas {
+    pub fn locate(stopped_task: &mut StoppedTask<'_, '_>) -> Self {
+        let mut vdso = None;
+        let mut vvar = None;
+        let mut vsyscall = None;
+        let mut task_end = !0usize;
+
+        for map in MapsIterator::new(stopped_task) {
+            match map.name {
+                MemAreaName::VDSO => {
+                    assert_eq!(map.read, true);
+                    assert_eq!(map.write, false);
+                    assert_eq!(map.execute, true);
+                    assert_eq!(map.mayshare, false);
+                    assert_eq!(map.dev_major, 0);
+                    assert_eq!(map.dev_minor, 0);
+                    assert_eq!(vdso, None);
+                    task_end = task_end.min(map.start);
+                    vdso = Some(map);
+                }
+                MemAreaName::VVar => {
+                    assert_eq!(map.read, true);
+                    assert_eq!(map.write, false);
+                    assert_eq!(map.execute, false);
+                    assert_eq!(map.mayshare, false);
+                    assert_eq!(map.dev_major, 0);
+                    assert_eq!(map.dev_minor, 0);
+                    assert_eq!(vvar, None);
+                    task_end = task_end.min(map.start);
+                    vvar = Some(map);
+                }
+                MemAreaName::VSyscall => {
+                    assert_eq!(map.write, false);
+                    assert_eq!(map.execute, true);
+                    assert_eq!(map.mayshare, false);
+                    assert_eq!(map.dev_major, 0);
+                    assert_eq!(map.dev_minor, 0);
+                    assert_eq!(vsyscall, None);
+                    task_end = task_end.min(map.start);
+                    vsyscall = Some(map);
+                }
+                _ => {}
+            }
+        }
+
+        let vdso = vdso.unwrap();
+        let vvar = vvar.unwrap();
+        let vdso_syscall = find_syscall(stopped_task, &vdso).unwrap();
+        let task_end = VPtr(task_end);
+
+        KernelMemAreas {
+            vdso,
+            vvar,
+            vsyscall,
+            vdso_syscall,
+            task_end,
+        }
+    }
+
+    pub fn is_userspace_area(&self, area: &MemArea) -> bool {
+        // This tests for overlap (including identical device and name) rather than
+        // strict equality, since vvar can change size due to linux timer
+        // namespaces
+        if area.is_overlap(&self.vdso) {
+            return false;
+        }
+        if area.is_overlap(&self.vvar) {
+            return false;
+        }
+        if let Some(vsyscall) = self.vsyscall.as_ref() {
+            if area.is_overlap(vsyscall) {
+                return false;
+            }
+        }
+        true
     }
 }
 

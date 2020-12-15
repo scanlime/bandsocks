@@ -1,119 +1,19 @@
 use crate::{
     abi,
     process::{
-        maps::{MapsIterator, MemArea, MemAreaName},
+        maps::{KernelMemAreas, MapsIterator},
         task::StoppedTask,
         Event,
     },
     protocol::{abi::Syscall, Errno, LogLevel, LogMessage, VPtr},
     ptrace,
-    remote::{mem::find_bytes, RemoteFd},
+    remote::file::RemoteFd,
 };
 
 #[derive(Debug)]
 pub struct Trampoline<'q, 's, 't> {
     pub stopped_task: &'t mut StoppedTask<'q, 's>,
     pub kernel_mem: KernelMemAreas,
-}
-
-#[derive(Debug)]
-pub struct KernelMemAreas {
-    pub vdso: MemArea,
-    pub vvar: MemArea,
-    pub vsyscall: Option<MemArea>,
-    pub vdso_syscall: VPtr,
-    pub task_end: VPtr,
-}
-
-fn find_syscall<'q, 's>(
-    stopped_task: &mut StoppedTask<'q, 's>,
-    vdso: &MemArea,
-) -> Result<VPtr, ()> {
-    const X86_64_SYSCALL: [u8; 2] = [0x0f, 0x05];
-    find_bytes(
-        stopped_task,
-        VPtr(vdso.start),
-        vdso.end - vdso.start,
-        &X86_64_SYSCALL,
-    )
-}
-
-impl KernelMemAreas {
-    fn locate(stopped_task: &mut StoppedTask<'_, '_>) -> Self {
-        let mut vdso = None;
-        let mut vvar = None;
-        let mut vsyscall = None;
-        let mut task_end = !0usize;
-
-        for map in MapsIterator::new(stopped_task) {
-            match map.name {
-                MemAreaName::VDSO => {
-                    assert_eq!(map.read, true);
-                    assert_eq!(map.write, false);
-                    assert_eq!(map.execute, true);
-                    assert_eq!(map.mayshare, false);
-                    assert_eq!(map.dev_major, 0);
-                    assert_eq!(map.dev_minor, 0);
-                    assert_eq!(vdso, None);
-                    task_end = task_end.min(map.start);
-                    vdso = Some(map);
-                }
-                MemAreaName::VVar => {
-                    assert_eq!(map.read, true);
-                    assert_eq!(map.write, false);
-                    assert_eq!(map.execute, false);
-                    assert_eq!(map.mayshare, false);
-                    assert_eq!(map.dev_major, 0);
-                    assert_eq!(map.dev_minor, 0);
-                    assert_eq!(vvar, None);
-                    task_end = task_end.min(map.start);
-                    vvar = Some(map);
-                }
-                MemAreaName::VSyscall => {
-                    assert_eq!(map.write, false);
-                    assert_eq!(map.execute, true);
-                    assert_eq!(map.mayshare, false);
-                    assert_eq!(map.dev_major, 0);
-                    assert_eq!(map.dev_minor, 0);
-                    assert_eq!(vsyscall, None);
-                    task_end = task_end.min(map.start);
-                    vsyscall = Some(map);
-                }
-                _ => {}
-            }
-        }
-
-        let vdso = vdso.unwrap();
-        let vvar = vvar.unwrap();
-        let vdso_syscall = find_syscall(stopped_task, &vdso).unwrap();
-        let task_end = VPtr(task_end);
-
-        KernelMemAreas {
-            vdso,
-            vvar,
-            vsyscall,
-            vdso_syscall,
-            task_end,
-        }
-    }
-
-    fn is_userspace_area(&self, area: &MemArea) -> bool {
-        // This tests for overlap (including identical device and name) rather than
-        // strict equality, since vvar can change size due to linux timer
-        // namespaces
-        if area.is_overlap(&self.vdso) {
-            return false;
-        }
-        if area.is_overlap(&self.vvar) {
-            return false;
-        }
-        if let Some(vsyscall) = self.vsyscall.as_ref() {
-            if area.is_overlap(vsyscall) {
-                return false;
-            }
-        }
-        true
-    }
 }
 
 impl<'q, 's, 't> Trampoline<'q, 's, 't> {
@@ -308,93 +208,6 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
             Ok(())
         } else {
             Err(Errno(-abi::EIO))
-        }
-    }
-
-    pub async fn close(&mut self, fd: &RemoteFd) -> Result<(), Errno> {
-        let result = self.syscall(sc::nr::CLOSE, &[fd.0 as isize]).await;
-        if result == 0 {
-            Ok(())
-        } else {
-            Err(Errno(result as i32))
-        }
-    }
-
-    pub async fn pread(
-        &mut self,
-        fd: &RemoteFd,
-        addr: VPtr,
-        length: usize,
-        offset: usize,
-    ) -> Result<usize, Errno> {
-        let result = self
-            .syscall(
-                sc::nr::PREAD64,
-                &[
-                    fd.0 as isize,
-                    addr.0 as isize,
-                    length as isize,
-                    offset as isize,
-                ],
-            )
-            .await;
-        if result >= 0 {
-            Ok(result as usize)
-        } else {
-            Err(Errno(result as i32))
-        }
-    }
-
-    pub async fn pread_exact(
-        &mut self,
-        fd: &RemoteFd,
-        addr: VPtr,
-        length: usize,
-        offset: usize,
-    ) -> Result<(), Errno> {
-        match self.pread(fd, addr, length, offset).await {
-            Ok(actual) if actual == length => Ok(()),
-            Ok(_) => Err(Errno(-abi::EIO)),
-            Err(e) => Err(e),
-        }
-    }
-
-    pub async fn pwrite(
-        &mut self,
-        fd: &RemoteFd,
-        addr: VPtr,
-        length: usize,
-        offset: usize,
-    ) -> Result<usize, Errno> {
-        let result = self
-            .syscall(
-                sc::nr::PWRITE64,
-                &[
-                    fd.0 as isize,
-                    addr.0 as isize,
-                    length as isize,
-                    offset as isize,
-                ],
-            )
-            .await;
-        if result >= 0 {
-            Ok(result as usize)
-        } else {
-            Err(Errno(result as i32))
-        }
-    }
-
-    pub async fn pwrite_exact(
-        &mut self,
-        fd: &RemoteFd,
-        addr: VPtr,
-        length: usize,
-        offset: usize,
-    ) -> Result<(), Errno> {
-        match self.pwrite(fd, addr, length, offset).await {
-            Ok(actual) if actual == length => Ok(()),
-            Ok(_) => Err(Errno(-abi::EIO)),
-            Err(e) => Err(e),
         }
     }
 }

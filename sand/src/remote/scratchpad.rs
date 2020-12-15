@@ -1,36 +1,17 @@
 use crate::{
     abi,
-    abi::{CMsgHdr, IOVec, MsgHdr},
-    protocol::{Errno, SysFd, VPtr},
+    protocol::{Errno, VPtr},
     remote::{
-        mem::{fault_or, read_value, write_padded_bytes, write_padded_value},
+        file::RemoteFd,
+        mem::{fault_or, write_padded_value},
         trampoline::Trampoline,
-        RemoteFd,
     },
 };
-use core::{mem::size_of, pin::Pin, ptr};
-use sc::{nr, syscall};
+use sc::nr;
 
 impl<'q, 's, 't, 'r> Drop for Scratchpad<'q, 's, 't, 'r> {
     fn drop(&mut self) {
         panic!("leaking scratchpad")
-    }
-}
-
-impl Drop for TempRemoteFd {
-    fn drop(&mut self) {
-        panic!("leaking remote temp file")
-    }
-}
-
-#[derive(Debug)]
-pub struct TempRemoteFd(pub RemoteFd);
-
-impl TempRemoteFd {
-    pub async fn free(self, trampoline: &mut Trampoline<'_, '_, '_>) -> Result<(), Errno> {
-        trampoline.close(&self.0).await?;
-        core::mem::forget(self);
-        Ok(())
     }
 }
 
@@ -71,87 +52,11 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
     #[allow(dead_code)]
     pub async fn debug_loop(&mut self) -> ! {
         loop {
-            self.write_fd(&RemoteFd(1), b"debug loop\n").await.unwrap();
+            RemoteFd(1)
+                .write_bytes_exact(self, b"debug loop\n")
+                .await
+                .unwrap();
             self.sleep(&abi::TimeSpec::from_secs(10)).await.unwrap();
-        }
-    }
-
-    pub async fn fd_copy_via_buffer(
-        &mut self,
-        src_fd: &RemoteFd,
-        mut src_offset: usize,
-        dest_fd: &RemoteFd,
-        mut dest_offset: usize,
-        mut byte_count: usize,
-    ) -> Result<usize, Errno> {
-        let mut transferred = 0;
-        while byte_count > 0 {
-            let part_size = byte_count.min(abi::PAGE_SIZE);
-            let read_len = self
-                .trampoline
-                .pread(src_fd, self.page_ptr, part_size, src_offset)
-                .await?;
-            if read_len > 0 {
-                let write_len = self
-                    .trampoline
-                    .pwrite(dest_fd, self.page_ptr, read_len, dest_offset)
-                    .await?;
-                transferred += write_len;
-                if write_len == part_size {
-                    byte_count -= part_size;
-                    src_offset += part_size;
-                    dest_offset += part_size;
-                    continue;
-                }
-            }
-            break;
-        }
-        Ok(transferred)
-    }
-
-    pub async fn fd_copy_exact(
-        &mut self,
-        src_fd: &RemoteFd,
-        src_offset: usize,
-        dest_fd: &RemoteFd,
-        dest_offset: usize,
-        byte_count: usize,
-    ) -> Result<(), Errno> {
-        if self
-            .fd_copy_via_buffer(src_fd, src_offset, dest_fd, dest_offset, byte_count)
-            .await?
-            == byte_count
-        {
-            Ok(())
-        } else {
-            Err(Errno(-abi::EIO))
-        }
-    }
-
-    pub async fn write_fd(&mut self, fd: &RemoteFd, bytes: &[u8]) -> Result<usize, Errno> {
-        if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
-            return Err(Errno(-abi::EINVAL));
-        }
-        fault_or(write_padded_bytes(
-            self.trampoline.stopped_task,
-            self.page_ptr,
-            bytes,
-        ))?;
-        let result = self
-            .trampoline
-            .syscall(
-                nr::WRITE,
-                &[
-                    fd.0 as isize,
-                    self.page_ptr.0 as isize,
-                    bytes.len() as isize,
-                ],
-            )
-            .await;
-        if result > 0 {
-            Ok(result as usize)
-        } else {
-            Err(Errno(result as i32))
         }
     }
 
@@ -167,167 +72,6 @@ impl<'q, 's, 't, 'r> Scratchpad<'q, 's, 't, 'r> {
             Ok(())
         } else {
             Err(Errno(result as i32))
-        }
-    }
-
-    /// unlike mem::write_padded_bytes, this can be an unaligned buffer of
-    /// unaligned length
-    pub async fn write_exact_bytes(
-        &mut self,
-        temp: &TempRemoteFd,
-        ptr: VPtr,
-        bytes: &[u8],
-    ) -> Result<(), Errno> {
-        if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
-            return Err(Errno(-abi::EINVAL));
-        }
-        fault_or(write_padded_bytes(
-            self.trampoline.stopped_task,
-            self.page_ptr,
-            bytes,
-        ))?;
-        self.memmove(temp, ptr, self.page_ptr, bytes.len()).await
-    }
-
-    pub async fn memmove(
-        &mut self,
-        buffer: &TempRemoteFd,
-        dest: VPtr,
-        src: VPtr,
-        len: usize,
-    ) -> Result<(), Errno> {
-        let result = self.trampoline.pwrite_exact(&buffer.0, src, len, 0).await;
-        let result = result.and(self.trampoline.pread_exact(&buffer.0, dest, len, 0).await);
-        result
-    }
-
-    pub async fn memfd_temp(&mut self) -> Result<TempRemoteFd, Errno> {
-        Ok(TempRemoteFd(self.memfd_create(b"bandsocks-temp", 0).await?))
-    }
-
-    pub async fn memfd_create(&mut self, name: &[u8], flags: isize) -> Result<RemoteFd, Errno> {
-        if name.len() > abi::PAGE_SIZE - size_of::<usize>() {
-            return Err(Errno(-abi::EINVAL));
-        }
-        fault_or(write_padded_bytes(
-            self.trampoline.stopped_task,
-            self.page_ptr,
-            name,
-        ))?;
-        let result = self
-            .trampoline
-            .syscall(
-                nr::MEMFD_CREATE,
-                &[self.page_ptr.0 as isize, flags as isize],
-            )
-            .await;
-        if result >= 0 {
-            Ok(RemoteFd(result as u32))
-        } else {
-            Err(Errno(result as i32))
-        }
-    }
-
-    pub async fn send_fd(&mut self, local: &SysFd) -> Result<RemoteFd, Errno> {
-        let socket_pair = &self.trampoline.stopped_task.task.task_data.socket_pair;
-        let local_socket_fd = socket_pair.tracer.fd.0;
-        let remote_socket_fd = socket_pair.remote.0;
-
-        #[derive(Debug, Clone)]
-        #[repr(C)]
-        struct CMsg {
-            hdr: CMsgHdr,
-            fd: u32,
-        }
-
-        #[derive(Debug, Clone)]
-        #[repr(C)]
-        struct Layout {
-            hdr: MsgHdr,
-            cmsg: CMsg,
-            iov: IOVec,
-            msg: [u8; 1],
-        };
-
-        const BASE_LAYOUT: Layout = Layout {
-            hdr: MsgHdr {
-                msg_name: ptr::null_mut(),
-                msg_namelen: 0,
-                msg_iov: ptr::null_mut(),
-                msg_iovlen: 1,
-                msg_control: ptr::null_mut(),
-                msg_controllen: size_of::<CMsg>(),
-                msg_flags: 0,
-            },
-            cmsg: CMsg {
-                hdr: CMsgHdr {
-                    cmsg_len: size_of::<CMsg>(),
-                    cmsg_level: abi::SOL_SOCKET,
-                    cmsg_type: abi::SCM_RIGHTS,
-                },
-                fd: -1i32 as u32,
-            },
-            iov: IOVec {
-                base: ptr::null_mut(),
-                len: 1,
-            },
-            msg: [0],
-        };
-
-        let mut local_layout = BASE_LAYOUT.clone();
-        let mut remote_layout = BASE_LAYOUT.clone();
-
-        local_layout.cmsg.fd = local.0;
-        let mut local_pin = Pin::new(&mut local_layout);
-        let local_ptr = &local_pin.as_mut().get_mut().hdr as *const MsgHdr;
-        local_pin.as_mut().get_mut().hdr.msg_iov =
-            &mut local_pin.as_mut().get_mut().iov as *mut IOVec;
-        local_pin.as_mut().get_mut().hdr.msg_control =
-            &mut local_pin.as_mut().get_mut().cmsg as *mut CMsg as *mut usize;
-        local_pin.as_mut().get_mut().iov.base = local_pin.as_mut().get_mut().msg.as_mut_ptr();
-
-        remote_layout.hdr.msg_iov = self.page_ptr.add(offset_of!(Layout, iov)).0 as *mut IOVec;
-        remote_layout.hdr.msg_control = self.page_ptr.add(offset_of!(Layout, cmsg)).0 as *mut usize;
-        remote_layout.iov.base = self.page_ptr.add(offset_of!(Layout, msg)).0 as *mut u8;
-
-        fault_or(unsafe {
-            write_padded_value(self.trampoline.stopped_task, self.page_ptr, &remote_layout)
-        })?;
-
-        let local_flags = abi::MSG_DONTWAIT;
-        let remote_flags = 0;
-
-        let local_result =
-            unsafe { syscall!(SENDMSG, local_socket_fd, local_ptr, local_flags) as isize };
-        if local_result != 1 {
-            return Err(Errno(local_result as i32));
-        }
-
-        let remote_result = self
-            .trampoline
-            .syscall(
-                nr::RECVMSG,
-                &[
-                    remote_socket_fd as isize,
-                    self.page_ptr.0 as isize,
-                    remote_flags,
-                ],
-            )
-            .await;
-        if remote_result != 1 {
-            return Err(Errno(remote_result as i32));
-        }
-
-        let remote_cmsg: CMsg = fault_or(unsafe {
-            read_value(
-                self.trampoline.stopped_task,
-                self.page_ptr.add(offset_of!(Layout, cmsg)),
-            )
-        })?;
-        if remote_cmsg.hdr == BASE_LAYOUT.cmsg.hdr {
-            Ok(RemoteFd(remote_cmsg.fd))
-        } else {
-            Err(Errno(-abi::EIO))
         }
     }
 }

@@ -4,6 +4,7 @@ use crate::{
     process::{maps::MemArea, stack::StackBuilder, task::StoppedTask},
     protocol::{abi::UserRegs, Errno, FromTask, ToTask, VPtr, VString},
     remote::{
+        file::RemoteFd,
         mem::{fault_or, read_string_array, vstring_len},
         scratchpad::Scratchpad,
         trampoline::Trampoline,
@@ -147,14 +148,14 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
     ) -> Result<(), Errno> {
         let flags = abi::MAP_PRIVATE | abi::MAP_FIXED;
         let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
-        let sent_fd = scratchpad.send_fd(&self.file.fd).await;
+        let sent_fd = RemoteFd::from_local(&mut scratchpad, &self.file.fd).await;
         scratchpad.free().await?;
         let sent_fd = sent_fd?;
         let result = self
             .trampoline
             .mmap(addr, length, prot, flags, &sent_fd, offset)
             .await;
-        self.trampoline.close(&sent_fd).await?;
+        sent_fd.close(&mut self.trampoline).await?;
         assert_eq!(addr, result?);
         Ok(())
     }

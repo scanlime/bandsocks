@@ -4,7 +4,11 @@ use crate::{
     protocol::{
         abi::Syscall, Errno, FileStat, FromTask, LogLevel, LogMessage, SysFd, ToTask, VPtr, VString,
     },
-    remote::{scratchpad::Scratchpad, trampoline::Trampoline, RemoteFd},
+    remote::{
+        file::{RemoteFd, TempRemoteFd},
+        scratchpad::Scratchpad,
+        trampoline::Trampoline,
+    },
 };
 use sc::nr;
 
@@ -25,7 +29,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         let result = match Scratchpad::new(&mut tr).await {
             Err(err) => Err(err),
             Ok(mut scratchpad) => {
-                let result = scratchpad.send_fd(&sys_fd).await;
+                let result = RemoteFd::from_local(&mut scratchpad, &sys_fd).await;
                 scratchpad.free().await.expect("leaking scratchpad page");
                 result
             }
@@ -316,43 +320,43 @@ async fn do_uname<'q, 's, 't>(
 ) -> Result<(), Errno> {
     let mut tr = Trampoline::new(stopped_task);
     let mut pad = Scratchpad::new(&mut tr).await?;
-    let temp = pad.memfd_temp().await?;
+    let temp = TempRemoteFd::new(&mut pad).await?;
     let result = Ok(());
     let result = result.and(
-        pad.write_exact_bytes(
-            &temp,
+        temp.mem_write_bytes_exact(
+            &mut pad,
             dest.add(offset_of!(abi::UtsName, sysname)),
             b"Linux\0",
         )
         .await,
     );
     let result = result.and(
-        pad.write_exact_bytes(
-            &temp,
+        temp.mem_write_bytes_exact(
+            &mut pad,
             dest.add(offset_of!(abi::UtsName, nodename)),
             b"host\0",
         )
         .await,
     );
     let result = result.and(
-        pad.write_exact_bytes(
-            &temp,
+        temp.mem_write_bytes_exact(
+            &mut pad,
             dest.add(offset_of!(abi::UtsName, release)),
             b"4.0.0-bandsocks\0",
         )
         .await,
     );
     let result = result.and(
-        pad.write_exact_bytes(
-            &temp,
+        temp.mem_write_bytes_exact(
+            &mut pad,
             dest.add(offset_of!(abi::UtsName, version)),
             b"#1 SMP\0",
         )
         .await,
     );
     let result = result.and(
-        pad.write_exact_bytes(
-            &temp,
+        temp.mem_write_bytes_exact(
+            &mut pad,
             dest.add(offset_of!(abi::UtsName, machine)),
             abi::PLATFORM_NAME_BYTES,
         )

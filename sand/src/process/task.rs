@@ -7,7 +7,7 @@ use crate::{
         FromTask, LogLevel, LogMessage, ProcessHandle, SysPid, ToTask, TracerSettings, VPid, VPtr,
     },
     ptrace,
-    remote::{mem::print_stack_dump, RemoteFd},
+    remote::{file::RemoteFd, mem::print_stack_dump},
 };
 use core::fmt::{self, Debug, Formatter};
 

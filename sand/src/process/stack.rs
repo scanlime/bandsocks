@@ -2,10 +2,10 @@ use crate::{
     abi, nolibc,
     protocol::{Errno, VPtr},
     remote::{
+        file::{fd_copy_exact, RemoteFd, TempRemoteFd},
         mem::{fault_or, write_padded_bytes, write_word},
-        scratchpad::{Scratchpad, TempRemoteFd},
+        scratchpad::Scratchpad,
         trampoline::Trampoline,
-        RemoteFd,
     },
 };
 use core::mem::size_of;
@@ -36,7 +36,7 @@ impl StackBuilder {
         // vectors that will go to the bottom of the stack later.
         let top = randomize_stack_top(scratchpad.trampoline.kernel_mem.task_end);
         Ok(StackBuilder {
-            memfd: scratchpad.memfd_temp().await?,
+            memfd: TempRemoteFd::new(scratchpad).await?,
             top,
             bottom: top,
             num_stored_vectors: 0,
@@ -61,8 +61,9 @@ impl StackBuilder {
                 0,
             )
             .await?;
-        trampoline
-            .pread_exact(&self.memfd.0, self.bottom, stack_size, file_offset)
+        self.memfd
+            .0
+            .pread_vptr(trampoline, self.bottom, stack_size, file_offset)
             .await?;
         self.memfd.free(trampoline).await?;
         Ok(())
@@ -95,8 +96,9 @@ impl StackBuilder {
         let ptr = self.skip_bytes(length)?;
         let stack_size = self.top.0 - ptr.0;
         let file_offset = BUILDER_SIZE_LIMIT - stack_size;
-        trampoline
-            .pwrite_exact(&self.memfd.0, addr, length, file_offset)
+        self.memfd
+            .0
+            .pwrite_vptr_exact(trampoline, addr, length, file_offset)
             .await?;
         Ok(ptr)
     }
@@ -141,15 +143,15 @@ impl StackBuilder {
             return Err(Errno(-abi::E2BIG));
         }
         let file_offset = BUILDER_SIZE_LIMIT - stack_size;
-        scratchpad
-            .fd_copy_exact(
-                &self.memfd.0,
-                BUILDER_SIZE_LIMIT,
-                &self.memfd.0,
-                file_offset,
-                length,
-            )
-            .await?;
+        fd_copy_exact(
+            scratchpad,
+            &self.memfd.0,
+            BUILDER_SIZE_LIMIT,
+            &self.memfd.0,
+            file_offset,
+            length,
+        )
+        .await?;
         self.bottom = ptr;
         self.num_stored_vectors = 0;
         Ok(ptr)
@@ -182,9 +184,14 @@ impl StackBuilder {
             ))?;
         }
         let file_offset = BUILDER_SIZE_LIMIT + self.num_stored_vectors * size_of::<usize>();
-        scratchpad
-            .trampoline
-            .pwrite_exact(&self.memfd.0, scratchpad.page_ptr, length, file_offset)
+        self.memfd
+            .0
+            .pwrite_vptr_exact(
+                scratchpad.trampoline,
+                scratchpad.page_ptr,
+                length,
+                file_offset,
+            )
             .await?;
         self.num_stored_vectors += vectors.len();
         Ok(())
