@@ -241,26 +241,45 @@ async fn load_segments(
             && abi::page_offset(phdr.p_offset as usize) == abi::page_offset(phdr.p_vaddr as usize)
         {
             let prot = phdr_prot(&phdr);
-            let page_alignment = abi::page_offset(phdr.p_vaddr as usize);
-            let start_ptr = VPtr(phdr.p_vaddr as usize - page_alignment + lad.load_offset);
-            let file_size_aligned = abi::page_round_up(phdr.p_filesz as usize + page_alignment);
-            let file_offset_aligned = phdr.p_offset as usize - page_alignment;
-            let mem_size_aligned = abi::page_round_up(phdr.p_memsz as usize + page_alignment);
+            let vaddr = phdr.p_vaddr as usize;
+            let filesz = phdr.p_filesz as usize;
+            let memsz = phdr.p_memsz as usize;
+            let offset = phdr.p_offset as usize;
 
-            if phdr.p_memsz > phdr.p_filesz {
-                loader
-                    .map_anonymous(start_ptr, mem_size_aligned, prot)
-                    .await?;
-                // FIXME: also need to zero the non-page-aligned portion of the
-                // bss
+            let page_alignment = abi::page_offset(vaddr);
+            let vaddr_aligned = vaddr - page_alignment;
+            let offset_aligned = offset - page_alignment;
+            let filesz_aligned = filesz + page_alignment;
+            let memsz_aligned = memsz + page_alignment;
+
+            let start_ptr = VPtr(vaddr_aligned + lad.load_offset);
+            let filesz_rounded = abi::page_round_up(filesz_aligned);
+            let memsz_rounded = abi::page_round_up(memsz_aligned);
+
+            // Map zero pages over the whole area
+            if memsz > filesz {
+                loader.map_anonymous(start_ptr, memsz_rounded, prot).await?;
             }
-            if phdr.p_filesz > 0 {
+
+            // Map the page-aligned region around the file contents
+            if filesz > 0 {
                 loader
-                    .map_file(start_ptr, file_size_aligned, file_offset_aligned, prot)
+                    .map_file(start_ptr, filesz_rounded, offset_aligned, prot)
                     .await?;
             }
 
-            brk = brk.max(start_ptr.add(mem_size_aligned));
+            // Might need to additionally zero the tail end of the file mapping, at the
+            // boundary between rwdata and bss segments
+            if filesz_aligned != filesz_rounded && 0 != (prot & abi::PROT_WRITE) {
+                loader
+                    .memzero(
+                        start_ptr.add(filesz_aligned),
+                        filesz_rounded - filesz_aligned,
+                    )
+                    .await?;
+            }
+
+            brk = brk.max(start_ptr.add(memsz_aligned));
         }
     }
 
