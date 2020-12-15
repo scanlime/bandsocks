@@ -4,7 +4,7 @@ use crate::{
     process::{maps::MemArea, stack::StackBuilder, task::StoppedTask},
     protocol::{abi::UserRegs, Errno, FromTask, ToTask, VPtr, VString},
     remote::{
-        file::RemoteFd,
+        file::{RemoteFd, ZeroRemoteFd},
         mem::{fault_or, read_string_array, vstring_len},
         scratchpad::Scratchpad,
         trampoline::Trampoline,
@@ -169,6 +169,20 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         self.trampoline
             .mmap_anonymous_noreplace(addr, length, prot)
             .await
+    }
+
+    pub async fn memzero(&mut self, addr: VPtr, length: usize) -> Result<(), Errno> {
+        let mut scratchpad = Scratchpad::new(&mut self.trampoline).await?;
+        let result = match ZeroRemoteFd::new(&mut scratchpad).await {
+            Err(e) => Err(e),
+            Ok(mut zerofile) => {
+                let result = zerofile.memzero(&mut scratchpad, addr, length).await;
+                zerofile.free(scratchpad.trampoline).await?;
+                result
+            }
+        };
+        scratchpad.free().await?;
+        result
     }
 
     pub async fn stack_begin(&mut self) -> Result<StackBuilder, Errno> {

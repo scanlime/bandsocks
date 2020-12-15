@@ -225,6 +225,29 @@ impl RemoteFd {
             .await
     }
 
+    pub async fn pwrite_bytes_exact(
+        &self,
+        scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
+        bytes: &[u8],
+        offset: usize,
+    ) -> Result<(), Errno> {
+        if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
+            return Err(Errno(-abi::EINVAL));
+        }
+        fault_or(write_padded_bytes(
+            scratchpad.trampoline.stopped_task,
+            scratchpad.page_ptr,
+            bytes,
+        ))?;
+        self.pwrite_vptr_exact(
+            scratchpad.trampoline,
+            scratchpad.page_ptr,
+            bytes.len(),
+            offset,
+        )
+        .await
+    }
+
     pub async fn pwrite_vptr(
         &self,
         tr: &mut Trampoline<'_, '_, '_>,
@@ -364,6 +387,53 @@ impl TempRemoteFd {
             bytes.len(),
         )
         .await
+    }
+}
+
+#[derive(Debug)]
+pub struct ZeroRemoteFd {
+    inner: TempRemoteFd,
+    capacity: usize,
+}
+
+impl ZeroRemoteFd {
+    pub async fn new(scratchpad: &mut Scratchpad<'_, '_, '_, '_>) -> Result<ZeroRemoteFd, Errno> {
+        Ok(ZeroRemoteFd {
+            inner: EmptyTempRemoteFd::new(scratchpad).await?.0,
+            capacity: 0,
+        })
+    }
+
+    pub async fn free(self, trampoline: &mut Trampoline<'_, '_, '_>) -> Result<(), Errno> {
+        self.inner.free(trampoline).await
+    }
+
+    pub async fn ensure_capacity(
+        &mut self,
+        scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
+        min_capacity: usize,
+    ) -> Result<(), Errno> {
+        if min_capacity > self.capacity {
+            self.inner
+                .0
+                .pwrite_bytes_exact(scratchpad, &[0], min_capacity - 1)
+                .await?;
+            self.capacity = min_capacity;
+        }
+        Ok(())
+    }
+
+    pub async fn memzero(
+        &mut self,
+        scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
+        addr: VPtr,
+        len: usize,
+    ) -> Result<(), Errno> {
+        self.ensure_capacity(scratchpad, len).await?;
+        self.inner
+            .0
+            .pread_vptr_exact(scratchpad.trampoline, addr, len, 0)
+            .await
     }
 }
 
