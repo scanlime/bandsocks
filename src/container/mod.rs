@@ -12,7 +12,7 @@ use crate::{
     registry::RegistryClient,
     sand::protocol::{InitArgsHeader, TracerSettings},
 };
-use std::{ffi::CString, io, os::unix::net::UnixStream, sync::Arc, thread};
+use std::{borrow::Cow, ffi::CString, fmt, io, os::unix::net::UnixStream, sync::Arc, thread};
 use tokio::{
     io::{AsyncWriteExt, BufWriter},
     task,
@@ -51,11 +51,37 @@ impl ExitStatus {
 /// Output from an exited container
 ///
 /// Much like [std::process::Output]
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Output {
     pub status: ExitStatus,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
+}
+
+impl Output {
+    /// Convert the stdout to utf8 if possible
+    ///
+    /// Equivalent to `String::from_utf8_lossy(output.stdout)`
+    pub fn stdout_str(&self) -> Cow<str> {
+        String::from_utf8_lossy(&self.stdout)
+    }
+
+    /// Convert the stderr to utf8 if possible
+    ///
+    /// Equivalent to `String::from_utf8_lossy(output.stderr)`
+    pub fn stderr_str(&self) -> Cow<str> {
+        String::from_utf8_lossy(&self.stderr)
+    }
+}
+
+impl fmt::Debug for Output {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Output")
+            .field("status", &self.status)
+            .field("stdout", &self.stdout_str())
+            .field("stderr", &self.stderr_str())
+            .finish()
+    }
 }
 
 fn expect_broken_pipe(result: io::Result<()>) -> io::Result<()> {

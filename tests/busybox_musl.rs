@@ -62,14 +62,44 @@ fn busybox_cat_output() {
             .unwrap();
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
-        let stdout = from_utf8(&output.stdout);
-        assert_eq!(stdout, Ok(concat!(
+        assert_eq!(output.stdout_str(), concat!(
             "root:x:0:0:root:/root:/bin/sh\ndaemon:x:1:1:daemon:/usr/sbin:/bin/false\n",
             "bin:x:2:2:bin:/bin:/bin/false\nsys:x:3:3:sys:/dev:/bin/false\n",
             "sync:x:4:100:sync:/bin:/bin/sync\nmail:x:8:8:mail:/var/spool/mail:/bin/false\n",
             "www-data:x:33:33:www-data:/var/www:/bin/false\noperator:x:37:37:Operator:/var:/bin/false\n",
             "nobody:x:65534:65534:nobody:/home:/bin/false\n"
-        )));
+        ));
+    })
+}
+
+#[test]
+fn busybox_sh_c_echo() {
+    Runtime::new().unwrap().block_on(async {
+        let output = common()
+            .await
+            .args(&["sh", "-c", "echo -ne hello; echo ' world'"])
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(output.stdout_str(), "hello world\n");
+    })
+}
+
+#[test]
+fn busybox_sh_c_loop() {
+    Runtime::new().unwrap().block_on(async {
+        let output = common()
+            .await
+            .args(&["sh", "-c", "for i in 0 1 2; do echo -ne $i; done"])
+            .output()
+            .await
+            .unwrap();
+        println!("{:?}", output);
+        assert!(output.stderr.is_empty());
+        assert_eq!(output.stdout_str(), "012");
+        assert!(output.status.success());
     })
 }
 

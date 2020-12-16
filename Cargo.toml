@@ -32,8 +32,10 @@ thiserror = "1.0"
 tokio = { version = "0.2", features = ["fs", "time", "blocking", "uds", "io-util", "io-std", "macros", "process"] }
 
 [dev-dependencies]
-file_limit = "0.0"
+assert_cmd = "0.10"
 env_logger = "0.7"
+file_limit = "0.0"
+predicates = "1"
 
 [build-dependencies]
 build-deps = "0.1"
