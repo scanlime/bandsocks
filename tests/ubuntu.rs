@@ -1,6 +1,5 @@
 use bandsocks::{Container, ContainerBuilder};
 use regex::Regex;
-use std::str::from_utf8;
 use tokio::runtime::Runtime;
 
 const IMAGE: &str =
@@ -67,8 +66,7 @@ fn ubuntu_ldso_echo() {
         let output = container.output().await.unwrap();
         assert_eq!(output.status.code(), Some(127));
         assert!(output.stderr.is_empty());
-        let stdout = from_utf8(&output.stdout).unwrap();
-        assert_eq!(stdout, "hello");
+        assert_eq!(output.stdout_str(), "hello");
     })
 }
  */
@@ -84,9 +82,8 @@ fn ubuntu_ldso() {
         let output = container.output().await.unwrap();
         assert_eq!(output.status.code(), Some(127));
         assert!(output.stdout.is_empty());
-        let stderr = from_utf8(&output.stderr).unwrap();
         assert_eq!(
-            stderr,
+            output.stderr_str(),
             concat!(
                 "Usage: ld.so [OPTION]... EXECUTABLE-FILE [ARGS-FOR-PROGRAM...]\n",
                 "You have invoked `ld.so\', the helper program for shared library executables.\n",
@@ -126,10 +123,10 @@ fn ubuntu_ldso_auxv() {
             .unwrap();
         let output = container.output().await.unwrap();
         assert_eq!(output.status.code(), Some(127));
-        let stdout = from_utf8(&output.stdout).unwrap();
-        let stderr = from_utf8(&output.stderr).unwrap();
-        println!("{:?}", stdout);
-        assert!(Regex::new(r"^Usage: ld\.so").unwrap().is_match(&stderr));
+        println!("{:?}", output);
+        assert!(Regex::new(r"^Usage: ld\.so")
+            .unwrap()
+            .is_match(&output.stderr_str()));
         assert!(Regex::new(concat!(
             r"^AT_SYSINFO_EHDR: +0x7ff......000\n",
             r"AT_HWCAP: +........\n",
@@ -152,6 +149,6 @@ fn ubuntu_ldso_auxv() {
             r"AT_PLATFORM: +x86_64\n$"
         ))
         .unwrap()
-        .is_match(&stdout));
+        .is_match(&output.stdout_str()));
     })
 }

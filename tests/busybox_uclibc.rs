@@ -1,8 +1,5 @@
 use bandsocks::{Container, ContainerBuilder};
-use std::{
-    io::{BufRead, Cursor},
-    str::from_utf8,
-};
+use std::io::{BufRead, Cursor};
 use tokio::runtime::Runtime;
 
 const IMAGE: &str =
@@ -52,14 +49,13 @@ fn busybox_cat_output() {
             .unwrap();
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
-        let stdout = from_utf8(&output.stdout);
-        assert_eq!(stdout, Ok(concat!(
+        assert_eq!(output.stdout_str(), concat!(
             "root:x:0:0:root:/root:/bin/sh\ndaemon:x:1:1:daemon:/usr/sbin:/bin/false\n",
             "bin:x:2:2:bin:/bin:/bin/false\nsys:x:3:3:sys:/dev:/bin/false\n",
             "sync:x:4:100:sync:/bin:/bin/sync\nmail:x:8:8:mail:/var/spool/mail:/bin/false\n",
             "www-data:x:33:33:www-data:/var/www:/bin/false\noperator:x:37:37:Operator:/var:/bin/false\n",
             "nobody:x:65534:65534:nobody:/home:/bin/false\n"
-        )));
+        ));
     })
 }
 
@@ -95,9 +91,8 @@ fn busybox_uname() {
             .unwrap();
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
-        let stdout = from_utf8(&output.stdout).unwrap();
         assert_eq!(
-            stdout,
+            output.stdout_str(),
             "Linux host 4.0.0-bandsocks #1 SMP x86_64 GNU/Linux\n"
         );
     })

@@ -1,9 +1,6 @@
 use bandsocks::{Container, ContainerBuilder, RuntimeError};
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use std::{
-    io::{BufRead, Cursor},
-    str::from_utf8,
-};
+use std::io::{BufRead, Cursor};
 use tokio::{runtime::Runtime, task};
 
 const IMAGE: &str =
@@ -135,9 +132,8 @@ fn busybox_uname() {
             .unwrap();
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
-        let stdout = from_utf8(&output.stdout).unwrap();
         assert_eq!(
-            stdout,
+            output.stdout_str(),
             "Linux host 4.0.0-bandsocks #1 SMP x86_64 GNU/Linux\n"
         );
     })
