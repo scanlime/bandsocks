@@ -80,6 +80,7 @@ fn ubuntu_ldso() {
             .spawn()
             .unwrap();
         let output = container.output().await.unwrap();
+        println!("{:?}", output);
         assert_eq!(output.status.code(), Some(127));
         assert!(output.stdout.is_empty());
         assert_eq!(
@@ -122,8 +123,8 @@ fn ubuntu_ldso_auxv() {
             .spawn()
             .unwrap();
         let output = container.output().await.unwrap();
-        assert_eq!(output.status.code(), Some(127));
         println!("{:?}", output);
+        assert_eq!(output.status.code(), Some(127));
         assert!(Regex::new(r"^Usage: ld\.so")
             .unwrap()
             .is_match(&output.stderr_str()));
