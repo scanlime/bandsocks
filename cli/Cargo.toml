@@ -15,5 +15,6 @@ path = "src/main.rs"
 bandsocks = { version = "0.2.2", path = ".." }
 clap = { version = "2.33", features = ["yaml"] }
 env_logger = "0.7"
+indicatif = "0.15"
 log = "0.4"
-tokio = {version = "0.2", features = ["rt-core", "macros"]}
+tokio = {version = "0.2", features = ["rt-core", "macros", "blocking"]}

@@ -29,6 +29,10 @@ args:
         takes_value: true
         default_value: warn
         help: default log filter, superceded by RUST_LOG environment variable
+    - quiet:
+        short: q
+        long: quiet
+        help: disable progress indicators, even when the output is a terminal
     - cache_dir:
         short: d
         long: cache

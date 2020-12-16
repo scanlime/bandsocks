@@ -2,9 +2,9 @@
 
 use crate::{
     errors::ImageError,
-    image::{ContentDigest, Image, ImageVersion, Registry, Repository},
+    image::{ContentDigest, Image, ImageName, ImageVersion, Registry, Repository},
 };
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 use tokio::sync::mpsc;
 
 /// Channel for recieving progress information for an image pull
@@ -58,14 +58,38 @@ pub struct ProgressUpdate {
 }
 
 /// Which resource on the registry does this progress update pertain to
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum ProgressResource {
     Blob(ContentDigest),
     Manifest(Registry, Repository, ImageVersion),
 }
 
+impl fmt::Display for ProgressResource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ProgressResource::Blob(content_digest) => f.write_str(content_digest.as_str()),
+            ProgressResource::Manifest(registry, repository, version) => {
+                let (tag, digest) = match version {
+                    ImageVersion::Tag(tag) => (Some(tag.as_str()), None),
+                    ImageVersion::ContentDigest(digest) => (None, Some(digest.as_str())),
+                };
+                f.write_str(
+                    ImageName::from_parts(
+                        Some(registry.as_str()),
+                        repository.as_str(),
+                        tag,
+                        digest,
+                    )
+                    .unwrap()
+                    .as_str(),
+                )
+            }
+        }
+    }
+}
+
 /// What operational phase are we reporting on, within the particular resource
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum ProgressPhase {
     Connect,
     Download,

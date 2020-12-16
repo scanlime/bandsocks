@@ -1,9 +1,14 @@
 #[macro_use] extern crate clap;
 
-use bandsocks::{Container, RegistryClient};
+use bandsocks::{
+    Container, Image, ImageError, ProgressEvent, ProgressPhase, ProgressResource, Pull,
+    PullProgress, RegistryClient,
+};
 use clap::{App, ArgMatches};
 use env_logger::{from_env, Env};
-use std::path::Path;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::{collections::HashMap, path::Path, sync::Arc};
+use tokio::task;
 
 #[tokio::main]
 async fn main() {
@@ -33,10 +38,12 @@ async fn main() {
     }
     let client = client.build().unwrap();
 
-    let image = client
-        .pull(&image_reference)
-        .await
-        .expect("failed to pull container image");
+    let image = (if matches.is_present("quiet") {
+        client.pull(&image_reference).await
+    } else {
+        show_pull_progress(client.pull_progress(&image_reference)).await
+    })
+    .expect("failed to pull container image");
 
     if matches.is_present("pull") {
         if !run_args.is_empty() || !run_env.is_empty() {
@@ -87,4 +94,74 @@ fn env_values<S: AsRef<str>>(matches: &ArgMatches, name: S) -> Vec<(String, Stri
             )
         })
         .collect()
+}
+
+async fn show_pull_progress(mut pull: Pull) -> Result<Arc<Image>, ImageError> {
+    let template =
+        "{percent:>3}% {prefix:10} {spinner} {wide_msg}  [{bar:25}] {bytes:>9}/{total_bytes:>9}";
+    let tick_chars = "/-\\| ";
+    let progress_chars = "= ";
+
+    let multi = Arc::new(MultiProgress::new());
+    let task_multi = multi.clone();
+    let task_progress = multi.add(ProgressBar::new_spinner());
+    let task_join = task::spawn(async move {
+        let mut bars: HashMap<Arc<ProgressResource>, ProgressBar> = HashMap::new();
+        loop {
+            match pull.progress().await {
+                PullProgress::Done(result) => {
+                    task_progress.finish();
+                    return result;
+                }
+                PullProgress::Update(progress) => {
+                    let bar = match bars.get(&progress.resource) {
+                        Some(bar) => bar,
+                        None => {
+                            let new_bar = task_multi.add(match progress.event {
+                                ProgressEvent::Begin => ProgressBar::new_spinner(),
+                                ProgressEvent::BeginSized(s) => ProgressBar::new(s),
+                                ProgressEvent::Progress(_) | ProgressEvent::Complete => continue,
+                            });
+                            new_bar.set_message(&progress.resource.to_string());
+                            new_bar.set_style(
+                                ProgressStyle::default_bar()
+                                    .template(template)
+                                    .tick_chars(tick_chars)
+                                    .progress_chars(progress_chars),
+                            );
+                            bars.insert(progress.resource.clone(), new_bar);
+                            bars.get(&progress.resource).unwrap()
+                        }
+                    };
+
+                    match progress.event {
+                        ProgressEvent::Begin | ProgressEvent::BeginSized(_) => {
+                            bar.reset();
+                            bar.set_prefix(match progress.phase {
+                                ProgressPhase::Connect => "connect",
+                                ProgressPhase::Download => "download",
+                                ProgressPhase::Decompress => "decompress",
+                            });
+                        }
+                        ProgressEvent::Progress(_) | ProgressEvent::Complete => {}
+                    }
+
+                    match progress.event {
+                        ProgressEvent::Begin => {
+                            bar.enable_steady_tick(250);
+                            bar.set_length(1);
+                        }
+                        ProgressEvent::BeginSized(s) => {
+                            bar.disable_steady_tick();
+                            bar.set_length(s);
+                        }
+                        ProgressEvent::Progress(p) => bar.set_position(p),
+                        ProgressEvent::Complete => bar.finish(),
+                    }
+                }
+            }
+        }
+    });
+    task::spawn_blocking(move || multi.join()).await??;
+    task_join.await?
 }
