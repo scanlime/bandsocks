@@ -10,7 +10,7 @@ use crate::{
     },
     image::{ContentDigest, Image, ImageName, ImageVersion, Registry, Repository},
     manifest::{media_types, Link, Manifest, RuntimeConfig, FS_TYPE},
-    registry::{auth::Auth, DefaultRegistry, RegistryClientBuilder},
+    registry::{auth::Auth, progress::*, DefaultRegistry, RegistryClientBuilder},
 };
 
 use futures_util::{stream::FuturesUnordered, StreamExt};
@@ -24,7 +24,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tokio::task;
+use tokio::{sync::mpsc, task};
 
 /// Registry clients can download and store data from an image registry
 ///
@@ -146,19 +146,58 @@ impl RegistryClient {
 
     async fn download_response(
         &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
+        progress_resource: &Arc<ProgressResource>,
         response: Response,
     ) -> Result<(StorageWriter, ContentDigest), ImageError> {
         log::info!("downloading {}", response.url());
         let mut response = response.error_for_status()?;
         let storage = self.storage.clone();
+        let mut progress = progress.clone();
+        let progress_resource = progress_resource.clone();
 
         // Send blocks from the async reactor to a sync thread pool for hashing
         let (send_channel, recv_channel) = std::sync::mpsc::channel::<bytes::Bytes>();
         let send_task = task::spawn(async move {
+            progress
+                .send(PullProgress::Update(ProgressUpdate {
+                    resource: progress_resource.clone(),
+                    phase: ProgressPhase::Download,
+                    event: match response.content_length() {
+                        None => ProgressEvent::Begin,
+                        Some(size) => ProgressEvent::BeginSized(size),
+                    },
+                }))
+                .await
+                .map_err(|_| ImageError::PullTaskError)?;
+
+            let mut progress_counter = 0;
             loop {
                 match response.chunk().await? {
-                    Some(chunk) => send_channel.send(chunk)?,
-                    None => return Ok::<(), ImageError>(()),
+                    Some(chunk) => {
+                        progress_counter += chunk.len() as u64;
+                        send_channel.send(chunk)?;
+                        progress
+                            .send(PullProgress::Update(ProgressUpdate {
+                                resource: progress_resource.clone(),
+                                phase: ProgressPhase::Download,
+                                event: ProgressEvent::Progress(progress_counter),
+                            }))
+                            .await
+                            .map_err(|_| ImageError::PullTaskError)?;
+                    }
+                    None => {
+                        progress
+                            .send(PullProgress::Update(ProgressUpdate {
+                                resource: progress_resource.clone(),
+                                phase: ProgressPhase::Download,
+                                event: ProgressEvent::Complete,
+                            }))
+                            .await
+                            .map_err(|_| ImageError::PullTaskError)?;
+
+                        return Ok::<(), ImageError>(());
+                    }
                 }
             }
         });
@@ -195,6 +234,7 @@ impl RegistryClient {
 
     async fn download_manifest(
         &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
         registry: &Registry,
         repository: &Repository,
         version: &ImageVersion,
@@ -202,6 +242,21 @@ impl RegistryClient {
         if !(registry.is_https() || version.is_content_digest()) {
             Err(ImageError::InsecureManifest)
         } else {
+            let progress_resource = Arc::new(ProgressResource::Manifest(
+                registry.clone(),
+                repository.clone(),
+                version.clone(),
+            ));
+
+            progress
+                .send(PullProgress::Update(ProgressUpdate {
+                    resource: progress_resource.clone(),
+                    phase: ProgressPhase::Connect,
+                    event: ProgressEvent::Begin,
+                }))
+                .await
+                .map_err(|_| ImageError::PullTaskError)?;
+
             let (network, auth, request) =
                 self.begin_get(registry, repository, "manifests", version)?;
             let response = auth
@@ -210,18 +265,40 @@ impl RegistryClient {
                     network,
                     request.header(header::ACCEPT, media_types::MANIFEST),
                 )
-                .await?;
-            self.download_response(response).await
+                .await;
+
+            progress
+                .send(PullProgress::Update(ProgressUpdate {
+                    resource: progress_resource.clone(),
+                    phase: ProgressPhase::Connect,
+                    event: ProgressEvent::Complete,
+                }))
+                .await
+                .map_err(|_| ImageError::PullTaskError)?;
+
+            self.download_response(progress, &progress_resource, response?)
+                .await
         }
     }
 
     async fn download_blob(
         &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
+        progress_resource: &Arc<ProgressResource>,
         registry: &Registry,
         repository: &Repository,
         content_digest: &ContentDigest,
         content_type: &HeaderValue,
     ) -> Result<StorageWriter, ImageError> {
+        progress
+            .send(PullProgress::Update(ProgressUpdate {
+                resource: progress_resource.clone(),
+                phase: ProgressPhase::Connect,
+                event: ProgressEvent::Begin,
+            }))
+            .await
+            .map_err(|_| ImageError::PullTaskError)?;
+
         let (network, auth, request) =
             self.begin_get(registry, repository, "blobs", content_digest)?;
         let response = auth
@@ -231,7 +308,19 @@ impl RegistryClient {
                 request.header(header::ACCEPT, content_type),
             )
             .await?;
-        let (mut writer, found_digest) = self.download_response(response).await?;
+
+        progress
+            .send(PullProgress::Update(ProgressUpdate {
+                resource: progress_resource.clone(),
+                phase: ProgressPhase::Connect,
+                event: ProgressEvent::Complete,
+            }))
+            .await
+            .map_err(|_| ImageError::PullTaskError)?;
+
+        let (mut writer, found_digest) = self
+            .download_response(progress, &progress_resource, response)
+            .await?;
         if &found_digest == content_digest {
             Ok(writer)
         } else {
@@ -245,6 +334,7 @@ impl RegistryClient {
 
     async fn pull_manifest(
         &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
         image: &ImageName,
     ) -> Result<(ImageName, Manifest), ImageError> {
         let (registry, repository) = self.default_registry.resolve_image_name(image);
@@ -261,7 +351,7 @@ impl RegistryClient {
             None => match &key {
                 StorageKey::Manifest(registry, repository, version) => {
                     let (mut writer, found_digest) = self
-                        .download_manifest(registry, repository, version)
+                        .download_manifest(progress, registry, repository, version)
                         .await?;
 
                     let task_storage = self.storage.clone();
@@ -326,11 +416,18 @@ impl RegistryClient {
             .map_err(|_| ImageError::InvalidContentType(link.media_type.clone()))?)
     }
 
-    async fn pull_blob(&mut self, image: &ImageName, link: &Link) -> Result<Mmap, ImageError> {
+    async fn pull_blob(
+        &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
+        image: &ImageName,
+        link: &Link,
+    ) -> Result<(Mmap, Arc<ProgressResource>), ImageError> {
         let (registry, repository) = self.default_registry.resolve_image_name(image);
-        let key = StorageKey::Blob(ContentDigest::parse(&link.digest)?);
+        let content_digest = ContentDigest::parse(&link.digest)?;
+        let key = StorageKey::Blob(content_digest.clone());
+        let progress_resource = Arc::new(ProgressResource::Blob(content_digest.clone()));
         let content_type = RegistryClient::content_type_for_link(link)?;
-        RegistryClient::check_mmap_for_link(
+        let mmap = RegistryClient::check_mmap_for_link(
             link,
             match self.storage.mmap(&key)? {
                 Some(map) => {
@@ -340,7 +437,14 @@ impl RegistryClient {
                 None => match &key {
                     StorageKey::Blob(content_digest) => {
                         let writer = self
-                            .download_blob(&registry, &repository, content_digest, &content_type)
+                            .download_blob(
+                                progress,
+                                &progress_resource,
+                                &registry,
+                                &repository,
+                                content_digest,
+                                &content_type,
+                            )
                             .await?;
 
                         let task_storage = self.storage.clone();
@@ -357,23 +461,34 @@ impl RegistryClient {
                     _ => unreachable!(),
                 },
             },
-        )
+        )?;
+        Ok((mmap, progress_resource))
     }
 
     async fn pull_blob_uncached(
         &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
         image: &ImageName,
         link: &Link,
-    ) -> Result<Mmap, ImageError> {
+    ) -> Result<(Mmap, Arc<ProgressResource>), ImageError> {
         let (registry, repository) = self.default_registry.resolve_image_name(image);
-        let key = StorageKey::Blob(ContentDigest::parse(&link.digest)?);
         let content_type = RegistryClient::content_type_for_link(link)?;
-        RegistryClient::check_mmap_for_link(
+        let content_digest = ContentDigest::parse(&link.digest)?;
+        let key = StorageKey::Blob(content_digest.clone());
+        let progress_resource = Arc::new(ProgressResource::Blob(content_digest.clone()));
+        let mmap = RegistryClient::check_mmap_for_link(
             link,
             match &key {
                 StorageKey::Blob(content_digest) => {
                     let mut writer = self
-                        .download_blob(&registry, &repository, content_digest, &content_type)
+                        .download_blob(
+                            progress,
+                            &progress_resource,
+                            &registry,
+                            &repository,
+                            content_digest,
+                            &content_type,
+                        )
                         .await?;
 
                     let task_storage = self.storage.clone();
@@ -390,16 +505,18 @@ impl RegistryClient {
                 }
                 _ => unreachable!(),
             },
-        )
+        )?;
+        Ok((mmap, progress_resource))
     }
 
     async fn pull_runtime_config(
         &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
         image: &ImageName,
         link: &Link,
     ) -> Result<RuntimeConfig, ImageError> {
         if link.media_type == media_types::RUNTIME_CONFIG {
-            let mapref = self.pull_blob(image, link).await?;
+            let (mapref, _progress_resource) = self.pull_blob(progress, image, link).await?;
             let slice = &mapref[..];
             log::trace!(
                 "raw json runtime config, {}",
@@ -413,14 +530,20 @@ impl RegistryClient {
         }
     }
 
-    async fn pull_layers(&mut self, image: &ImageName, links: &[Link]) -> Result<(), ImageError> {
+    async fn pull_layers(
+        &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
+        image: &ImageName,
+        links: &[Link],
+    ) -> Result<(), ImageError> {
         let mut tasks = FuturesUnordered::new();
         for link in links {
             let mut client = self.clone();
+            let mut progress = progress.clone();
             let image = image.clone();
             let link = link.clone();
             tasks.push(task::spawn(async move {
-                client.pull_layer(&image, &link).await
+                client.pull_layer(&mut progress, &image, &link).await
             }));
         }
         while let Some(result) = tasks.next().await {
@@ -429,29 +552,58 @@ impl RegistryClient {
         Ok(())
     }
 
-    async fn pull_layer(&mut self, image: &ImageName, link: &Link) -> Result<(), ImageError> {
+    async fn pull_layer(
+        &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
+        image: &ImageName,
+        link: &Link,
+    ) -> Result<(), ImageError> {
         if link.media_type == media_types::LAYER_TAR_GZIP {
-            self.pull_gzip_layer(image, link).await
+            self.pull_gzip_layer(progress, image, link).await
         } else {
             Err(ImageError::UnsupportedLayerType(link.media_type.clone()))
         }
     }
 
-    async fn pull_gzip_layer(&mut self, image: &ImageName, link: &Link) -> Result<(), ImageError> {
-        let source = self.pull_blob_uncached(image, link).await?;
+    async fn pull_gzip_layer(
+        &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
+        image: &ImageName,
+        link: &Link,
+    ) -> Result<(), ImageError> {
+        let (source, progress_resource) = self.pull_blob_uncached(progress, image, link).await?;
         let task_storage = self.storage.clone();
-        task::spawn_blocking(move || {
+        let mut task_progress = progress.clone();
+        let task_progress_resource = progress_resource.clone();
+
+        progress
+            .send(PullProgress::Update(ProgressUpdate {
+                resource: progress_resource.clone(),
+                phase: ProgressPhase::Decompress,
+                event: ProgressEvent::BeginSized(source.len() as u64),
+            }))
+            .await
+            .map_err(|_| ImageError::PullTaskError)?;
+
+        task::spawn_blocking(move || -> Result<(), ImageError> {
             let mut writer = task_storage.begin_write()?;
-            let mut decoder = flate2::bufread::GzDecoder::new(&*source);
+            let mut decoder = flate2::bufread::GzDecoder::new(std::io::Cursor::new(&*source));
             let mut buffer = [0u8; 64 * 1024];
             log::info!("decompressing {} bytes", source.len());
-            let result = loop {
+
+            let result: std::io::Result<()> = loop {
                 match decoder.read(&mut buffer) {
                     Err(err) => break Err(err),
                     Ok(size) if size == 0 => break Ok(()),
                     Ok(size) => match writer.write_all(&buffer[..size]) {
                         Err(err) => break Err(err),
-                        Ok(()) => (),
+                        Ok(()) => {
+                            let _ = task_progress.try_send(PullProgress::Update(ProgressUpdate {
+                                resource: task_progress_resource.clone(),
+                                phase: ProgressPhase::Decompress,
+                                event: ProgressEvent::Progress(decoder.get_ref().position()),
+                            }));
+                        }
                     },
                 }
             };
@@ -468,7 +620,17 @@ impl RegistryClient {
                 }
             }
         })
-        .await?
+        .await??;
+
+        progress
+            .send(PullProgress::Update(ProgressUpdate {
+                resource: progress_resource.clone(),
+                phase: ProgressPhase::Decompress,
+                event: ProgressEvent::Complete,
+            }))
+            .await
+            .map_err(|_| ImageError::PullTaskError)?;
+        Ok(())
     }
 
     /// Resolve an [ImageName] into an [Image] if possible
@@ -481,13 +643,38 @@ impl RegistryClient {
     ///
     /// The resulting image is mapped into memory and ready for use in any
     /// number of containers.
-    pub async fn pull(&mut self, image: &ImageName) -> Result<Arc<Image>, ImageError> {
-        let (specific_image, manifest) = self.pull_manifest(image).await?;
-        let config = self.pull_runtime_config(image, &manifest.config).await?;
+    ///
+    /// This is equivalent to [RegistryClient::pull_progress()] followed by
+    /// [Pull::wait()].
+    pub async fn pull(&self, image: &ImageName) -> Result<Arc<Image>, ImageError> {
+        self.pull_progress(image).wait().await
+    }
+
+    /// Start to pull an image, and return progress updates
+    pub fn pull_progress(&self, image: &ImageName) -> Pull {
+        let (mut sender, receiver) = mpsc::channel(128);
+        let image = image.clone();
+        let mut client = self.clone();
+        let _ = task::spawn(async move {
+            let result = client.pull_with_progress_channel(&mut sender, &image).await;
+            let _ = sender.send(PullProgress::Done(result)).await;
+        });
+        Pull { receiver }
+    }
+
+    async fn pull_with_progress_channel(
+        &mut self,
+        progress: &mut mpsc::Sender<PullProgress>,
+        image: &ImageName,
+    ) -> Result<Arc<Image>, ImageError> {
+        let (specific_image, manifest) = self.pull_manifest(progress, image).await?;
+        let config = self
+            .pull_runtime_config(progress, image, &manifest.config)
+            .await?;
         let decompressed_layers = match self.check_local_rootfs_layers(&config).await? {
             Some(layers) => layers,
             None => {
-                self.pull_layers(image, &manifest.layers).await?;
+                self.pull_layers(progress, image, &manifest.layers).await?;
                 self.check_local_rootfs_layers(&config)
                     .await?
                     .ok_or(ImageError::UnexpectedDecompressedLayerContent)?

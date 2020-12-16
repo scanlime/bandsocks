@@ -12,10 +12,11 @@ use std::{
 
 /// Either an image tag or a content digest
 ///
-/// An [ImageName] includes an optional tag and an optional content digest. Only
-/// the most specific available version is used to actually download an image,
-/// though. Any [ImageName] can be resolved into an [ImageVersion] that is
-/// either a digest, a tag, or the special tag "latest".
+/// An [crate::image::ImageName] includes an optional tag and an optional
+/// content digest. Only the most specific available version is used to actually
+/// download an image, though. Any [crate::image::ImageName] can be resolved
+/// into an [ImageVersion] that is either a digest, a tag, or the special tag
+/// "latest".
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum ImageVersion {

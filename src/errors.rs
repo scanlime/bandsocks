@@ -21,6 +21,10 @@ pub enum ImageError {
     #[error("asynchronous task failed during image preparation")]
     TaskJoin(#[from] tokio::task::JoinError),
 
+    /// pull task terminated unexpectedly
+    #[error("pull task terminated unexpectedly")]
+    PullTaskError,
+
     /// asynchronous image hashing task failed during image preparation
     #[error("asynchronous image hashing task failed during image preparation")]
     ByteChannelError(#[from] std::sync::mpsc::SendError<bytes::Bytes>),

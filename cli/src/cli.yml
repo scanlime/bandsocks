@@ -27,7 +27,7 @@ args:
         long: log-level
         value_name: FILTER
         takes_value: true
-        default_value: info
+        default_value: warn
         help: default log filter, superceded by RUST_LOG environment variable
     - cache_dir:
         short: d

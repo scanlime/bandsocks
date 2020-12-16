@@ -31,7 +31,7 @@ async fn main() {
     if matches.is_present("offline") {
         client = client.offline();
     }
-    let mut client = client.build().unwrap();
+    let client = client.build().unwrap();
 
     let image = client
         .pull(&image_reference)
