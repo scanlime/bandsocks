@@ -181,3 +181,33 @@ fn cli_busybox_env_2() {
         ))
         .stderr(predicate::str::is_empty());
 }
+
+#[test]
+fn cli_busybox_env_3() {
+    Command::new(env!("CARGO"))
+        .arg("run")
+        .arg("--quiet")
+        .arg("-p")
+        .arg("bandsocks-cli")
+        .arg("--")
+        .arg("-l")
+        .arg("error")
+        .arg("-e")
+        .arg("foo")
+        .arg("-e")
+        .arg("blah=ok")
+        .arg("-e")
+        .arg("YEP=cool")
+        .arg("-e")
+        .arg("blah=whynot")
+        .arg("busybox@sha256:e06f93f59fe842fb490ba992bae19fdd5a05373547b52f8184650c2509908114")
+        .arg("--")
+        .arg("env")
+        .assert()
+        .success()
+        .stdout(predicate::eq(concat!(
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\nfoo=\n",
+            "blah=whynot\nYEP=cool\n",
+        )))
+        .stderr(predicate::str::is_empty());
+}
