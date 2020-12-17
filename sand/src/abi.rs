@@ -265,7 +265,7 @@ pub const CLD_CONTINUED: u32 = 6;
 pub struct SigAction {
     pub sa_handler: extern "C" fn(u32),
     pub sa_flags: u32,
-    pub sa_restorer: unsafe extern "C" fn(),
+    pub sa_restorer: unsafe extern "C" fn() -> !,
     pub sa_mask: [u64; 16],
 }
 
@@ -362,3 +362,13 @@ pub struct UtsName {
 }
 
 pub const PLATFORM_NAME_BYTES: &[u8] = b"x86_64\0";
+
+#[naked]
+pub unsafe extern "C" fn sigreturn() -> ! {
+    asm!(
+        "mov rax, {nr}",
+        "syscall",
+        nr = const sc::nr::RT_SIGRETURN,
+        options(noreturn)
+    )
+}

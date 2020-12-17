@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(asm)]
 #![feature(naked_functions)]
 #![feature(negative_impls)]
 #![feature(const_in_array_repeat_expressions)]
