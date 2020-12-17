@@ -97,10 +97,9 @@ fn env_values<S: AsRef<str>>(matches: &ArgMatches, name: S) -> Vec<(String, Stri
 }
 
 async fn show_pull_progress(mut pull: Pull) -> Result<Arc<Image>, ImageError> {
-    let template =
+    const TEMPLATE: &str =
         "{percent:>3}% {prefix:10} {spinner} {wide_msg}  [{bar:25}] {bytes:>9}/{total_bytes:>9}";
-    let tick_chars = "/-\\| ";
-    let progress_chars = "= ";
+    const TICK_CHARS: &str = "/-\\| ";
 
     let multi = Arc::new(MultiProgress::new());
     let task_multi = multi.clone();
@@ -123,12 +122,6 @@ async fn show_pull_progress(mut pull: Pull) -> Result<Arc<Image>, ImageError> {
                                 ProgressEvent::Progress(_) | ProgressEvent::Complete => continue,
                             });
                             new_bar.set_message(&progress.resource.to_string());
-                            new_bar.set_style(
-                                ProgressStyle::default_bar()
-                                    .template(template)
-                                    .tick_chars(tick_chars)
-                                    .progress_chars(progress_chars),
-                            );
                             bars.insert(progress.resource.clone(), new_bar);
                             bars.get(&progress.resource).unwrap()
                         }
@@ -142,6 +135,16 @@ async fn show_pull_progress(mut pull: Pull) -> Result<Arc<Image>, ImageError> {
                                 ProgressPhase::Download => "download",
                                 ProgressPhase::Decompress => "decompress",
                             });
+                            bar.set_style(
+                                ProgressStyle::default_bar()
+                                    .template(TEMPLATE)
+                                    .tick_chars(TICK_CHARS)
+                                    .progress_chars(match progress.phase {
+                                        ProgressPhase::Connect => "  ",
+                                        ProgressPhase::Download => "- ",
+                                        ProgressPhase::Decompress => "=-",
+                                    }),
+                            );
                         }
                         ProgressEvent::Progress(_) | ProgressEvent::Complete => {}
                     }
