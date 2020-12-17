@@ -588,7 +588,7 @@ impl RegistryClient {
         task::spawn_blocking(move || -> Result<(), ImageError> {
             let mut writer = task_storage.begin_write()?;
             let mut decoder = flate2::bufread::GzDecoder::new(std::io::Cursor::new(&*source));
-            let mut buffer = [0u8; 64 * 1024];
+            let mut buffer = [0u8; 256 * 1024];
             log::info!("decompressing {} bytes", source.len());
 
             let result: std::io::Result<()> = loop {
