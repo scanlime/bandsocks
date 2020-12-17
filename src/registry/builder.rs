@@ -15,13 +15,21 @@ use std::{
     collections::HashSet,
     convert::TryInto,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
+use tempfile::TempDir;
+
+enum CacheOption {
+    Default,
+    Dir(PathBuf),
+    Ephemeral,
+}
 
 /// Builder for configuring custom [RegistryClient] instances
 pub struct RegistryClientBuilder {
     auth: Auth,
-    cache_dir: Option<PathBuf>,
+    cache_option: CacheOption,
     network: Option<ClientBuilder>,
     default_registry: Option<DefaultRegistry>,
     allowed_registries: Option<HashSet<Registry>>,
@@ -33,7 +41,7 @@ impl RegistryClientBuilder {
     pub fn new() -> Self {
         RegistryClientBuilder {
             network: Some(Client::builder().user_agent(RegistryClient::default_user_agent())),
-            cache_dir: None,
+            cache_option: CacheOption::Default,
             default_registry: None,
             auth: Auth::new(),
             allowed_registries: None,
@@ -75,23 +83,18 @@ impl RegistryClientBuilder {
     /// with other trusted processes. The default directory can be determined
     /// with [RegistryClient::default_cache_dir()]
     pub fn cache_dir(mut self, dir: &Path) -> Self {
-        self.cache_dir = Some(dir.to_path_buf());
+        self.cache_option = CacheOption::Dir(dir.to_owned());
         self
     }
 
-    /// Set a random, disposable cache directory
+    /// Set a temporary cache directory
     ///
-    /// This is currently equivalent to calling cache_dir() on a randomly
-    /// generated path in the system temp directory. In the future this
-    /// setting may enable an entirely in-memory storage backend.
-    pub fn ephemeral_cache(self) -> Self {
-        let mut path = std::env::temp_dir();
-        path.push(format!(
-            "bandsocks-ephemeral-{}-{}",
-            std::process::id(),
-            rand::random::<u64>()
-        ));
-        self.cache_dir(&path)
+    /// This generates a new random temporary cache
+    /// directory that will be automatically synchronously removed when the
+    /// last reference is dropped.
+    pub fn ephemeral_cache(mut self) -> Self {
+        self.cache_option = CacheOption::Ephemeral;
+        self
     }
 
     /// Set a timeout for each network request
@@ -183,13 +186,23 @@ impl RegistryClientBuilder {
 
     /// Construct a RegistryClient using the parameters from this Builder
     pub fn build(self) -> Result<RegistryClient, ImageError> {
-        let cache_dir = match self.cache_dir {
-            Some(dir) => dir,
-            None => RegistryClient::default_cache_dir()?,
+        let (cache_dir, temp_dir) = match self.cache_option {
+            CacheOption::Dir(dir) => (dir, None),
+            CacheOption::Default => (RegistryClient::default_cache_dir()?, None),
+            CacheOption::Ephemeral => {
+                let temp_dir = TempDir::new()?;
+                let mut path = temp_dir.path().to_owned();
+                path.push(format!(
+                    "bandsocks-ephemeral-{}-{}",
+                    std::process::id(),
+                    rand::random::<u64>()
+                ));
+                (path, Some(Arc::new(temp_dir)))
+            }
         };
         log::debug!("using cache directory {:?}", cache_dir);
         Ok(RegistryClient::from_parts(
-            FileStorage::new(cache_dir),
+            FileStorage::new(cache_dir, temp_dir),
             self.auth,
             match self.network {
                 Some(n) => Some(n.build()?),

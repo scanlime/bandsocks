@@ -12,7 +12,9 @@ use std::{
     io,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
+    sync::Arc,
 };
+use tempfile::TempDir;
 use tokio::task;
 
 pub fn default_cache_dir() -> Result<PathBuf, ImageError> {
@@ -47,11 +49,12 @@ fn create_parent_dirs(path: &Path) {
 #[derive(Clone, Debug)]
 pub struct FileStorage {
     path: PathBuf,
+    temp_dir: Option<Arc<TempDir>>,
 }
 
 impl FileStorage {
-    pub fn new(path: PathBuf) -> Self {
-        FileStorage { path }
+    pub fn new(path: PathBuf, temp_dir: Option<Arc<TempDir>>) -> Self {
+        FileStorage { path, temp_dir }
     }
 
     /// Open one object from local storage, as a File
