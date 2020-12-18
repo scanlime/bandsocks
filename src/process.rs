@@ -70,36 +70,47 @@ impl Process {
         }
     }
 
+    #[allow(dead_code)]
     pub fn read_bytes(&self, vptr: VPtr, buf: &mut [u8]) -> Result<(), RuntimeError> {
-        self.mem_file
-            .read_exact_at(buf, vptr.0 as u64)
-            .map_err(|_| RuntimeError::MemAccess)
+        read_bytes(&self.mem_file, vptr, buf)
     }
 
     pub fn read_string(&self, vstr: VString) -> Result<String, RuntimeError> {
-        self.read_string_os(vstr)?
-            .into_string()
-            .map_err(|_| RuntimeError::StringDecoding)
+        read_string(&self.mem_file, vstr)
     }
 
+    #[allow(dead_code)]
     pub fn read_string_os(&self, vstr: VString) -> Result<OsString, RuntimeError> {
-        let mut ptr = vstr.0;
-        let mut result = OsString::new();
-        let mut page_buffer = Vec::with_capacity(*PAGE_SIZE);
-        loop {
-            page_buffer.resize(page_remaining(ptr), 0u8);
-            self.read_bytes(ptr, &mut page_buffer[..])?;
-            match page_buffer.iter().position(|i| *i == 0) {
-                None => {
-                    result.push(OsStr::from_bytes(&page_buffer));
-                    ptr = VPtr(ptr.0 + page_buffer.len());
-                }
-                Some(index) => {
-                    result.push(OsStr::from_bytes(&page_buffer[0..index]));
-                    break Ok(result);
-                }
+        read_string_os(&self.mem_file, vstr)
+    }
+}
+
+fn read_bytes(mem_file: &File, vptr: VPtr, buf: &mut [u8]) -> Result<(), RuntimeError> {
+    mem_file.read_exact_at(buf, vptr.0 as u64).map_err(|_| RuntimeError::MemAccess)
+}
+
+fn read_string(mem_file: &File, vstr: VString) -> Result<String, RuntimeError> {
+    read_string_os(mem_file, vstr)?
+        .into_string()
+        .map_err(|_| RuntimeError::StringDecoding)
+}
+
+fn read_string_os(mem_file: &File, vstr: VString) -> Result<OsString, RuntimeError> {
+    let mut ptr = vstr.0;
+    let mut result = OsString::new();
+    let mut page_buffer = Vec::with_capacity(*PAGE_SIZE);
+    loop {
+        page_buffer.resize(page_remaining(ptr), 0u8);
+        read_bytes(mem_file, ptr, &mut page_buffer[..])?;
+        match page_buffer.iter().position(|i| *i == 0) {
+            None => {
+                result.push(OsStr::from_bytes(&page_buffer));
+                ptr = ptr.add(page_buffer.len());
             }
-            result.push(OsStr::from_bytes(&page_buffer));
+            Some(index) => {
+                result.push(OsStr::from_bytes(&page_buffer[0..index]));
+                break Ok(result);
+            }
         }
     }
 }
@@ -139,5 +150,87 @@ fn check_can_open(sys_pid: SysPid, tracer: &Child) -> Result<(), RuntimeError> {
                 Err(RuntimeError::InvalidPid)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn string_read_from_self() {
+        let self_pid = SysPid(unsafe { libc::getpid() as u32 });
+        let self_mem = open_mem_file(self_pid).unwrap();
+
+        let page_size = *PAGE_SIZE;
+        let map_total_size = 5 * page_size;
+        let hole_size = page_size;
+        let hole_offset = 3 * page_size;
+
+        let map_addr = unsafe {
+            let result = libc::mmap(
+                std::ptr::null_mut(),
+                map_total_size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+                -1i32,
+                0,
+            );
+            assert!(result as isize > 0);
+            VPtr(result as usize)
+        };
+
+        let map_slice =
+            unsafe { std::slice::from_raw_parts_mut(map_addr.0 as *mut u8, map_total_size) };
+
+        // We can't allocate a normal guard page to trigger faults, since linux does
+        // ptrace reads without checking map permission. Instead, make a hole and rely
+        // on it to stay empty. This is racy, and not something that is generally
+        // reliable! But uh... unit tests yay.
+        unsafe { libc::munmap(map_addr.add(hole_offset).0 as *mut libc::c_void, hole_size) };
+
+        fn is_memaccess_err<T>(result: Result<T, RuntimeError>) -> bool {
+            match result {
+                Err(RuntimeError::MemAccess) => true,
+                _ => false,
+            }
+        }
+
+        // First test a few edge cases around the memory hole, with all zeroes in the
+        // mapping still
+        assert_eq!(read_string(&self_mem, VString(map_addr)).unwrap(), "");
+        assert_eq!(
+            read_string(&self_mem, VString(map_addr.add(hole_offset - 1))).unwrap(),
+            ""
+        );
+        assert!(is_memaccess_err(read_string(
+            &self_mem,
+            VString(map_addr.add(hole_offset))
+        )));
+        assert!(is_memaccess_err(read_string(
+            &self_mem,
+            VString(map_addr.add(hole_offset + hole_size - 1))
+        )));
+        assert_eq!(
+            read_string(&self_mem, VString(map_addr.add(hole_offset + hole_size))).unwrap(),
+            ""
+        );
+
+        for test_str_size in &[1, 20, 4095, 4096, 4097] {
+            for offset in 0..=page_size {
+                let mut test_str = String::new();
+                while test_str.len() < *test_str_size {
+                    test_str.push_str(format!("{}", rand::random::<u64>()).as_str());
+                }
+                test_str.truncate(*test_str_size);
+                let offset_end = offset + test_str.len();
+                map_slice[offset..offset_end].copy_from_slice(test_str.as_bytes());
+                map_slice[offset_end] = b'\0';
+                let readback = read_string(&self_mem, VString(map_addr.add(offset))).unwrap();
+                assert_eq!(test_str, readback);
+            }
+        }
+
+        unsafe { libc::munmap(map_addr.0 as *mut libc::c_void, map_total_size) };
     }
 }
