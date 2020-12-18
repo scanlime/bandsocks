@@ -26,7 +26,7 @@ use core::{
     future::Future,
     mem::replace,
     pin::Pin,
-    task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+    task::{Context, Poll},
 };
 use heapless::spsc::{Consumer, Producer, Queue};
 use pin_project::pin_project;
@@ -141,8 +141,7 @@ impl<'p, 't: 'p, F: Future<Output = ()>> Process<'t, F> {
                 TaskStateProj::None => unreachable!(),
                 TaskStateProj::Initial(_, _) => (),
                 TaskStateProj::Pollable(future) => {
-                    let raw_waker = RawWaker::new(core::ptr::null(), &WAKER_VTABLE);
-                    let waker = unsafe { Waker::from_raw(raw_waker) };
+                    let waker = futures::task::noop_waker();
                     let mut cx = Context::from_waker(&waker);
                     break future.poll(&mut cx);
                 }
@@ -161,20 +160,3 @@ impl<'p, 't: 'p, F: Future<Output = ()>> Process<'t, F> {
         }
     }
 }
-
-const WAKER_VTABLE: RawWakerVTable =
-    RawWakerVTable::new(waker_clone, waker_wake, waker_wake_by_ref, waker_drop);
-
-unsafe fn waker_clone(_: *const ()) -> RawWaker {
-    panic!("waker_clone");
-}
-
-unsafe fn waker_wake(_: *const ()) {
-    panic!("waker_wake");
-}
-
-unsafe fn waker_wake_by_ref(_: *const ()) {
-    panic!("waker_wake_by_ref");
-}
-
-unsafe fn waker_drop(_: *const ()) {}

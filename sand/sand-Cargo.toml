@@ -14,6 +14,7 @@ edition = "2018"
 as-slice = "0.1"
 bandsocks-protocol = { version = "0.2", path = "protocol" }
 compiler_builtins = { version = "0.1", features = [ "compiler-builtins", "mem" ] }
+futures = { version = "0.3", default-features = false }
 generic-array = "0.14"
 goblin = { version = "0.2", default-features = false, features = ["elf64"] }
 hash32 = "0.1"
