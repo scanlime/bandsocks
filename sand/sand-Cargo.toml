@@ -49,5 +49,4 @@ codegen-units = 1
 incremental = false
 panic = 'abort'
 opt-level = 's'
-strip = 'symbols'
 
