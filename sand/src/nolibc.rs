@@ -262,6 +262,43 @@ pub fn getrandom_usize() -> usize {
     usize::from_ne_bytes(bytes)
 }
 
+pub unsafe fn mmap(
+    addr: usize,
+    length: usize,
+    prot: isize,
+    flags: isize,
+    fd: u32,
+    offset: usize,
+) -> Result<usize, Errno> {
+    let result = syscall!(MMAP, addr, length, prot, flags, fd, offset) as isize;
+    if result < 0 {
+        Err(Errno(result as i32))
+    } else {
+        Ok(result as usize)
+    }
+}
+
+pub unsafe fn munmap(addr: usize, length: usize) -> Result<(), Errno> {
+    let result = syscall!(MUNMAP, addr, length) as isize;
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(Errno(result as i32))
+    }
+}
+
+pub fn alloc_pages(length: usize) -> usize {
+    let length = abi::page_round_up(length);
+    let prot = abi::PROT_READ | abi::PROT_WRITE;
+    let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS;
+    let fd = u32::MAX;
+    unsafe { mmap(0, length, prot, flags, fd, 0).expect("allocating memory") }
+}
+
+pub unsafe fn free_pages(addr: usize, length: usize) {
+   munmap(addr, abi::page_round_up(length)).unwrap()
+}
+
 pub struct DirIterator<'f, S: ArrayLength<u8>, F: Fn(Dirent<'_>) -> V, V> {
     dir: &'f File,
     buf: Vec<u8, S>,

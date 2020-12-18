@@ -13,16 +13,13 @@ use crate::{
     ptrace,
     ptrace::RawExecArgs,
 };
-use core::{future::Future, pin::Pin, ptr::null, task::Poll};
+use core::{future::Future, ptr::null, task::Poll};
 use heapless::{consts::*, String};
-use pin_project::pin_project;
 use sc::syscall;
 
-#[pin_project]
 pub struct Tracer<'t, F: Future<Output = ()>> {
     ipc: Socket,
     settings: TracerSettings,
-    #[pin]
     process_table: ProcessTable<'t, F>,
 }
 
@@ -39,11 +36,21 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     }
 
     pub fn run(mut self) {
-        let pin = unsafe { Pin::new_unchecked(&mut self) };
-        pin.event_loop();
+        let mut siginfo: abi::SigInfo = Default::default();
+        loop {
+            while let Some(message) = self.ipc.recv() {
+                self.message_event(message);
+            }
+            match ptrace::wait(&mut siginfo) {
+                err if err == -abi::ECHILD as isize => break,
+                err if err == -abi::EINTR as isize => (),
+                err if err == 0 => self.siginfo_event(&siginfo),
+                err => panic!("unexpected waitid response ({})", err),
+            }
+        }
     }
 
-    fn init_loader(mut self: Pin<&mut Self>, args_fd: &SysFd) {
+    fn init_loader(&mut self, args_fd: &SysFd) {
         let mut fd_str = String::<U16>::from("FD=");
         fd_str.push_str(&String::<U16>::from(args_fd.0)).unwrap();
         fd_str.push('\0').unwrap();
@@ -51,7 +58,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         let loader_env = [fd_str.as_ptr(), null()];
         let exec_args = unsafe { RawExecArgs::new(PROC_SELF_EXE, &loader_argv, &loader_env) };
         let socket_pair = TaskSocketPair::new_inheritable();
-        let settings = self.as_mut().project().settings.clone();
+        let settings = self.settings.clone();
         match unsafe { syscall!(FORK) } as isize {
             result if result == 0 => unsafe { ptrace::be_the_child_process(&exec_args) },
             result if result < 0 => panic!("fork error"),
@@ -62,45 +69,29 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
                     brk: VPtr(0),
                     brk_start: VPtr(0),
                 };
-                self.project()
-                    .process_table
+                self.process_table
                     .insert(settings, sys_pid, parent, socket_pair, mm)
                     .expect("virtual process limit exceeded");
             }
         }
     }
 
-    fn event_loop(mut self: Pin<&mut Self>) {
-        let mut siginfo: abi::SigInfo = Default::default();
-        loop {
-            while let Some(message) = self.as_mut().project().ipc.recv() {
-                self.as_mut().message_event(message);
-            }
-            match ptrace::wait(&mut siginfo) {
-                err if err == -abi::ECHILD as isize => break,
-                err if err == -abi::EINTR as isize => (),
-                err if err == 0 => self.as_mut().siginfo_event(&siginfo),
-                err => panic!("unexpected waitid response ({})", err),
-            }
-        }
-    }
-
-    fn message_event(mut self: Pin<&mut Self>, message: MessageToSand) {
+    fn message_event(&mut self, message: MessageToSand) {
         match message {
             MessageToSand::Task { task, op } => self.task_event(task, Event::Message(op)),
             MessageToSand::Init {
                 args,
                 tracer_settings,
             } => {
-                *self.as_mut().project().settings = tracer_settings;
+                self.settings = tracer_settings;
                 self.init_loader(&args);
             }
         }
     }
 
-    fn siginfo_event(mut self: Pin<&mut Self>, siginfo: &abi::SigInfo) {
+    fn siginfo_event(&mut self, siginfo: &abi::SigInfo) {
         let sys_pid = SysPid(siginfo.si_pid);
-        let vpid = self.as_mut().project().process_table.syspid_to_v(sys_pid);
+        let vpid = self.process_table.syspid_to_v(sys_pid);
         match vpid {
             None => panic!("signal for unrecognized task, {:x?}", sys_pid),
             Some(vpid) => {
@@ -116,8 +107,8 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
         }
     }
 
-    fn task_event(mut self: Pin<&mut Self>, task: VPid, event: Event) {
-        let result = match self.as_mut().project().process_table.get(task) {
+    fn task_event(&mut self, task: VPid, event: Event) {
+        let result = match self.process_table.get(task) {
             None => panic!("message for unrecognized task, {:x?}", task),
             Some(mut process) => {
                 process
@@ -128,13 +119,12 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
             }
         };
         loop {
-            let process = self.as_mut().project().process_table.get(task);
+            let process = self.process_table.get(task);
             let outbox = process.unwrap().as_mut().check_outbox();
             match outbox {
                 None => break,
                 Some(op) => {
-                    let ipc = self.as_mut().project().ipc;
-                    ipc.send(&MessageFromSand::Task { task, op });
+                    self.ipc.send(&MessageFromSand::Task { task, op });
                 }
             }
         }
@@ -142,7 +132,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
             Poll::Pending => {}
             Poll::Ready(()) => {
                 // task exited normally, remove it from the process table
-                assert!(self.as_mut().project().process_table.remove(task).is_some());
+                assert!(self.process_table.remove(task).is_some());
             }
         }
     }
