@@ -191,6 +191,10 @@ pub enum RuntimeError {
     /// panic from sandbox runtime
     #[error("panic from sandbox runtime\n{stderr}")]
     SandPanic { stderr: String },
+
+    /// out of memory in sandbox runtime
+    #[error("out of memory in sandbox runtime\n{stderr}")]
+    SandOutOfMem { stderr: String },
 }
 
 /// Errors from the virtual filesystem layer, convertible to an errno code

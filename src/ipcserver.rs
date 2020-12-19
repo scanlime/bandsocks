@@ -152,6 +152,8 @@ impl IPCServer {
                 Err(RuntimeError::SandReportsDisconnect { stderr })
             } else if status.code() == Some(EXIT_IO_ERROR as i32) {
                 Err(RuntimeError::SandIOError { stderr })
+            } else if status.code() == Some(EXIT_OUT_OF_MEM as i32) {
+                Err(RuntimeError::SandOutOfMem { stderr })
             } else {
                 Err(RuntimeError::SandUnexpectedStatus { status, stderr })
             }

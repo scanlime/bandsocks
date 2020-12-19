@@ -3,7 +3,12 @@ use crate::{
     abi::LinuxDirentHeader,
     protocol::{Errno, SysFd},
 };
-use core::{fmt, mem, mem::size_of, slice, str};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    fmt, mem,
+    mem::size_of,
+    slice, str,
+};
 use heapless::{ArrayLength, Vec};
 use plain::Plain;
 use sc::syscall;
@@ -278,6 +283,21 @@ pub unsafe fn mmap(
     }
 }
 
+pub unsafe fn mremap(
+    old_addr: usize,
+    old_size: usize,
+    new_size: usize,
+    flags: isize,
+    new_addr: usize,
+) -> Result<usize, Errno> {
+    let result = syscall!(MREMAP, old_addr, old_size, new_size, flags, new_addr) as isize;
+    if result < 0 {
+        Err(Errno(result as i32))
+    } else {
+        Ok(result as usize)
+    }
+}
+
 pub unsafe fn munmap(addr: usize, length: usize) -> Result<(), Errno> {
     let result = syscall!(MUNMAP, addr, length) as isize;
     if result == 0 {
@@ -287,16 +307,38 @@ pub unsafe fn munmap(addr: usize, length: usize) -> Result<(), Errno> {
     }
 }
 
-pub fn alloc_pages(length: usize) -> usize {
-    let length = abi::page_round_up(length);
-    let prot = abi::PROT_READ | abi::PROT_WRITE;
-    let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS;
-    let fd = u32::MAX;
-    unsafe { mmap(0, length, prot, flags, fd, 0).expect("allocating memory") }
-}
+pub struct PageAllocator;
 
-pub unsafe fn free_pages(addr: usize, length: usize) {
-   munmap(addr, abi::page_round_up(length)).unwrap()
+unsafe impl GlobalAlloc for PageAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        self.alloc_zeroed(layout)
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let mapping_size = abi::page_round_up(layout.size());
+        munmap(ptr as usize, mapping_size).unwrap()
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        let mapping_size = abi::page_round_up(layout.size());
+        assert!(layout.align() < abi::PAGE_SIZE);
+        let prot = abi::PROT_READ | abi::PROT_WRITE;
+        let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS;
+        let fd = u32::MAX;
+        match mmap(0, mapping_size, prot, flags, fd, 0) {
+            Ok(addr) => addr as *mut u8,
+            Err(_) => core::ptr::null_mut(),
+        }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let from_size = abi::page_round_up(layout.size());
+        let to_size = abi::page_round_up(new_size);
+        match mremap(ptr as usize, from_size, to_size, abi::MREMAP_MAYMOVE, 0) {
+            Ok(addr) => addr as *mut u8,
+            Err(_) => core::ptr::null_mut(),
+        }
+    }
 }
 
 pub struct DirIterator<'f, S: ArrayLength<u8>, F: Fn(Dirent<'_>) -> V, V> {

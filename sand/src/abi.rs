@@ -87,6 +87,7 @@ pub const MAP_ANONYMOUS: isize = 0x20;
 pub const MAP_FIXED: isize = 0x10;
 pub const MAP_GROWSDOWN: isize = 0x100;
 pub const MAP_FIXED_NOREPLACE: isize = 0x100000;
+pub const MREMAP_MAYMOVE: isize = 1;
 
 // linux/include/uapi/asm-generic/mman-common.h
 pub const PROT_READ: isize = 1;

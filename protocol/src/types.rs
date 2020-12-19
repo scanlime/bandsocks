@@ -6,6 +6,7 @@ pub mod exit {
     pub const EXIT_PANIC: usize = 60;
     pub const EXIT_DISCONNECTED: usize = 61;
     pub const EXIT_IO_ERROR: usize = 62;
+    pub const EXIT_OUT_OF_MEM: usize = 63;
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Deserialize, Serialize)]

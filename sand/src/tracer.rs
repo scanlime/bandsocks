@@ -110,7 +110,7 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
     fn task_event(&mut self, task: VPid, event: Event) {
         let result = match self.process_table.get(task) {
             None => panic!("message for unrecognized task, {:x?}", task),
-            Some(mut process) => {
+            Some(process) => {
                 process
                     .as_mut()
                     .send_event(event)

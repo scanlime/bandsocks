@@ -16,6 +16,8 @@ compile_error!("bandsocks currently only supports x86_64");
 #[macro_use]
 extern crate std;
 
+extern crate alloc;
+
 #[macro_use]
 mod nolibc;
 
@@ -31,7 +33,7 @@ mod seccomp;
 mod tracer;
 
 pub use bandsocks_protocol as protocol;
-pub use nolibc::{c_str_slice, c_strv_slice, c_unwrap_nul, exit, write_stderr};
+pub use nolibc::{c_str_slice, c_strv_slice, c_unwrap_nul, exit, write_stderr, PageAllocator};
 pub use protocol::exit::*;
 
 use crate::{

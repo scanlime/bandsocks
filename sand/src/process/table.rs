@@ -1,19 +1,19 @@
 use crate::{
-    nolibc,
     process::{
         task::{TaskData, TaskMemManagement, TaskSocketPair},
         Process, TaskFn,
     },
     protocol::{SysPid, TracerSettings, VPid},
 };
-use core::{future::Future, mem::size_of, pin::Pin};
+use alloc::boxed::Box;
+use core::{future::Future, pin::Pin};
 use heapless::{FnvIndexMap, Vec};
 use typenum::{consts::*, marker_traits::Unsigned};
 
 type PidLimit = U32768;
 
 pub struct ProcessTable<'t, F: Future<Output = ()>> {
-    table: Vec<*mut Process<'t, F>, PidLimit>,
+    table: Vec<Option<Pin<Box<Process<'t, F>>>>, PidLimit>,
     task_fn: TaskFn<'t, F>,
     map_sys_to_v: FnvIndexMap<SysPid, VPid, PidLimit>,
     next_vpid: VPid,
@@ -53,7 +53,7 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
         for _ in 0..PidLimit::USIZE {
             let vpid = self.next_vpid;
             let index = table_index_for_vpid(vpid).unwrap();
-            if index >= self.table.len() || self.table[index].is_null() {
+            if index >= self.table.len() || self.table[index].is_none() {
                 result = Some(vpid);
                 break;
             } else {
@@ -83,53 +83,37 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
             };
             let index = table_index_for_vpid(vpid).unwrap();
             let min_table_len = index + 1;
-            if self.table.len() < min_table_len {
-                self.table
-                    .resize(min_table_len, core::ptr::null_mut())
-                    .unwrap();
+            while self.table.len() < min_table_len {
+                assert!(self.table.push(None).is_ok());
             }
 
-            let process = Process::new(self.task_fn, task_data);
-            let process_ptr =
-                nolibc::alloc_pages(size_of::<Process<'t, F>>()) as *mut Process<'t, F>;
-            unsafe {
-                process_ptr.write(process);
-            }
-            assert!(self.table[index].is_null());
-            self.table[index] = process_ptr;
+            let process = Box::pin(Process::new(self.task_fn, task_data));
+            assert!(self.table[index].is_none());
+            self.table[index] = Some(process);
             assert_eq!(self.map_sys_to_v.insert(sys_pid, vpid), Ok(None));
             Some(vpid)
         })
         .flatten()
     }
 
-    pub fn get(&mut self, vpid: VPid) -> Option<Pin<&mut Process<'t, F>>> {
-        table_index_for_vpid(vpid)
-            .map(move |index| {
-                let process_ptr = self.table[index];
-                if process_ptr.is_null() {
-                    None
-                } else {
-                    unsafe { Some(Pin::new_unchecked(&mut *process_ptr)) }
-                }
-            })
-            .flatten()
+    pub fn get(&mut self, vpid: VPid) -> Option<&mut Pin<Box<Process<'t, F>>>> {
+        let index = match table_index_for_vpid(vpid) {
+            None => return None,
+            Some(index) => index,
+        };
+        match &mut self.table[index] {
+            None => None,
+            Some(mut_ref) => Some(mut_ref),
+        }
     }
 
     pub fn remove(&mut self, vpid: VPid) -> Option<SysPid> {
         let index = table_index_for_vpid(vpid).unwrap();
-        let prev = self.table[index];
-        self.table[index] = core::ptr::null_mut();
-        if prev.is_null() {
-            return None;
-        }
-        unsafe {
-            let process = &mut *prev;
-            let sys_pid = process.sys_pid;
+        let prev_sys_pid = self.table[index].as_ref().map(|process| process.sys_pid);
+        self.table[index] = None;
+        if let Some(sys_pid) = prev_sys_pid {
             assert_eq!(Some(vpid), self.map_sys_to_v.remove(&sys_pid));
-            core::ptr::drop_in_place(prev);
-            nolibc::free_pages(prev as usize, size_of::<Process<'t, F>>());
-            Some(sys_pid)
         }
+        prev_sys_pid
     }
 }
