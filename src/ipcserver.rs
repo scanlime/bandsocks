@@ -1,15 +1,12 @@
 use crate::{
     container::ExitStatus,
     errors::RuntimeError,
-    filesystem::{
-        storage::FileStorage,
-        vfs::{Filesystem, VFile},
-    },
+    filesystem::{storage::FileStorage, vfs::Filesystem},
     process::{Process, ProcessStatus},
     sand,
     sand::protocol::{
         buffer, buffer::IPCBuffer, exit::*, Errno, FileStat, FromTask, MessageFromSand,
-        MessageToSand, SysFd, ToTask, TracerSettings, VPid,
+        MessageToSand, SysFd, ToTask, TracerSettings, VFile, VPid,
     },
     taskcall,
 };
@@ -220,20 +217,19 @@ impl IPCServer {
     ) -> Result<Option<ExitStatus>, RuntimeError> {
         // SysFd does not own the underlying file, which must remain allocated until the
         // outgoing message has been flushed.
-        let storage = match result {
-            Err(e) => Err(e),
+        let (_storage, reply) = match result {
+            Err(e) => (None, Err(e)),
             Ok(vfile) => match self.filesystem.vfile_open(&self.storage, &vfile).await {
-                Ok(file) => Ok(file),
-                Err(e) => Err(Errno(-e.to_errno())),
+                Err(e) => (None, Err(Errno(-e.to_errno()))),
+                Ok(file) => {
+                    let sys_fd = SysFd(file.as_raw_fd() as u32);
+                    (Some(file), Ok((vfile, sys_fd)))
+                }
             },
-        };
-        let sys_fd = match &storage {
-            Err(e) => Err(*e),
-            Ok(file) => Ok(SysFd(file.as_raw_fd() as u32)),
         };
         self.send_message(&MessageToSand::Task {
             task,
-            op: ToTask::FileReply(sys_fd),
+            op: ToTask::FileReply(reply),
         })
         .await?;
         Ok(None)
@@ -285,16 +281,20 @@ impl IPCServer {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::change_working_dir(process, &self.filesystem, *path).await;
+                        taskcall::change_working_dir(process, &self.filesystem, path).await;
                     self.task_reply(task, result).await
                 }
             },
 
-            FromTask::FileStat { fd, path, nofollow } => match self.process_table.get_mut(&task) {
+            FromTask::FileStat {
+                file,
+                path,
+                nofollow,
+            } => match self.process_table.get_mut(&task) {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::file_stat(process, &self.filesystem, *fd, *path, *nofollow).await;
+                        taskcall::file_stat(process, &self.filesystem, file, path, *nofollow).await;
                     self.task_stat_reply(task, result).await
                 }
             },
@@ -303,7 +303,7 @@ impl IPCServer {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::file_access(process, &self.filesystem, *dir, *path, *mode).await;
+                        taskcall::file_access(process, &self.filesystem, dir, path, *mode).await;
                     self.task_reply(task, result).await
                 }
             },
@@ -317,7 +317,7 @@ impl IPCServer {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::file_open(process, &self.filesystem, *dir, *path, *flags, *mode)
+                        taskcall::file_open(process, &self.filesystem, dir, path, *flags, *mode)
                             .await;
                     self.task_file_reply(task, result).await
                 }

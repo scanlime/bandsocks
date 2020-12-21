@@ -2,7 +2,8 @@ use crate::{
     abi,
     process::{loader::Loader, task::StoppedTask},
     protocol::{
-        abi::Syscall, Errno, FileStat, FromTask, LogLevel, LogMessage, SysFd, ToTask, VPtr, VString,
+        abi::Syscall, Errno, FileStat, FromTask, LogLevel, LogMessage, SysFd, ToTask, VFile, VPtr,
+        VString,
     },
     remote::{
         file::{RemoteFd, TempRemoteFd},
@@ -24,7 +25,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         SyscallEmulator { stopped_task, call }
     }
 
-    async fn return_sysfd(&mut self, sys_fd: SysFd) -> isize {
+    async fn return_file(&mut self, _vfile: VFile, sys_fd: SysFd) -> isize {
         let mut tr = Trampoline::new(self.stopped_task);
         let result = match Scratchpad::new(&mut tr).await {
             Err(err) => Err(err),
@@ -54,9 +55,9 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         }
     }
 
-    async fn return_file_result(&mut self, result: Result<SysFd, Errno>) -> isize {
+    async fn return_file_result(&mut self, result: Result<(VFile, SysFd), Errno>) -> isize {
         match result {
-            Ok(f) => self.return_sysfd(f).await,
+            Ok((vfile, sys_fd)) => self.return_file(vfile, sys_fd).await,
             Err(err) => self.return_errno(err).await,
         }
     }
@@ -177,7 +178,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::FileStat {
-                        fd: None,
+                        file: None,
                         path: Some(arg_string(0)),
                         nofollow: false
                     },
@@ -197,7 +198,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::FileStat {
-                        fd: None,
+                        file: None,
                         path: Some(arg_string(0)),
                         nofollow: true
                     },
@@ -217,7 +218,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let result = ipc_call!(
                     self.stopped_task.task,
                     FromTask::FileStat {
-                        fd: None,
+                        file: None,
                         path: Some(arg_string(1)),
                         nofollow: (flags & abi::AT_SYMLINK_NOFOLLOW) != 0
                     },

@@ -1,18 +1,18 @@
 use crate::{
-    filesystem::vfs::{Filesystem, VFile},
+    filesystem::vfs::Filesystem,
     process::Process,
-    sand::protocol::{Errno, FileStat, SysFd, VString},
+    sand::protocol::{Errno, FileStat, VFile, VString},
 };
 use std::path::Path;
 
-fn user_string(process: &mut Process, s: VString) -> Result<String, Errno> {
-    process.read_string(s).map_err(|_| Errno(-libc::EFAULT))
+fn user_string(process: &mut Process, s: &VString) -> Result<String, Errno> {
+    process.read_string(*s).map_err(|_| Errno(-libc::EFAULT))
 }
 
 pub async fn change_working_dir(
     process: &mut Process,
     _filesystem: &Filesystem,
-    path: VString,
+    path: &VString,
 ) -> Result<(), Errno> {
     let path = user_string(process, path)?;
     log::debug!("change_working_dir({:?})", path);
@@ -32,8 +32,8 @@ pub async fn get_working_dir(
 pub async fn file_access(
     process: &mut Process,
     _filesystem: &Filesystem,
-    dir: Option<SysFd>,
-    path: VString,
+    dir: &Option<VFile>,
+    path: &VString,
     mode: i32,
 ) -> Result<(), Errno> {
     let path = user_string(process, path)?;
@@ -44,8 +44,8 @@ pub async fn file_access(
 pub async fn file_open(
     process: &mut Process,
     filesystem: &Filesystem,
-    dir: Option<SysFd>,
-    path: VString,
+    dir: &Option<VFile>,
+    path: &VString,
     flags: i32,
     mode: i32,
 ) -> Result<VFile, Errno> {
@@ -64,8 +64,8 @@ pub async fn file_open(
 pub async fn file_stat(
     process: &mut Process,
     _filesystem: &Filesystem,
-    fd: Option<SysFd>,
-    path: Option<VString>,
+    file: &Option<VFile>,
+    path: &Option<VString>,
     nofollow: bool,
 ) -> Result<FileStat, Errno> {
     let path = match path {
@@ -76,6 +76,6 @@ pub async fn file_stat(
         }
         None => format!("None"),
     };
-    log::debug!("file_stat({:?}, {}, {:?})", fd, path, nofollow);
+    log::debug!("file_stat({:?}, {}, {:?})", file, path, nofollow);
     Ok(FileStat {})
 }

@@ -24,10 +24,11 @@ pub struct FileStat {
     // to do
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
-pub struct ProcessHandle {
-    pub mem: SysFd,
-    pub maps: SysFd,
+pub type INodeNum = usize;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Hash32, Deserialize, Serialize)]
+pub struct VFile {
+    pub inode: INodeNum,
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Hash32)]
@@ -38,6 +39,12 @@ impl Default for SysFd {
     fn default() -> Self {
         SysFd(!0u32)
     }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+pub struct ProcessHandle {
+    pub mem: SysFd,
+    pub maps: SysFd,
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Hash32, Serialize, Deserialize)]

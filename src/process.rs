@@ -1,7 +1,6 @@
 use crate::{
     errors::RuntimeError,
-    filesystem::vfs::VFile,
-    sand::protocol::{ProcessHandle, SysFd, SysPid, VPtr, VString},
+    sand::protocol::{ProcessHandle, SysFd, SysPid, VFile, VPtr, VString},
 };
 use regex::Regex;
 use std::{
@@ -86,7 +85,9 @@ impl Process {
 }
 
 fn read_bytes(mem_file: &File, vptr: VPtr, buf: &mut [u8]) -> Result<(), RuntimeError> {
-    mem_file.read_exact_at(buf, vptr.0 as u64).map_err(|_| RuntimeError::MemAccess)
+    mem_file
+        .read_exact_at(buf, vptr.0 as u64)
+        .map_err(|_| RuntimeError::MemAccess)
 }
 
 fn read_string(mem_file: &File, vstr: VString) -> Result<String, RuntimeError> {

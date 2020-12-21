@@ -40,7 +40,12 @@ fn options() {
 fn messages() {
     let msg1 = MessageToSand::Task {
         task: VPid(12345),
-        op: ToTask::FileReply(Ok(SysFd(5))),
+        op: ToTask::FileReply(Ok((
+            VFile {
+                inode: 0x12345678abcdef01,
+            },
+            SysFd(5),
+        ))),
     };
     let msg2 = MessageToSand::Task {
         task: VPid(39503),
@@ -48,18 +53,18 @@ fn messages() {
     };
     let msg3 = MessageToSand::Task {
         task: VPid(29862),
-        op: ToTask::FileReply(Ok(SysFd(99999))),
+        op: ToTask::FileReply(Ok((VFile { inode: 0 }, SysFd(99999)))),
     };
     let msg4 = MessageToSand::Task {
         task: VPid(125),
-        op: ToTask::FileReply(Ok(SysFd(299))),
+        op: ToTask::FileReply(Ok((VFile { inode: 777777 }, SysFd(299)))),
     };
     let mut buf = buffer::IPCBuffer::new();
     buf.push_back(&msg1).unwrap();
     buf.push_back(&msg2).unwrap();
     buf.push_back(&msg3).unwrap();
     buf.push_back(&msg4).unwrap();
-    assert_eq!(buf.as_slice().bytes.len(), 32);
+    assert_eq!(buf.as_slice().bytes.len(), 56);
     assert_eq!(buf.as_slice().files.len(), 3);
     assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg1));
     assert_eq!(buf.pop_front::<MessageToSand>(), Ok(msg2));
@@ -225,28 +230,35 @@ check!(
     MessageFromSand::Task {
         task: VPid(0x22222222),
         op: FromTask::FileOpen {
-            dir: Some(SysFd(0x11111111)),
+            dir: Some(VFile {
+                inode: 0x8888777766665555
+            },),
             path: VString(VPtr(0x3333333333333333)),
             mode: 0x44444444,
-
             flags: 0x55555555
         }
     },
     MessageFromSand,
     [
-        0x00, 0x22, 0x22, 0x22, 0x22, 0x02, 0x01, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-        0x55, 0x55, 0x55, 0x55, 0x44, 0x44, 0x44, 0x44,
+        0x00, 0x22, 0x22, 0x22, 0x22, 0x02, 0x01, 0x55, 0x55, 0x66, 0x66, 0x77, 0x77, 0x88, 0x88,
+        0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x55, 0x55, 0x55, 0x55, 0x44, 0x44, 0x44,
+        0x44,
     ],
-    [SysFd(0x11111111)]
+    []
 );
 check!(
     sys_open_reply_1,
     MessageToSand::Task {
         task: VPid(0x54555657),
-        op: ToTask::FileReply(Ok(SysFd(42))),
+        op: ToTask::FileReply(Ok((
+            VFile {
+                inode: 0x3333444455556666
+            },
+            SysFd(42)
+        ))),
     },
     MessageToSand,
-    [0x00, 0x57, 0x56, 0x55, 0x54, 0x01, 0x00],
+    [0x00, 0x57, 0x56, 0x55, 0x54, 0x01, 0x00, 0x66, 0x66, 0x55, 0x55, 0x44, 0x44, 0x33, 0x33],
     [SysFd(42)]
 );
 check!(

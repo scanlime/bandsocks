@@ -68,7 +68,7 @@ pub struct TracerSettings {
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub enum ToTask {
     OpenProcessReply(ProcessHandle),
-    FileReply(Result<SysFd, Errno>),
+    FileReply(Result<(VFile, SysFd), Errno>),
     FileStatReply(Result<FileStat, Errno>),
     SizeReply(Result<usize, Errno>),
     Reply(Result<(), Errno>),
@@ -79,18 +79,18 @@ pub enum ToTask {
 pub enum FromTask {
     OpenProcess(SysPid),
     FileAccess {
-        dir: Option<SysFd>,
+        dir: Option<VFile>,
         path: VString,
         mode: i32,
     },
     FileOpen {
-        dir: Option<SysFd>,
+        dir: Option<VFile>,
         path: VString,
         flags: i32,
         mode: i32,
     },
     FileStat {
-        fd: Option<SysFd>,
+        file: Option<VFile>,
         path: Option<VString>,
         nofollow: bool,
     },

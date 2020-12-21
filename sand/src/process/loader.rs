@@ -52,7 +52,7 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
         argv: VPtr,
         envp: VPtr,
     ) -> Result<Loader<'q, 's, 't>, Errno> {
-        let file = ipc_call!(
+        let (_vfile, sysfd) = ipc_call!(
             stopped_task.task,
             FromTask::FileOpen {
                 dir: None,
@@ -61,8 +61,9 @@ impl<'q, 's, 't> Loader<'q, 's, 't> {
                 mode: 0,
             },
             ToTask::FileReply(result),
-            File::new(result?)
+            result?
         );
+        let file = File::new(sysfd);
 
         let mut header_bytes = [0u8; abi::BINPRM_BUF_SIZE];
         file.pread(&mut header_bytes, 0)?;

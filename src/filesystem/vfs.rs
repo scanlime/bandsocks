@@ -4,6 +4,7 @@ use crate::{
         socket::SharedStream,
         storage::{FileStorage, StorageKey},
     },
+    sand::protocol::{INodeNum, VFile},
 };
 use std::{
     collections::BTreeMap,
@@ -13,8 +14,6 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-
-type INodeNum = usize;
 
 #[derive(Debug, Clone, Default)]
 pub struct Stat {
@@ -30,11 +29,6 @@ pub struct Stat {
 pub struct Filesystem {
     inodes: Vec<Option<Arc<INode>>>,
     root: INodeNum,
-}
-
-#[derive(Debug, Clone)]
-pub struct VFile {
-    inode: INodeNum,
 }
 
 pub struct VFSWriter<'f> {
