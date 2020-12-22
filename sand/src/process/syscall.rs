@@ -25,7 +25,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         SyscallEmulator { stopped_task, call }
     }
 
-    async fn return_file(&mut self, _vfile: VFile, sys_fd: SysFd) -> isize {
+    async fn return_file(&mut self, vfile: VFile, sys_fd: SysFd) -> isize {
         let mut tr = Trampoline::new(self.stopped_task);
         let result = match Scratchpad::new(&mut tr).await {
             Err(err) => Err(err),
@@ -36,7 +36,10 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             }
         };
         match result {
-            Ok(RemoteFd(fd)) => fd as isize,
+            Ok(RemoteFd(fd)) => {
+                self.stopped_task.task.task_data.file_table.open(RemoteFd(fd), vfile);
+                fd as isize
+            },
             Err(err) => self.return_errno(err).await,
         }
     }

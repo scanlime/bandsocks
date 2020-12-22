@@ -7,23 +7,10 @@ use crate::{
     remote::file::RemoteFd,
 };
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use core::{future::Future, pin::Pin};
+use core::{cell::RefCell, future::Future, pin::Pin};
 use hashbrown::HashMap;
 
 const PID_LIMIT: u32 = 1024 * 1024;
-
-#[derive(Debug, Clone)]
-pub struct FileTable {
-    table: Rc<HashMap<RemoteFd, VFile>>,
-}
-
-impl FileTable {
-    pub fn new() -> Self {
-        FileTable {
-            table: Rc::new(HashMap::new()),
-        }
-    }
-}
 
 pub struct ProcessTable<'t, F: Future<Output = ()>> {
     table: Vec<Option<Pin<Box<Process<'t, F>>>>>,
@@ -130,5 +117,30 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
             assert_eq!(Some(vpid), self.map_sys_to_v.remove(&sys_pid));
         }
         prev_sys_pid
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FileTable {
+    table: Rc<RefCell<HashMap<RemoteFd, VFile>>>,
+}
+
+impl FileTable {
+    pub fn new() -> Self {
+        FileTable {
+            table: Rc::new(RefCell::new(HashMap::new())),
+        }
+    }
+
+    pub fn open(&mut self, fd: RemoteFd, vfile: VFile) {
+        self.table.borrow_mut().insert(fd, vfile);
+    }
+
+    pub fn close(&mut self, fd: &RemoteFd) {
+        self.table.borrow_mut().remove(fd);
+    }
+
+    pub fn get(&self, fd: &RemoteFd) -> Option<VFile> {
+        self.table.borrow().get(fd).cloned()
     }
 }
