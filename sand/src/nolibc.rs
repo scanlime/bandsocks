@@ -334,9 +334,13 @@ unsafe impl GlobalAlloc for PageAllocator {
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         let from_size = abi::page_round_up(layout.size());
         let to_size = abi::page_round_up(new_size);
-        match mremap(ptr as usize, from_size, to_size, abi::MREMAP_MAYMOVE, 0) {
-            Ok(addr) => addr as *mut u8,
-            Err(_) => core::ptr::null_mut(),
+        if from_size == to_size {
+            ptr
+        } else {
+            match mremap(ptr as usize, from_size, to_size, abi::MREMAP_MAYMOVE, 0) {
+                Ok(addr) => addr as *mut u8,
+                Err(_) => core::ptr::null_mut(),
+            }
         }
     }
 }
