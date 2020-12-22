@@ -11,6 +11,3 @@ edition = "2018"
 
 generic-array = "0.14"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
-hash32 = "0.1"
-hash32-derive = "0.1"
-

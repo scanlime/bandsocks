@@ -7,7 +7,6 @@ compile_error!("bandsocks only works on linux or android");
 compile_error!("bandsocks currently only supports x86_64");
 
 #[macro_use] extern crate serde;
-#[macro_use] extern crate hash32_derive;
 
 #[cfg(test)]
 #[macro_use]

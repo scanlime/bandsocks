@@ -26,12 +26,12 @@ pub struct FileStat {
 
 pub type INodeNum = usize;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Hash32, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct VFile {
     pub inode: INodeNum,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Hash32)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 #[repr(C)]
 pub struct SysFd(pub u32);
 
@@ -47,20 +47,20 @@ pub struct ProcessHandle {
     pub maps: SysFd,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Hash32, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, Serialize, Deserialize)]
 #[repr(C)]
 pub struct SysPid(pub u32);
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Hash, Hash32)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Hash)]
 #[repr(C)]
 pub struct Signal(pub u32);
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Hash, Hash32)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Hash)]
 #[repr(C)]
 pub struct Errno(pub i32);
 
 #[derive(
-    Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Hash, Hash32, Serialize, Deserialize,
+    Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Hash, Serialize, Deserialize,
 )]
 #[repr(C)]
 pub struct VPid(pub u32);

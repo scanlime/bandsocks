@@ -6,36 +6,34 @@ use crate::{
     protocol::{SysPid, TracerSettings, VFile, VPid},
     remote::file::RemoteFd,
 };
-use alloc::{boxed::Box, rc::Rc};
+use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::{future::Future, pin::Pin};
-use heapless::{FnvIndexMap, Vec};
-use typenum::{consts::*, marker_traits::Unsigned};
+use hashbrown::HashMap;
 
-type PidLimit = U32768;
-type FileLimit = U16384;
+const PID_LIMIT: u32 = 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct FileTable {
-    table: Rc<FnvIndexMap<RemoteFd, VFile, FileLimit>>,
+    table: Rc<HashMap<RemoteFd, VFile>>,
 }
 
 impl FileTable {
     pub fn new() -> Self {
         FileTable {
-            table: Rc::new(FnvIndexMap::new()),
+            table: Rc::new(HashMap::new()),
         }
     }
 }
 
 pub struct ProcessTable<'t, F: Future<Output = ()>> {
-    table: Vec<Option<Pin<Box<Process<'t, F>>>>, PidLimit>,
+    table: Vec<Option<Pin<Box<Process<'t, F>>>>>,
     task_fn: TaskFn<'t, F>,
-    map_sys_to_v: FnvIndexMap<SysPid, VPid, PidLimit>,
+    map_sys_to_v: HashMap<SysPid, VPid>,
     next_vpid: VPid,
 }
 
 fn table_index_for_vpid(vpid: VPid) -> Option<usize> {
-    if vpid.0 >= 1 && vpid.0 <= PidLimit::U32 {
+    if vpid.0 >= 1 && vpid.0 <= PID_LIMIT {
         Some((vpid.0 - 1) as usize)
     } else {
         None
@@ -44,7 +42,7 @@ fn table_index_for_vpid(vpid: VPid) -> Option<usize> {
 
 fn next_vpid_in_sequence(vpid: VPid) -> VPid {
     match vpid {
-        VPid(n) if n == PidLimit::U32 => VPid(1),
+        VPid(n) if n == PID_LIMIT => VPid(1),
         VPid(n) => VPid(n + 1),
     }
 }
@@ -52,7 +50,7 @@ fn next_vpid_in_sequence(vpid: VPid) -> VPid {
 impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
     pub fn new(task_fn: TaskFn<'t, F>) -> Self {
         ProcessTable {
-            map_sys_to_v: FnvIndexMap::new(),
+            map_sys_to_v: HashMap::new(),
             table: Vec::new(),
             next_vpid: VPid(1),
             task_fn,
@@ -65,7 +63,7 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
 
     fn allocate_vpid(&mut self) -> Option<VPid> {
         let mut result = None;
-        for _ in 0..PidLimit::USIZE {
+        for _ in 0..PID_LIMIT {
             let vpid = self.next_vpid;
             let index = table_index_for_vpid(vpid).unwrap();
             if index >= self.table.len() || self.table[index].is_none() {
@@ -101,13 +99,13 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
             let index = table_index_for_vpid(vpid).unwrap();
             let min_table_len = index + 1;
             while self.table.len() < min_table_len {
-                assert!(self.table.push(None).is_ok());
+                self.table.push(None);
             }
 
             let process = Box::pin(Process::new(self.task_fn, task_data));
             assert!(self.table[index].is_none());
             self.table[index] = Some(process);
-            assert_eq!(self.map_sys_to_v.insert(sys_pid, vpid), Ok(None));
+            assert_eq!(self.map_sys_to_v.insert(sys_pid, vpid), None);
             Some(vpid)
         })
         .flatten()

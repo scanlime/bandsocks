@@ -17,8 +17,7 @@ compiler_builtins = { version = "0.1", features = [ "compiler-builtins", "mem" ]
 futures = { version = "0.3", default-features = false }
 generic-array = "0.14"
 goblin = { version = "0.2", default-features = false, features = ["elf64"] }
-hash32 = "0.1"
-hash32-derive = "0.1"
+hashbrown = "0.9.1"
 heapless = "0.5"
 memoffset = "0.5"
 pin-project = "1"
@@ -27,7 +26,6 @@ raw-cpuid = "8.1"
 sc = "0.2"
 seccomp-tiny = "0.1"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
-smalloca = { version = "0.1", default-features = false }
 twoway = { version = "0.2", default-features = false }
 typenum = "1.12"
 
