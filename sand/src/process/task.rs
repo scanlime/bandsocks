@@ -1,7 +1,10 @@
 use crate::{
     abi,
     nolibc::File,
-    process::{maps::print_maps_dump, syscall::SyscallEmulator, Event, EventSource, MessageSender},
+    process::{
+        maps::print_maps_dump, syscall::SyscallEmulator, table::FileTable, Event, EventSource,
+        MessageSender,
+    },
     protocol::{
         abi::{Syscall, UserRegs},
         FromTask, LogLevel, LogMessage, ProcessHandle, SysPid, ToTask, TracerSettings, VPid, VPtr,
@@ -31,6 +34,7 @@ pub struct TaskData {
     pub parent: Option<VPid>,
     pub socket_pair: TaskSocketPair,
     pub mm: TaskMemManagement,
+    pub file_table: FileTable,
     pub tracer_settings: TracerSettings,
 }
 

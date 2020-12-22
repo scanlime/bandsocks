@@ -11,6 +11,7 @@ compile_error!("bandsocks only works on linux or android");
 compile_error!("bandsocks currently only supports x86_64");
 
 #[macro_use] extern crate memoffset;
+#[macro_use] extern crate hash32_derive;
 
 #[cfg(test)]
 #[macro_use]
@@ -42,6 +43,7 @@ use crate::{
     protocol::{Errno, SysFd},
     tracer::Tracer,
 };
+use alloc::boxed::Box;
 use core::str;
 
 pub const STAGE_1_TRACER: &[u8] = b"sand\0";
@@ -60,7 +62,11 @@ pub unsafe fn c_main(argv: &[*const u8], envp: &[*const u8]) -> usize {
         RunMode::Tracer(socket_file) => {
             stdio_for_tracer(&socket_file);
             seccomp::policy_for_tracer();
-            Tracer::new(Socket::new(socket_file), process::task::task_fn).run();
+            Box::new(Tracer::new(
+                Socket::new(socket_file),
+                process::task::task_fn,
+            ))
+            .run();
         }
 
         RunMode::InitLoader(args_file) => {

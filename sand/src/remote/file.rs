@@ -11,7 +11,7 @@ use crate::{
 use core::{mem::size_of, pin::Pin, ptr};
 use sc::{nr, syscall};
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Hash32)]
 #[repr(C)]
 pub struct RemoteFd(pub u32);
 

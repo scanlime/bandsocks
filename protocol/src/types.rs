@@ -51,11 +51,11 @@ pub struct ProcessHandle {
 #[repr(C)]
 pub struct SysPid(pub u32);
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Hash, Hash32)]
 #[repr(C)]
 pub struct Signal(pub u32);
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Hash, Hash32)]
 #[repr(C)]
 pub struct Errno(pub i32);
 

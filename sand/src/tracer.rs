@@ -3,7 +3,7 @@ use crate::{
     ipc::Socket,
     nolibc::PROC_SELF_EXE,
     process::{
-        table::ProcessTable,
+        table::{FileTable, ProcessTable},
         task::{TaskMemManagement, TaskSocketPair},
         Event, TaskFn,
     },
@@ -69,8 +69,9 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
                     brk: VPtr(0),
                     brk_start: VPtr(0),
                 };
+                let file_table = FileTable::new();
                 self.process_table
-                    .insert(settings, sys_pid, parent, socket_pair, mm)
+                    .insert(settings, sys_pid, parent, socket_pair, mm, file_table)
                     .expect("virtual process limit exceeded");
             }
         }

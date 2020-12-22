@@ -3,14 +3,29 @@ use crate::{
         task::{TaskData, TaskMemManagement, TaskSocketPair},
         Process, TaskFn,
     },
-    protocol::{SysPid, TracerSettings, VPid},
+    protocol::{SysPid, TracerSettings, VFile, VPid},
+    remote::file::RemoteFd,
 };
-use alloc::boxed::Box;
+use alloc::{boxed::Box, rc::Rc};
 use core::{future::Future, pin::Pin};
 use heapless::{FnvIndexMap, Vec};
 use typenum::{consts::*, marker_traits::Unsigned};
 
 type PidLimit = U32768;
+type FileLimit = U16384;
+
+#[derive(Debug, Clone)]
+pub struct FileTable {
+    table: Rc<FnvIndexMap<RemoteFd, VFile, FileLimit>>,
+}
+
+impl FileTable {
+    pub fn new() -> Self {
+        FileTable {
+            table: Rc::new(FnvIndexMap::new()),
+        }
+    }
+}
 
 pub struct ProcessTable<'t, F: Future<Output = ()>> {
     table: Vec<Option<Pin<Box<Process<'t, F>>>>, PidLimit>,
@@ -70,10 +85,12 @@ impl<'t, F: Future<Output = ()>> ProcessTable<'t, F> {
         parent: Option<VPid>,
         socket_pair: TaskSocketPair,
         mm: TaskMemManagement,
+        file_table: FileTable,
     ) -> Option<VPid> {
         let vpid = self.allocate_vpid();
         vpid.map(move |vpid| {
             let task_data = TaskData {
+                file_table,
                 tracer_settings,
                 sys_pid,
                 vpid,
