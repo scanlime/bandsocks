@@ -181,24 +181,19 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::SET_TID_ADDRESS => 0,
 
             nr::IOCTL => {
-                log_level = LogLevel::Warn;
                 let _fd = arg_i32(0);
                 let _cmd = arg_i32(1);
                 let _arg = arg_usize(2);
                 0
-            },
+            }
 
             nr::GETDENTS64 => {
                 let fd = RemoteFd(arg_u32(0));
                 let _dirent = arg_ptr(1);
                 let _count = arg_u32(2);
-                let _vfile = self.stopped_task
-                                .task
-                                .task_data
-                                .file_table
-                                .get(&fd);
+                let _vfile = self.stopped_task.task.task_data.file_table.get(&fd);
                 0
-            },
+            }
 
             nr::STAT => ipc_call!(
                 self.stopped_task.task,
@@ -288,6 +283,8 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_file_result(result).await
             ),
 
+            nr::CLOSE => return_result(do_close(self.stopped_task, RemoteFd(arg_u32(0))).await),
+
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
                 let fd = arg_i32(0);
                 if fd != abi::AT_FDCWD {
@@ -321,6 +318,16 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 .log(log_level, LogMessage::Emulated(self.call.clone()))
         }
     }
+}
+
+async fn do_close<'q, 's, 't>(
+    stopped_task: &'t mut StoppedTask<'q, 's>,
+    fd: RemoteFd,
+) -> Result<(), Errno> {
+    // Note that the fd will be closed even if close() also reports an error
+    stopped_task.task.task_data.file_table.close(&fd);
+    let mut tr = Trampoline::new(stopped_task);
+    fd.close(&mut tr).await
 }
 
 async fn do_uname<'q, 's, 't>(

@@ -29,10 +29,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::READV,
             nr::WRITEV,
             nr::LSEEK,
-            nr::SENDMSG,
-            nr::RECVMSG,
             nr::SOCKETPAIR,
-            nr::CLOSE,
             nr::EXIT_GROUP,
             nr::EXIT,
             nr::FORK,
@@ -70,6 +67,9 @@ pub fn policy_for_tracer() {
     // to do: none of this has been audited yet
     p.if_any_eq(
         &[
+            nr::SENDMSG,
+            nr::RECVMSG,
+            nr::CLOSE,
             nr::WAITID,
             nr::PTRACE,
             nr::GETPID,
@@ -94,11 +94,43 @@ pub fn policy_for_tracer() {
 pub fn policy_for_loader() {
     let mut p = base_rules_for_all_policies();
 
-    // Specific deny list, of calls we don't even want to try and trace or emulate
-    p.if_any_eq(&[nr::PTRACE], &[ret(SECCOMP_RET_KILL_PROCESS)]);
+    // Calls to emulate / calls to allow the emulator to remotely issue
+    p.if_any_eq(
+        &[
+            nr::ACCESS,
+            nr::BRK,
+            nr::CHDIR,
+            nr::CLOSE,
+            nr::EXECVE,
+            nr::FSTAT,
+            nr::GETCWD,
+            nr::GETDENTS64,
+            nr::GETEGID,
+            nr::GETEUID,
+            nr::GETGID,
+            nr::GETPGRP,
+            nr::GETPID,
+            nr::GETPPID,
+            nr::GETPGID,
+            nr::GETUID,
+            nr::IOCTL,
+            nr::LSTAT,
+            nr::NEWFSTATAT,
+            nr::OPEN,
+            nr::OPENAT,
+            nr::RECVMSG,
+            nr::SENDMSG,
+            nr::SETPGID,
+            nr::SET_TID_ADDRESS,
+            nr::STAT,
+            nr::SYSINFO,
+            nr::UNAME,
+        ],
+        &[ret(SECCOMP_RET_TRACE)],
+    );
 
-    // Emulate supported syscalls, rely on the tracer to log and panic on others
-    p.inst(ret(SECCOMP_RET_TRACE));
+    // All other syscalls panic via SIGSYS
+    p.inst(ret(SECCOMP_RET_TRAP));
 
     p.activate();
 }

@@ -109,7 +109,7 @@ pub fn set_regs(pid: SysPid, regs: &UserRegs) {
 }
 
 pub fn geteventmsg(pid: SysPid) -> usize {
-    let mut result: usize = -1 as isize as usize;
+    let mut result = usize::MAX;
     match unsafe {
         syscall!(
             PTRACE,
@@ -135,7 +135,7 @@ pub fn wait(info: &mut abi::SigInfo) -> isize {
     let info_ptr = info as *mut abi::SigInfo as usize;
     assert_eq!(mem::size_of_val(info), abi::SI_MAX_SIZE);
     let which = abi::P_ALL;
-    let pid = -1 as isize as usize;
+    let pid = usize::MAX;
     let options = abi::WEXITED | abi::WSTOPPED | abi::WCONTINUED;
     let rusage = null::<usize>() as usize;
     unsafe { syscall!(WAITID, which, pid, info_ptr, options, rusage) as isize }

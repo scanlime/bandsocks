@@ -197,7 +197,7 @@ impl<'q> Task<'q> {
         let mut stopped_task = self.as_stopped_task(&mut regs);
         let mut log_level = LogLevel::Trace;
 
-        if signal == abi::SIGSEGV {
+        if signal == abi::SIGSEGV || signal == abi::SIGSYS {
             println!("task state:\n{:x?}", stopped_task.regs);
             print_maps_dump(&mut stopped_task);
             print_stack_dump(&mut stopped_task);
