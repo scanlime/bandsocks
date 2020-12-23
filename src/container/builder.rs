@@ -4,7 +4,7 @@ use crate::{
     filesystem::{mount::Mount, socket::SharedStream, storage::FileStorage, vfs::Filesystem},
     manifest::ImageConfig,
     sand,
-    sand::protocol::TracerSettings,
+    sand::protocol::{FollowLinks, TracerSettings},
 };
 use std::{
     ffi::{CString, NulError, OsStr},
@@ -136,7 +136,11 @@ impl ContainerBuilder {
                     let mut buf = PathBuf::from(OsStr::from_bytes(self.working_dir.as_bytes()));
                     buf.push(OsStr::from_bytes(env_path));
                     buf.push(OsStr::from_bytes(filename.as_bytes()));
-                    if self.filesystem.open(&buf).is_ok() {
+                    if self
+                        .filesystem
+                        .lookup(&Filesystem::root(), &buf, FollowLinks::Follow)
+                        .is_ok()
+                    {
                         filename = CString::new(buf.into_os_string().as_bytes())?;
                         break;
                     }

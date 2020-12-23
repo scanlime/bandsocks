@@ -2,8 +2,8 @@ use crate::{
     abi,
     process::{loader::Loader, task::StoppedTask},
     protocol::{
-        abi::Syscall, Errno, FileStat, FromTask, LogLevel, LogMessage, SysFd, ToTask, VFile, VPtr,
-        VString,
+        abi::Syscall, Errno, FileStat, FollowLinks, FromTask, LogLevel, LogMessage, SysFd, ToTask,
+        VFile, VPtr, VString,
     },
     remote::{
         file::{RemoteFd, TempRemoteFd},
@@ -11,12 +11,46 @@ use crate::{
         trampoline::Trampoline,
     },
 };
+use plain::Plain;
 use sc::nr;
 
 #[derive(Debug)]
 pub struct SyscallEmulator<'q, 's, 't> {
     stopped_task: &'t mut StoppedTask<'q, 's>,
     call: Syscall,
+}
+
+#[repr(C)]
+struct UserStat(abi::Stat);
+
+unsafe impl Plain for UserStat {}
+
+fn return_errno(err: Errno) -> isize {
+    if err.0 >= 0 {
+        panic!("invalid {:?}", err);
+    }
+    err.0 as isize
+}
+
+fn return_result(result: Result<(), Errno>) -> isize {
+    match result {
+        Ok(()) => 0,
+        Err(err) => return_errno(err),
+    }
+}
+
+fn return_vptr_result(result: Result<VPtr, Errno>) -> isize {
+    match result {
+        Ok(ptr) => ptr.0 as isize,
+        Err(err) => return_errno(err),
+    }
+}
+
+fn return_size_result(result: Result<usize, Errno>) -> isize {
+    match result {
+        Ok(s) => s as isize,
+        Err(err) => return_errno(err),
+    }
 }
 
 impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
@@ -37,59 +71,85 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         };
         match result {
             Ok(RemoteFd(fd)) => {
-                self.stopped_task.task.task_data.file_table.open(RemoteFd(fd), vfile);
+                self.stopped_task
+                    .task
+                    .task_data
+                    .file_table
+                    .open(RemoteFd(fd), vfile);
                 fd as isize
-            },
-            Err(err) => self.return_errno(err).await,
+            }
+            Err(err) => return_errno(err),
         }
     }
 
-    async fn return_errno(&mut self, err: Errno) -> isize {
-        if err.0 >= 0 {
-            panic!("invalid {:?}", err);
-        }
-        err.0 as isize
-    }
-
-    async fn return_result(&mut self, result: Result<(), Errno>) -> isize {
-        match result {
-            Ok(()) => 0,
-            Err(err) => self.return_errno(err).await,
-        }
+    async fn return_stat(&mut self, out_ptr: VPtr, vfile: VFile, file_stat: FileStat) -> isize {
+        let user_stat = UserStat(abi::Stat {
+            st_dev: file_stat.st_dev,
+            st_ino: vfile.inode as u64,
+            st_nlink: file_stat.st_nlink,
+            st_mode: file_stat.st_mode,
+            st_uid: file_stat.st_uid,
+            st_gid: file_stat.st_gid,
+            pad0: 0,
+            st_rdev: file_stat.st_rdev,
+            st_size: file_stat.st_size,
+            st_blksize: 512,
+            st_blocks: (file_stat.st_size + 511) / 512,
+            st_atime: file_stat.st_atime,
+            st_atime_nsec: file_stat.st_atime_nsec,
+            st_mtime: file_stat.st_mtime,
+            st_mtime_nsec: file_stat.st_mtime_nsec,
+            st_ctime: file_stat.st_ctime,
+            st_ctime_nsec: file_stat.st_ctime_nsec,
+            unused: [0; 3],
+        });
+        let mut tr = Trampoline::new(self.stopped_task);
+        let result = Scratchpad::new(&mut tr).await;
+        let result = match result {
+            Err(err) => Err(err),
+            Ok(mut scratchpad) => {
+                let result = match TempRemoteFd::new(&mut scratchpad).await {
+                    Err(err) => Err(err),
+                    Ok(temp) => {
+                        let result = temp
+                            .mem_write_bytes_exact(&mut scratchpad, out_ptr, unsafe {
+                                plain::as_bytes(&user_stat)
+                            })
+                            .await;
+                        temp.free(&mut scratchpad.trampoline)
+                            .await
+                            .expect("leaking memfd");
+                        result
+                    }
+                };
+                scratchpad.free().await.expect("leaking scratchpad page");
+                result
+            }
+        };
+        return_result(result)
     }
 
     async fn return_file_result(&mut self, result: Result<(VFile, SysFd), Errno>) -> isize {
         match result {
             Ok((vfile, sys_fd)) => self.return_file(vfile, sys_fd).await,
-            Err(err) => self.return_errno(err).await,
+            Err(err) => return_errno(err),
         }
     }
 
     async fn return_stat_result(
         &mut self,
-        _out_ptr: VPtr,
-        _result: Result<FileStat, Errno>,
+        out_ptr: VPtr,
+        result: Result<(VFile, FileStat), Errno>,
     ) -> isize {
-        // to do
-        -1
-    }
-
-    async fn return_vptr_result(&mut self, result: Result<VPtr, Errno>) -> isize {
         match result {
-            Ok(ptr) => ptr.0 as isize,
-            Err(err) => self.return_errno(err).await,
-        }
-    }
-
-    async fn return_size_result(&mut self, result: Result<usize, Errno>) -> isize {
-        match result {
-            Ok(s) => s as isize,
-            Err(err) => self.return_errno(err).await,
+            Ok((vfile, file_stat)) => self.return_stat(out_ptr, vfile, file_stat).await,
+            Err(err) => return_errno(err),
         }
     }
 
     pub async fn dispatch(&mut self) {
         let args = self.call.args;
+        let arg_u32 = |idx| args[idx] as u32;
         let arg_i32 = |idx| args[idx] as i32;
         let arg_usize = |idx| args[idx] as usize;
         let arg_ptr = |idx| VPtr(arg_usize(idx));
@@ -97,76 +157,28 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         let mut log_level = LogLevel::Debug;
 
         let result = match self.call.nr as usize {
-            nr::BRK => {
-                let ptr = arg_ptr(0);
-                let result = do_brk(self.stopped_task, ptr).await;
-                self.return_vptr_result(result).await
-            }
+            nr::BRK => return_vptr_result(do_brk(self.stopped_task, arg_ptr(0)).await),
 
-            nr::EXECVE => {
-                let filename = arg_string(0);
-                let argv = arg_ptr(1);
-                let envp = arg_ptr(2);
-                let result = Loader::execve(self.stopped_task, filename, argv, envp).await;
-                self.return_result(result).await
-            }
+            nr::EXECVE => return_result(
+                Loader::execve(self.stopped_task, arg_string(0), arg_ptr(1), arg_ptr(2)).await,
+            ),
+
+            nr::UNAME => return_result(do_uname(self.stopped_task, arg_ptr(0)).await),
 
             nr::GETPID => self.stopped_task.task.task_data.vpid.0 as isize,
 
-            nr::GETPPID => {
-                log_level = LogLevel::Warn;
-                1
-            }
+            nr::GETPPID => 1,
+            nr::GETUID => 0,
+            nr::GETGID => 0,
+            nr::GETEUID => 0,
+            nr::GETEGID => 0,
+            nr::GETPGRP => 0,
+            nr::SETPGID => 0,
+            nr::GETPGID => 0,
 
-            nr::GETUID => {
-                log_level = LogLevel::Warn;
-                0
-            }
+            nr::SYSINFO => 0,
 
-            nr::GETGID => {
-                log_level = LogLevel::Warn;
-                0
-            }
-
-            nr::GETEUID => {
-                log_level = LogLevel::Warn;
-                0
-            }
-
-            nr::GETEGID => {
-                log_level = LogLevel::Warn;
-                0
-            }
-
-            nr::GETPGRP => {
-                log_level = LogLevel::Warn;
-                0
-            }
-
-            nr::SETPGID => {
-                log_level = LogLevel::Warn;
-                0
-            }
-
-            nr::GETPGID => {
-                log_level = LogLevel::Warn;
-                0
-            }
-
-            nr::UNAME => {
-                let result = do_uname(self.stopped_task, arg_ptr(0)).await;
-                self.return_result(result).await
-            }
-
-            nr::SYSINFO => {
-                log_level = LogLevel::Warn;
-                0
-            }
-
-            nr::SET_TID_ADDRESS => {
-                log_level = LogLevel::Warn;
-                0
-            }
+            nr::SET_TID_ADDRESS => 0,
 
             nr::IOCTL => {
                 log_level = LogLevel::Warn;
@@ -174,42 +186,46 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 let _cmd = arg_i32(1);
                 let _arg = arg_usize(2);
                 0
-            }
+            },
 
-            nr::STAT => {
-                log_level = LogLevel::Warn;
-                let result = ipc_call!(
-                    self.stopped_task.task,
-                    FromTask::FileStat {
-                        file: None,
-                        path: Some(arg_string(0)),
-                        nofollow: false
-                    },
-                    ToTask::FileStatReply(result),
-                    result
-                );
+            nr::GETDENTS64 => {
+                let fd = RemoteFd(arg_u32(0));
+                let _dirent = arg_ptr(1);
+                let _count = arg_u32(2);
+                let _vfile = self.stopped_task
+                                .task
+                                .task_data
+                                .file_table
+                                .get(&fd);
+                0
+            },
+
+            nr::STAT => ipc_call!(
+                self.stopped_task.task,
+                FromTask::FileStat {
+                    file: None,
+                    path: Some(arg_string(0)),
+                    follow_links: FollowLinks::Follow,
+                },
+                ToTask::FileStatReply(result),
                 self.return_stat_result(arg_ptr(1), result).await
-            }
+            ),
 
             nr::FSTAT => {
                 log_level = LogLevel::Warn;
                 0
             }
 
-            nr::LSTAT => {
-                log_level = LogLevel::Warn;
-                let result = ipc_call!(
-                    self.stopped_task.task,
-                    FromTask::FileStat {
-                        file: None,
-                        path: Some(arg_string(0)),
-                        nofollow: true
-                    },
-                    ToTask::FileStatReply(result),
-                    result
-                );
+            nr::LSTAT => ipc_call!(
+                self.stopped_task.task,
+                FromTask::FileStat {
+                    file: None,
+                    path: Some(arg_string(0)),
+                    follow_links: FollowLinks::NoFollow,
+                },
+                ToTask::FileStatReply(result),
                 self.return_stat_result(arg_ptr(1), result).await
-            }
+            ),
 
             nr::NEWFSTATAT => {
                 log_level = LogLevel::Warn;
@@ -223,7 +239,11 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                     FromTask::FileStat {
                         file: None,
                         path: Some(arg_string(1)),
-                        nofollow: (flags & abi::AT_SYMLINK_NOFOLLOW) != 0
+                        follow_links: if (flags & abi::AT_SYMLINK_NOFOLLOW) != 0 {
+                            FollowLinks::NoFollow
+                        } else {
+                            FollowLinks::Follow
+                        }
                     },
                     ToTask::FileStatReply(result),
                     result
@@ -231,57 +251,42 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_stat_result(arg_ptr(2), result).await
             }
 
-            nr::ACCESS => {
-                log_level = LogLevel::Warn;
-                let result = ipc_call!(
-                    self.stopped_task.task,
-                    FromTask::FileAccess {
-                        dir: None,
-                        path: arg_string(0),
-                        mode: arg_i32(1),
-                    },
-                    ToTask::Reply(result),
-                    result
-                );
-                self.return_result(result).await
-            }
+            nr::ACCESS => ipc_call!(
+                self.stopped_task.task,
+                FromTask::FileAccess {
+                    dir: None,
+                    path: arg_string(0),
+                    mode: arg_i32(1),
+                },
+                ToTask::Reply(result),
+                return_result(result)
+            ),
 
-            nr::GETCWD => {
-                log_level = LogLevel::Warn;
-                let result = ipc_call!(
-                    self.stopped_task.task,
-                    FromTask::GetWorkingDir(arg_string(0), arg_usize(1)),
-                    ToTask::SizeReply(result),
-                    result
-                );
-                self.return_size_result(result).await
-            }
+            nr::GETCWD => ipc_call!(
+                self.stopped_task.task,
+                FromTask::GetWorkingDir(arg_string(0), arg_usize(1)),
+                ToTask::SizeReply(result),
+                return_size_result(result)
+            ),
 
-            nr::CHDIR => {
-                log_level = LogLevel::Warn;
-                let result = ipc_call!(
-                    self.stopped_task.task,
-                    FromTask::ChangeWorkingDir(arg_string(0)),
-                    ToTask::Reply(result),
-                    result
-                );
-                self.return_result(result).await
-            }
+            nr::CHDIR => ipc_call!(
+                self.stopped_task.task,
+                FromTask::ChangeWorkingDir(arg_string(0)),
+                ToTask::Reply(result),
+                return_result(result)
+            ),
 
-            nr::OPEN => {
-                let result = ipc_call!(
-                    self.stopped_task.task,
-                    FromTask::FileOpen {
-                        dir: None,
-                        path: arg_string(0),
-                        flags: arg_i32(1),
-                        mode: arg_i32(2),
-                    },
-                    ToTask::FileReply(result),
-                    result
-                );
+            nr::OPEN => ipc_call!(
+                self.stopped_task.task,
+                FromTask::FileOpen {
+                    dir: None,
+                    path: arg_string(0),
+                    flags: arg_i32(1),
+                    mode: arg_i32(2),
+                },
+                ToTask::FileReply(result),
                 self.return_file_result(result).await
-            }
+            ),
 
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
                 let fd = arg_i32(0);
@@ -304,7 +309,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
             _ => {
                 log_level = LogLevel::Error;
-                self.return_result(Err(Errno(-abi::ENOSYS))).await
+                return_result(Err(Errno(-abi::ENOSYS)))
             }
         };
         self.call.ret = result;

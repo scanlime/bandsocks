@@ -2,10 +2,14 @@ use crate::{
     errors::ImageError,
     filesystem::{
         storage::{FileStorage, StorageKey},
-        vfs::{Filesystem, Stat},
+        vfs::Filesystem,
     },
+    sand::protocol::FileStat,
 };
-use std::io::{Cursor, Read};
+use std::{
+    convert::TryInto,
+    io::{Cursor, Read},
+};
 use tar::{Archive, Entry, EntryType};
 
 pub fn extract(
@@ -65,15 +69,26 @@ fn extract_file_metadata<'a, R: Read>(
         entry.header().device_major()?,
         entry.header().device_minor()?,
     );
-    let stat = Stat {
-        nlink: 0,
-        mode: entry.header().mode()?,
-        uid: entry.header().uid()?,
-        gid: entry.header().gid()?,
-        mtime: entry.header().mtime()?,
-        size: entry.header().size()?,
+    let stat = FileStat {
+        st_mode: entry.header().mode()?,
+        st_uid: entry
+            .header()
+            .uid()?
+            .try_into()
+            .map_err(|_| ImageError::TARFileError)?,
+        st_gid: entry
+            .header()
+            .gid()?
+            .try_into()
+            .map_err(|_| ImageError::TARFileError)?,
+        st_mtime: entry.header().mtime()?,
+        st_size: entry
+            .header()
+            .size()?
+            .try_into()
+            .map_err(|_| ImageError::TARFileError)?,
+        ..Default::default()
     };
-
     match kind {
         EntryType::Fifo => fsw.write_fifo(&path, stat)?,
         EntryType::Regular => fsw.write_storage_file(&path, stat, data)?,
@@ -100,6 +115,5 @@ fn extract_file_metadata<'a, R: Read>(
             entry.header()
         ),
     }
-
     Ok(())
 }

@@ -200,7 +200,7 @@ impl IPCServer {
     async fn task_stat_reply(
         &mut self,
         task: VPid,
-        result: Result<FileStat, Errno>,
+        result: Result<(VFile, FileStat), Errno>,
     ) -> Result<Option<ExitStatus>, RuntimeError> {
         self.send_message(&MessageToSand::Task {
             task,
@@ -219,7 +219,7 @@ impl IPCServer {
         // outgoing message has been flushed.
         let (_storage, reply) = match result {
             Err(e) => (None, Err(e)),
-            Ok(vfile) => match self.filesystem.vfile_open(&self.storage, &vfile).await {
+            Ok(vfile) => match self.filesystem.open_storage(&self.storage, &vfile).await {
                 Err(e) => (None, Err(Errno(-e.to_errno()))),
                 Ok(file) => {
                     let sys_fd = SysFd(file.as_raw_fd() as u32);
@@ -254,7 +254,7 @@ impl IPCServer {
                         *sys_pid,
                         &self.tracer,
                         ProcessStatus {
-                            current_dir: self.filesystem.open_root(),
+                            current_dir: Filesystem::root().clone(),
                         },
                     )?;
                     let handle = process.to_handle();
@@ -289,12 +289,13 @@ impl IPCServer {
             FromTask::FileStat {
                 file,
                 path,
-                nofollow,
+                follow_links,
             } => match self.process_table.get_mut(&task) {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::file_stat(process, &self.filesystem, file, path, *nofollow).await;
+                        taskcall::file_stat(process, &self.filesystem, file, path, *follow_links)
+                            .await;
                     self.task_stat_reply(task, result).await
                 }
             },
@@ -303,7 +304,9 @@ impl IPCServer {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::file_access(process, &self.filesystem, dir, path, *mode).await;
+                        taskcall::file_open(process, &self.filesystem, dir, path, 0, *mode)
+                            .await
+                            .map(|_| ());
                     self.task_reply(task, result).await
                 }
             },

@@ -69,7 +69,7 @@ pub struct TracerSettings {
 pub enum ToTask {
     OpenProcessReply(ProcessHandle),
     FileReply(Result<(VFile, SysFd), Errno>),
-    FileStatReply(Result<FileStat, Errno>),
+    FileStatReply(Result<(VFile, FileStat), Errno>),
     SizeReply(Result<usize, Errno>),
     Reply(Result<(), Errno>),
 }
@@ -92,7 +92,7 @@ pub enum FromTask {
     FileStat {
         file: Option<VFile>,
         path: Option<VString>,
-        nofollow: bool,
+        follow_links: FollowLinks,
     },
     ProcessKill(VPid, Signal),
     ChangeWorkingDir(VString),

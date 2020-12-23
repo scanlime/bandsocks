@@ -32,6 +32,33 @@ pub struct LinuxDirentHeader {
     pub d_name: u8,
 }
 
+// linux/arch/x86/include/uapi/asm/stat.h
+#[derive(Debug)]
+#[repr(C)]
+pub struct Stat {
+    pub st_dev: u64,
+    pub st_ino: u64,
+    pub st_nlink: u64,
+
+    pub st_mode: u32,
+    pub st_uid: u32,
+    pub st_gid: u32,
+    pub pad0: u32,
+
+    pub st_rdev: u64,
+    pub st_size: i64,
+    pub st_blksize: i64,
+    pub st_blocks: i64,
+
+    pub st_atime: u64,
+    pub st_atime_nsec: u64,
+    pub st_mtime: u64,
+    pub st_mtime_nsec: u64,
+    pub st_ctime: u64,
+    pub st_ctime_nsec: u64,
+    pub unused: [i64; 3],
+}
+
 // POSIX dirent.h or linux fs_types.h
 pub const DT_UNKNOWN: u8 = 0;
 pub const DT_FIFO: u8 = 1;

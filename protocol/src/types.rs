@@ -3,10 +3,10 @@ use core::{default::Default, fmt};
 /// Exit codes returned by the sand process
 pub mod exit {
     pub const EXIT_OK: usize = 0;
-    pub const EXIT_PANIC: usize = 60;
-    pub const EXIT_DISCONNECTED: usize = 61;
-    pub const EXIT_IO_ERROR: usize = 62;
-    pub const EXIT_OUT_OF_MEM: usize = 63;
+    pub const EXIT_PANIC: usize = 120;
+    pub const EXIT_DISCONNECTED: usize = 121;
+    pub const EXIT_IO_ERROR: usize = 122;
+    pub const EXIT_OUT_OF_MEM: usize = 123;
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Deserialize, Serialize)]
@@ -19,9 +19,27 @@ pub enum LogLevel {
     Trace,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Deserialize, Serialize)]
+pub enum FollowLinks {
+    NoFollow,
+    Follow,
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct FileStat {
-    // to do
+    pub st_dev: u64,
+    pub st_nlink: u64,
+    pub st_mode: u32,
+    pub st_uid: u32,
+    pub st_gid: u32,
+    pub st_rdev: u64,
+    pub st_size: i64,
+    pub st_atime: u64,
+    pub st_atime_nsec: u64,
+    pub st_mtime: u64,
+    pub st_mtime_nsec: u64,
+    pub st_ctime: u64,
+    pub st_ctime_nsec: u64,
 }
 
 pub type INodeNum = usize;

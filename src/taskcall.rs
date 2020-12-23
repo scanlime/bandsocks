@@ -1,7 +1,7 @@
 use crate::{
     filesystem::vfs::Filesystem,
     process::Process,
-    sand::protocol::{Errno, FileStat, VFile, VString},
+    sand::protocol::{Errno, FileStat, FollowLinks, VFile, VString},
 };
 use std::path::Path;
 
@@ -29,18 +29,6 @@ pub async fn get_working_dir(
     Ok(0)
 }
 
-pub async fn file_access(
-    process: &mut Process,
-    _filesystem: &Filesystem,
-    dir: &Option<VFile>,
-    path: &VString,
-    mode: i32,
-) -> Result<(), Errno> {
-    let path = user_string(process, path)?;
-    log::debug!("file_access({:?}, {:?}, {:?})", dir, path, mode);
-    Err(Errno(-libc::ENOENT))
-}
-
 pub async fn file_open(
     process: &mut Process,
     filesystem: &Filesystem,
@@ -51,31 +39,62 @@ pub async fn file_open(
 ) -> Result<VFile, Errno> {
     let path_str = user_string(process, path)?;
     let path = Path::new(&path_str);
-    log::debug!("file_open({:?}, {:?}, {:?}, {:?})", dir, path, flags, mode,);
-    match filesystem.open(&path) {
+    let dir = match dir {
+        Some(dir) => &dir,
+        None => &process.status.current_dir,
+    };
+    let result = filesystem.lookup(&dir, &path, FollowLinks::Follow);
+    log::debug!(
+        "file_open({:?}, {:?}, {:?}, {:?}) -> {:?}",
+        dir,
+        path,
+        flags,
+        mode,
+        result
+    );
+    match result {
         Err(e) => Err(Errno(-e.to_errno())),
-        Ok(vfile) => {
-            // to do: permissions
-            Ok(vfile)
-        }
+        Ok(vfile) => Ok(vfile),
     }
 }
 
 pub async fn file_stat(
     process: &mut Process,
-    _filesystem: &Filesystem,
+    filesystem: &Filesystem,
     file: &Option<VFile>,
     path: &Option<VString>,
-    nofollow: bool,
-) -> Result<FileStat, Errno> {
+    follow_links: FollowLinks,
+) -> Result<(VFile, FileStat), Errno> {
     let path = match path {
         Some(path) => {
             let path_str = user_string(process, path)?;
             let path = Path::new(&path_str);
-            format!("{:?}", path)
+            Some(path.to_owned())
         }
-        None => format!("None"),
+        None => None,
     };
-    log::debug!("file_stat({:?}, {}, {:?})", file, path, nofollow);
-    Ok(FileStat {})
+    let file = match file {
+        Some(file) => &file,
+        None => &process.status.current_dir,
+    };
+    let file = match &path {
+        None => file.to_owned(),
+        Some(path) => match filesystem.lookup(file, path, follow_links) {
+            Ok(file) => file,
+            Err(e) => return Err(Errno(-e.to_errno())),
+        },
+    };
+    let stat = match filesystem.stat(&file) {
+        Ok(stat) => stat.to_owned(),
+        Err(e) => return Err(Errno(-e.to_errno())),
+    };
+    log::debug!(
+        "file_stat({:?}, {:?}, {:?}) -> {:?}, {:?}",
+        file,
+        path,
+        follow_links,
+        file,
+        stat
+    );
+    Ok((file, stat))
 }
