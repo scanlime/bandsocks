@@ -37,7 +37,9 @@ fn ubuntu_false() {
         assert_eq!(status.code(), Some(1));
     })
 }
+ */
 
+#[test]
 fn ubuntu_ldso_true() {
     Runtime::new().unwrap().block_on(async {
         let container = common()
@@ -47,7 +49,8 @@ fn ubuntu_ldso_true() {
             .spawn()
             .unwrap();
         let output = container.output().await.unwrap();
-        assert_eq!(output.status.code(), Some(127));
+        println!("{:?}", output);
+        assert!(output.status.success());
         assert!(output.stdout.is_empty());
         assert!(output.stderr.is_empty());
     })
@@ -64,12 +67,12 @@ fn ubuntu_ldso_echo() {
             .spawn()
             .unwrap();
         let output = container.output().await.unwrap();
-        assert_eq!(output.status.code(), Some(127));
+        println!("{:?}", output);
+        assert!(output.status.success());
         assert!(output.stderr.is_empty());
-        assert_eq!(output.stdout_str(), "hello");
+        assert_eq!(output.stdout_str(), "hello\n");
     })
 }
- */
 
 #[test]
 fn ubuntu_ldso() {

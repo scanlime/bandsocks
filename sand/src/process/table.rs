@@ -1,9 +1,10 @@
 use crate::{
+    abi,
     process::{
         task::{TaskData, TaskMemManagement, TaskSocketPair},
         Process, TaskFn,
     },
-    protocol::{SysPid, TracerSettings, VFile, VPid},
+    protocol::{Errno, SysPid, TracerSettings, VFile, VPid},
     remote::file::RemoteFd,
 };
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
@@ -140,7 +141,11 @@ impl FileTable {
         self.table.borrow_mut().remove(fd);
     }
 
-    pub fn get(&self, fd: &RemoteFd) -> Option<VFile> {
-        self.table.borrow().get(fd).cloned()
+    pub fn get(&self, fd: &RemoteFd) -> Result<VFile, Errno> {
+        self.table
+            .borrow()
+            .get(fd)
+            .cloned()
+            .ok_or(Errno(-abi::EBADF))
     }
 }

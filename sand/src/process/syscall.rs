@@ -154,8 +154,8 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         let arg_usize = |idx| args[idx] as usize;
         let arg_ptr = |idx| VPtr(arg_usize(idx));
         let arg_string = |idx| VString(arg_ptr(idx));
+        let arg_fd = |idx| RemoteFd(arg_u32(idx));
         let mut log_level = LogLevel::Debug;
-
         let result = match self.call.nr as usize {
             nr::BRK => return_vptr_result(do_brk(self.stopped_task, arg_ptr(0)).await),
 
@@ -181,17 +181,16 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::SET_TID_ADDRESS => 0,
 
             nr::IOCTL => {
-                let _fd = arg_i32(0);
+                let _fd = arg_fd(0);
                 let _cmd = arg_i32(1);
                 let _arg = arg_usize(2);
                 0
             }
 
             nr::GETDENTS64 => {
-                let fd = RemoteFd(arg_u32(0));
+                let _fd = arg_fd(0);
                 let _dirent = arg_ptr(1);
                 let _count = arg_u32(2);
-                let _vfile = self.stopped_task.task.task_data.file_table.get(&fd);
                 0
             }
 
@@ -207,8 +206,8 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             ),
 
             nr::FSTAT => {
-                log_level = LogLevel::Warn;
-                0
+                let result = do_fstat(self.stopped_task, arg_fd(0)).await;
+                self.return_stat_result(arg_ptr(1), result).await
             }
 
             nr::LSTAT => ipc_call!(
@@ -283,7 +282,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_file_result(result).await
             ),
 
-            nr::CLOSE => return_result(do_close(self.stopped_task, RemoteFd(arg_u32(0))).await),
+            nr::CLOSE => return_result(do_close(self.stopped_task, arg_fd(0)).await),
 
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
                 let fd = arg_i32(0);
@@ -318,6 +317,23 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 .log(log_level, LogMessage::Emulated(self.call.clone()))
         }
     }
+}
+
+async fn do_fstat<'q, 's, 't>(
+    stopped_task: &'t mut StoppedTask<'q, 's>,
+    fd: RemoteFd,
+) -> Result<(VFile, FileStat), Errno> {
+    let file = stopped_task.task.task_data.file_table.get(&fd)?;
+    ipc_call!(
+        stopped_task.task,
+        FromTask::FileStat {
+            file: Some(file.clone()),
+            path: None,
+            follow_links: FollowLinks::Follow,
+        },
+        ToTask::FileStatReply(result),
+        result
+    )
 }
 
 async fn do_close<'q, 's, 't>(
