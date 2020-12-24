@@ -6,6 +6,29 @@ use crate::{
 use core::mem::{size_of, size_of_val};
 use goblin::elf64::{header, header::Header, program_header, program_header::ProgramHeader};
 
+pub fn detect(fh: &FileHeader) -> bool {
+    let ehdr = elf64_header(fh);
+    let magic = &ehdr.e_ident[..header::SELFMAG];
+    let e_type = ehdr.e_type;
+    let ei_class = ehdr.e_ident[header::EI_CLASS];
+    let ei_data = ehdr.e_ident[header::EI_DATA];
+    let ei_version = ehdr.e_ident[header::EI_VERSION];
+    magic == header::ELFMAG
+        && (e_type == header::ET_EXEC || e_type == header::ET_DYN)
+        && ei_class == header::ELFCLASS64
+        && ei_data == header::ELFDATA2LSB
+        && ei_version == header::EV_CURRENT
+}
+
+pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errno> {
+    let ehdr = elf64_header(loader.file_header());
+    let lad = LoadAddr::new(&loader, &ehdr)?;
+    let stack_ptr = replace_maps_with_new_stack(&mut loader, &ehdr, &lad).await?;
+    load_segments(&mut loader, &ehdr, &lad).await?;
+    init_registers(&mut loader, &ehdr, &lad, stack_ptr);
+    Ok(())
+}
+
 fn elf64_header(fh: &FileHeader) -> Header {
     *plain::from_bytes(&fh.bytes).unwrap()
 }
@@ -62,20 +85,6 @@ impl LoadAddr {
     }
 }
 
-pub fn detect(fh: &FileHeader) -> bool {
-    let ehdr = elf64_header(fh);
-    let magic = &ehdr.e_ident[..header::SELFMAG];
-    let e_type = ehdr.e_type;
-    let ei_class = ehdr.e_ident[header::EI_CLASS];
-    let ei_data = ehdr.e_ident[header::EI_DATA];
-    let ei_version = ehdr.e_ident[header::EI_VERSION];
-    magic == header::ELFMAG
-        && (e_type == header::ET_EXEC || e_type == header::ET_DYN)
-        && ei_class == header::ELFCLASS64
-        && ei_data == header::ELFDATA2LSB
-        && ei_version == header::EV_CURRENT
-}
-
 fn phdr_prot(phdr: &ProgramHeader) -> isize {
     let mut prot = 0;
     if 0 != (phdr.p_flags & program_header::PF_R) {
@@ -88,15 +97,6 @@ fn phdr_prot(phdr: &ProgramHeader) -> isize {
         prot |= abi::PROT_EXEC
     }
     prot
-}
-
-pub async fn load<'q, 's, 't>(mut loader: Loader<'q, 's, 't>) -> Result<(), Errno> {
-    let ehdr = elf64_header(loader.file_header());
-    let lad = LoadAddr::new(&loader, &ehdr)?;
-    let stack_ptr = replace_maps_with_new_stack(&mut loader, &ehdr, &lad).await?;
-    load_segments(&mut loader, &ehdr, &lad).await?;
-    init_registers(&mut loader, &ehdr, &lad, stack_ptr);
-    Ok(())
 }
 
 fn init_registers(loader: &mut Loader<'_, '_, '_>, ehdr: &Header, lad: &LoadAddr, stack_ptr: VPtr) {
