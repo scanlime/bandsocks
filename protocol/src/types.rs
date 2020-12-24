@@ -77,9 +77,7 @@ pub struct Signal(pub u32);
 #[repr(C)]
 pub struct Errno(pub i32);
 
-#[derive(
-    Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, PartialEq, Eq, Ord, PartialOrd, Copy, Clone, Hash, Serialize, Deserialize)]
 #[repr(C)]
 pub struct VPid(pub u32);
 

@@ -55,6 +55,9 @@ async fn main() {
             .args(run_args)
             .envs(run_env);
 
+        if matches.is_present("entrypoint") {
+            container = container.entrypoint(string_values(&matches, "entrypoint"));
+        }
         if matches.is_present("instruction_trace") {
             container = container.instruction_trace();
         }

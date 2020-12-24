@@ -91,6 +91,29 @@ fn cli_busybox_sh_c_echo() {
 }
 
 #[test]
+fn cli_busybox_sh_c_echo_entrypoint() {
+    Command::new(env!("CARGO"))
+        .args(&[
+            "run",
+            "--quiet",
+            "-p",
+            "bandsocks-cli",
+            "--",
+            "-l",
+            "error",
+            "--entrypoint",
+            "sh",
+            "--entrypoint=-c",
+            "busybox@sha256:e06f93f59fe842fb490ba992bae19fdd5a05373547b52f8184650c2509908114",
+            "echo hello world\n echo and so on; echo $?",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::eq("hello world\nand so on\n0\n"))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
 fn cli_busybox_sh_c_for() {
     Command::new(env!("CARGO"))
         .arg("run")
@@ -210,4 +233,29 @@ fn cli_busybox_env_3() {
             "blah=whynot\nYEP=cool\n",
         )))
         .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn cli_ffmpeg_entrypoint_override() {
+    Command::new(env!("CARGO"))
+        .args(&[
+            "run",
+            "--quiet",
+            "-p",
+            "bandsocks-cli",
+            "--",
+            "-l",
+            "error",
+            "--entrypoint",
+            "/lib/ld-musl-x86_64.so.1",
+            "jrottenberg/ffmpeg:3-scratch@sha256:3396ea2f9b2224de47275cabf8ac85ee765927f6ebdc9d044bb22b7c104fedbd",
+        ])
+        .assert()
+        .stderr(predicate::eq(concat!(
+                "musl libc (x86_64)\n",
+                "Version 1.1.19\n",
+                "Dynamic Program Loader\n",
+                "Usage: /lib/ld-musl-x86_64.so.1 [options] [--] pathname [args]\n",
+        )))
+        .stdout(predicate::str::is_empty());
 }

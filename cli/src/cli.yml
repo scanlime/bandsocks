@@ -22,6 +22,13 @@ args:
         value_name: ARGS
         takes_value: true
         help: arguments passed to the container's entry point
+    - entrypoint:
+        long: entrypoint
+        multiple: true
+        value_name: ENTRY
+        takes_value: true
+        number_of_values: 1
+        help: override the container's 'entry point', which is prepended to ARGS if present
     - log_level:
         short: l
         long: log-level
