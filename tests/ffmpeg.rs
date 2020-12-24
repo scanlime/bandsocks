@@ -2,7 +2,7 @@ use bandsocks::{Container, ContainerBuilder};
 use tokio::runtime::Runtime;
 
 const IMAGE: &str =
-    "jrottenberg/ffmpeg@sha256:fd2d5fb9f4f18aaf0b568f153d9042be115df626d9cbe7920b8b9063ca654b2a";
+    "jrottenberg/ffmpeg:3-scratch@sha256:3396ea2f9b2224de47275cabf8ac85ee765927f6ebdc9d044bb22b7c104fedbd";
 
 async fn common() -> ContainerBuilder {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -15,6 +15,29 @@ async fn common() -> ContainerBuilder {
 fn pull() {
     Runtime::new().unwrap().block_on(async {
         common().await;
+    })
+}
+
+#[test]
+fn ffmpeg_ldso() {
+    Runtime::new().unwrap().block_on(async {
+        let output = common()
+            .await
+            .entrypoint(&["/lib/ld-musl-x86_64.so.1"])
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            output.stderr_str(),
+            concat!(
+                "musl libc (x86_64)\n",
+                "Version 1.1.19\n",
+                "Dynamic Program Loader\n",
+                "Usage: /lib/ld-musl-x86_64.so.1 [options] [--] pathname [args]\n",
+            )
+        );
     })
 }
 
