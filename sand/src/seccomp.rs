@@ -50,10 +50,14 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::NANOSLEEP,
             nr::GETRANDOM,
             nr::MEMFD_CREATE,
+            nr::SET_ROBUST_LIST,
+            nr::GETRLIMIT,
             // fixme: only allow some operations
             nr::FCNTL,
             nr::ARCH_PRCTL,
             nr::PRCTL,
+            // fixme: only allow pid==0 case
+            nr::SCHED_GETAFFINITY,
         ],
         &[ret(SECCOMP_RET_ALLOW)],
     );
