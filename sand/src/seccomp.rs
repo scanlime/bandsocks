@@ -1,3 +1,4 @@
+use crate::abi;
 use sc::nr;
 use seccomp_tiny::{abi::*, bpf::*, ProgramBuffer};
 
@@ -138,6 +139,24 @@ pub fn policy_for_loader() {
             nr::UNAME,
         ],
         &[ret(SECCOMP_RET_TRACE)],
+    );
+
+    // Calls to quietly claim no support for
+    p.if_any_eq(
+        &[
+            nr::SOCKET,
+            nr::BIND,
+            nr::LISTEN,
+            nr::CONNECT,
+            nr::ACCEPT,
+            nr::SHUTDOWN,
+            nr::GETSOCKNAME,
+            nr::GETPEERNAME,
+            nr::SOCKETPAIR,
+            nr::SETSOCKOPT,
+            nr::GETSOCKOPT,
+        ],
+        &[ret(SECCOMP_RET_ERRNO | -abi::ENOSYS as u16 as u32)],
     );
 
     // All other syscalls panic via SIGSYS
