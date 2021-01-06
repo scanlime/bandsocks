@@ -4,7 +4,7 @@ use crate::{
         socket::SharedStream,
         storage::{FileStorage, StorageKey},
     },
-    sand::protocol::{FileStat, FollowLinks, INodeNum, VFile},
+    sand::protocol::{abi, FileStat, FollowLinks, INodeNum, VFile},
 };
 use std::{
     collections::BTreeMap,
@@ -279,7 +279,7 @@ impl<'f> VFSWriter<'f> {
             num,
             INode {
                 stat: FileStat {
-                    st_mode: 0o755,
+                    st_mode: 0o755 | abi::S_IFDIR,
                     st_nlink: 1,
                     ..Default::default()
                 },

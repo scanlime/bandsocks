@@ -4,7 +4,7 @@ use crate::{
         storage::{FileStorage, StorageKey},
         vfs::Filesystem,
     },
-    sand::protocol::FileStat,
+    sand::protocol::{abi, FileStat},
 };
 use std::{
     convert::TryInto,
@@ -70,7 +70,15 @@ fn extract_file_metadata<'a, R: Read>(
         entry.header().device_minor()?,
     );
     let stat = FileStat {
-        st_mode: entry.header().mode()?,
+        st_mode: entry.header().mode()?
+            | match kind {
+                EntryType::Fifo => abi::S_IFIFO,
+                EntryType::Directory => abi::S_IFDIR,
+                EntryType::Symlink => abi::S_IFLNK,
+                EntryType::Char => abi::S_IFCHR,
+                EntryType::Block => abi::S_IFBLK,
+                _ => abi::S_IFREG,
+            },
         st_uid: entry
             .header()
             .uid()?

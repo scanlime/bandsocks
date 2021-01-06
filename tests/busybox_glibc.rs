@@ -4,7 +4,7 @@ use std::io::{BufRead, Cursor};
 use tokio::{runtime::Runtime, task};
 
 const IMAGE: &str =
-    "busybox@sha256:e06f93f59fe842fb490ba992bae19fdd5a05373547b52f8184650c2509908114";
+    "busybox:glibc@sha256:052f643f17b56d5b326bd9614698cbeadca9212875090ee089227999ab18c446";
 
 async fn common() -> ContainerBuilder {
     file_limit::set_to_max().unwrap();
@@ -116,7 +116,7 @@ fn busybox_version() {
         cursor.read_line(&mut line).unwrap();
         assert_eq!(
             line,
-            "BusyBox v1.32.0 (2020-07-27 18:31:20 UTC) multi-call binary.\n"
+            "BusyBox v1.33.0 (2020-12-29 21:52:11 UTC) multi-call binary.\n"
         );
     })
 }
@@ -132,7 +132,7 @@ fn busybox_stat_root() {
             concat!(
                 "  File: /\n",
                 "  Size: 0         \tBlocks: 0          IO Block: 512    directory\n",
-                "Device: 0h/0d\tInode: 0           Links: 10\n",
+                "Device: 0h/0d\tInode: 0           Links: 11\n",
                 "Access: (0755/drwxr-xr-x)  Uid: (    0/    root)   Gid: (    0/    root)\n",
                 "Access: 1970-01-01 00:00:00.000000000 +0000\n",
                 "Modify: 1970-01-01 00:00:00.000000000 +0000\n",
@@ -157,11 +157,11 @@ fn busybox_stat_sh() {
             output.stdout_str(),
             concat!(
                 "  File: /bin/sh\n",
-                "  Size: 1165544   \tBlocks: 2277       IO Block: 512    regular file\n",
-                "Device: 0h/0d\tInode: 2           Links: 393\n",
+                "  Size: 1013200   \tBlocks: 1979       IO Block: 512    regular file\n",
+                "Device: 0h/0d\tInode: 2           Links: 400\n",
                 "Access: (0755/-rwxr-xr-x)  Uid: (    0/    root)   Gid: (    0/    root)\n",
                 "Access: 1970-01-01 00:00:00.000000000 +0000\n",
-                "Modify: 2020-07-27 18:31:58.000000000 +0000\n",
+                "Modify: 2020-12-29 21:53:03.000000000 +0000\n",
                 "Change: 1970-01-01 00:00:00.000000000 +0000\n",
             )
         );
