@@ -138,7 +138,7 @@ impl ContainerBuilder {
                     buf.push(OsStr::from_bytes(filename.as_bytes()));
                     if self
                         .filesystem
-                        .lookup(&Filesystem::root(), &buf, FollowLinks::Follow)
+                        .lookup(&Filesystem::root(), &buf, &FollowLinks::Follow)
                         .is_ok()
                     {
                         filename = CString::new(buf.into_os_string().as_bytes())?;

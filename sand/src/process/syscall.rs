@@ -9,7 +9,7 @@ use crate::{
     process::task::StoppedTask,
     protocol::{
         abi::Syscall, Errno, FileStat, FollowLinks, FromTask, LogLevel, LogMessage, SysFd, ToTask,
-        VFile, VPtr, VString,
+        VFile, VPtr, VString, VStringBuffer,
     },
     remote::{
         file::{RemoteFd, TempRemoteFd},
@@ -284,7 +284,14 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
             nr::GETCWD => ipc_call!(
                 self.stopped_task.task,
-                FromTask::GetWorkingDir(arg_string(0), arg_usize(1)),
+                FromTask::GetWorkingDir(VStringBuffer(arg_string(0), arg_usize(1))),
+                ToTask::SizeReply(result),
+                return_size_result(result)
+            ),
+
+            nr::READLINK => ipc_call!(
+                self.stopped_task.task,
+                FromTask::ReadLink(arg_string(0), VStringBuffer(arg_string(1), arg_usize(2))),
                 ToTask::SizeReply(result),
                 return_size_result(result)
             ),
@@ -329,10 +336,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_file_result(result).await
             }
 
-            _ => {
-                log_level = LogLevel::Error;
-                return_result(Err(Errno(-abi::ENOSYS)))
-            }
+            _ => panic!("unexpected {:?}", self.call),
         };
         self.call.ret = result;
         Syscall::ret_to_regs(self.call.ret, self.stopped_task.regs);

@@ -112,6 +112,7 @@ pub fn policy_for_loader() {
             nr::FSTAT,
             nr::FORK,
             nr::CLONE,
+            nr::READLINK,
             nr::GETCWD,
             nr::GETDENTS64,
             nr::GETEGID,
@@ -141,7 +142,7 @@ pub fn policy_for_loader() {
         &[ret(SECCOMP_RET_TRACE)],
     );
 
-    // Calls to quietly claim no support for
+    // Reject network subsystem
     p.if_any_eq(
         &[
             nr::SOCKET,
@@ -157,6 +158,24 @@ pub fn policy_for_loader() {
             nr::GETSOCKOPT,
         ],
         &[ret(SECCOMP_RET_ERRNO | -abi::ENOSYS as u16 as u32)],
+    );
+
+    // Reject filesystem modification
+    p.if_any_eq(
+        &[
+            nr::MKDIR,
+            nr::RMDIR,
+            nr::CHMOD,
+            nr::CREAT,
+            nr::LINK,
+            nr::UNLINK,
+            nr::SYMLINK,
+            nr::CHMOD,
+            nr::FCHMOD,
+            nr::CHOWN,
+            nr::FCHOWN,
+        ],
+        &[ret(SECCOMP_RET_ERRNO | -abi::EROFS as u16 as u32)],
     );
 
     // All other syscalls panic via SIGSYS

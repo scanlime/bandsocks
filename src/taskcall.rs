@@ -1,7 +1,7 @@
 use crate::{
     filesystem::vfs::Filesystem,
     process::Process,
-    sand::protocol::{Errno, FileStat, FollowLinks, VFile, VString},
+    sand::protocol::{Errno, FileStat, FollowLinks, VFile, VString, VStringBuffer},
 };
 use std::path::Path;
 
@@ -22,10 +22,19 @@ pub async fn change_working_dir(
 pub async fn get_working_dir(
     _process: &mut Process,
     _filesystem: &Filesystem,
-    buffer: VString,
-    buffer_size: usize,
+    buffer: &VStringBuffer,
 ) -> Result<usize, Errno> {
-    log::debug!("get_working_dir({:x?}, {:x?})", buffer, buffer_size);
+    log::debug!("get_working_dir({:x?})", buffer);
+    Ok(0)
+}
+
+pub async fn readlink(
+    _process: &mut Process,
+    _filesystem: &Filesystem,
+    path: &VString,
+    buffer: &VStringBuffer,
+) -> Result<usize, Errno> {
+    log::debug!("readlink({:x?}, {:x?})", path, buffer);
     Ok(0)
 }
 
@@ -43,7 +52,7 @@ pub async fn file_open(
         Some(dir) => &dir,
         None => &process.status.current_dir,
     };
-    let result = filesystem.lookup(&dir, &path, FollowLinks::Follow);
+    let result = filesystem.lookup(&dir, &path, &FollowLinks::Follow);
     log::debug!(
         "file_open({:?}, {:?}, {:?}, {:?}) -> {:?}",
         dir,
@@ -63,7 +72,7 @@ pub async fn file_stat(
     filesystem: &Filesystem,
     file: &Option<VFile>,
     path: &Option<VString>,
-    follow_links: FollowLinks,
+    follow_links: &FollowLinks,
 ) -> Result<(VFile, FileStat), Errno> {
     let path = match path {
         Some(path) => {

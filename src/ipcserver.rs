@@ -268,11 +268,10 @@ impl IPCServer {
                 }
             }
 
-            FromTask::GetWorkingDir(buffer, size) => match self.process_table.get_mut(&task) {
+            FromTask::GetWorkingDir(buffer) => match self.process_table.get_mut(&task) {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
-                    let result =
-                        taskcall::get_working_dir(process, &self.filesystem, *buffer, *size).await;
+                    let result = taskcall::get_working_dir(process, &self.filesystem, buffer).await;
                     self.task_size_reply(task, result).await
                 }
             },
@@ -286,6 +285,14 @@ impl IPCServer {
                 }
             },
 
+            FromTask::ReadLink(path, buffer) => match self.process_table.get_mut(&task) {
+                None => Err(RuntimeError::WrongProcessState)?,
+                Some(process) => {
+                    let result = taskcall::readlink(process, &self.filesystem, path, buffer).await;
+                    self.task_size_reply(task, result).await
+                }
+            },
+
             FromTask::FileStat {
                 file,
                 path,
@@ -294,7 +301,7 @@ impl IPCServer {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
                     let result =
-                        taskcall::file_stat(process, &self.filesystem, file, path, *follow_links)
+                        taskcall::file_stat(process, &self.filesystem, file, path, follow_links)
                             .await;
                     self.task_stat_reply(task, result).await
                 }

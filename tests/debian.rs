@@ -55,6 +55,21 @@ fn debian_echo() {
 }
 
 #[test]
+fn debian_uname() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common().await.arg("uname").arg("-a").spawn().unwrap();
+        let output = container.output().await.unwrap();
+        println!("{:?}", output);
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            output.stdout_str(),
+            "Linux host 4.0.0-bandsocks #1 SMP x86_64 GNU/Linux\n"
+        );
+    })
+}
+
+#[test]
 fn super_cow_powers() {
     Runtime::new().unwrap().block_on(async {
         let container = common().await.arg("apt").arg("moo").spawn().unwrap();

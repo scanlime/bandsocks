@@ -203,6 +203,7 @@ pub const EAGAIN: i32 = 11;
 pub const EFAULT: i32 = 14;
 pub const EEXIST: i32 = 17;
 pub const EINVAL: i32 = 22;
+pub const EROFS: i32 = 30;
 pub const ENOSYS: i32 = 38;
 pub const ECONNRESET: i32 = 104;
 

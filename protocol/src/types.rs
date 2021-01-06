@@ -120,3 +120,7 @@ impl Sub<usize> for VPtr {
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct VString(pub VPtr);
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+#[repr(C)]
+pub struct VStringBuffer(pub VString, pub usize);

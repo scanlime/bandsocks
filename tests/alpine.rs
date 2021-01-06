@@ -35,3 +35,18 @@ fn alpine_false() {
         assert_eq!(status.code(), Some(1));
     })
 }
+
+#[test]
+fn alpine_uname() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common().await.arg("uname").arg("-a").spawn().unwrap();
+        let output = container.output().await.unwrap();
+        println!("{:?}", output);
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            output.stdout_str(),
+            "Linux host 4.0.0-bandsocks #1 SMP x86_64 Linux\n"
+        );
+    })
+}

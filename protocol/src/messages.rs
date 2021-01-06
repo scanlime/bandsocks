@@ -94,9 +94,10 @@ pub enum FromTask {
         path: Option<VString>,
         follow_links: FollowLinks,
     },
+    ReadLink(VString, VStringBuffer),
     ProcessKill(VPid, Signal),
     ChangeWorkingDir(VString),
-    GetWorkingDir(VString, usize),
+    GetWorkingDir(VStringBuffer),
     Exited(i32),
     Log(LogLevel, LogMessage),
 }

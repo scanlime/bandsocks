@@ -191,7 +191,7 @@ impl<'s> Filesystem {
         &self,
         dir: &VFile,
         path: &Path,
-        follow_links: FollowLinks,
+        follow_links: &FollowLinks,
     ) -> Result<VFile, VFSError> {
         log::debug!("open({:?}, {:?})", dir, path);
         let mut limits = Limits::reset();
