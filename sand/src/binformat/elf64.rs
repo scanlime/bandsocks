@@ -11,7 +11,7 @@ use crate::{
         stack::{InitialStack, StackBuilder},
         task::StoppedTask,
     },
-    protocol::{abi::UserRegs, Errno, VPtr},
+    protocol::{abi::UserRegs, Errno, VPtr, VString},
     remote::{
         file::{LoadedSegment, MapLocation, RemoteFd, TempRemoteFd},
         scratchpad::Scratchpad,
@@ -140,6 +140,40 @@ impl ElfFile {
         self.remote.free(trampoline).await
     }
 
+    async fn interp(
+        &self,
+        trampoline: &mut Trampoline<'_, '_, '_>,
+    ) -> Result<Option<ExecFile>, Errno> {
+        match self.interp_segment()? {
+            None => Ok(None),
+            Some(segment) => {
+                let loaded = LoadedSegment::new(
+                    trampoline,
+                    &self.remote.0,
+                    &segment,
+                    &MapLocation::Arbitrary,
+                )
+                .await?;
+                let path = VString(loaded.segment().mem_range().start);
+                let main_result = ExecFile::new(&mut trampoline.stopped_task.task, path).await;
+                let cleanup_result = loaded.free(trampoline).await;
+                let interp = main_result?;
+                cleanup_result?;
+                Ok(Some(interp))
+            }
+        }
+    }
+
+    fn interp_segment(&self) -> Result<Option<Segment>, Errno> {
+        for idx in self.program_header_range() {
+            let phdr = self.program_header(idx)?;
+            if phdr.p_type == program_header::PT_INTERP {
+                return Ok(Some(elf_segment(&phdr)?));
+            }
+        }
+        Ok(None)
+    }
+
     fn header(&self) -> &Header {
         elf_header(&self.local.header)
     }
@@ -210,16 +244,6 @@ impl ElfFile {
             }
         }
         Ok(VPtr(addr))
-    }
-
-    fn interp_segment(&self) -> Result<Option<Segment>, Errno> {
-        for idx in self.program_header_range() {
-            let phdr = self.program_header(idx)?;
-            if phdr.p_type == program_header::PT_INTERP {
-                return Ok(Some(elf_segment(&phdr)?));
-            }
-        }
-        Ok(None)
     }
 
     async fn load_segments(
