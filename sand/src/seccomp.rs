@@ -107,6 +107,7 @@ pub fn policy_for_loader() {
             nr::ACCESS,
             nr::BRK,
             nr::CHDIR,
+            nr::FCHDIR,
             nr::CLOSE,
             nr::EXECVE,
             nr::FSTAT,

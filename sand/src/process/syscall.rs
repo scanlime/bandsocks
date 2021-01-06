@@ -29,7 +29,11 @@ pub struct SyscallEmulator<'q, 's, 't> {
 #[repr(C)]
 struct UserStat(abi::Stat);
 
+#[repr(C)]
+struct UserStatFs(abi::StatFs);
+
 unsafe impl Plain for UserStat {}
+unsafe impl Plain for UserStatFs {}
 
 fn return_errno(err: Errno) -> isize {
     if err.0 >= 0 {
@@ -124,6 +128,53 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                         let main_result = temp
                             .mem_write_bytes_exact(&mut pad, out_ptr, unsafe {
                                 plain::as_bytes(&user_stat)
+                            })
+                            .await;
+                        let cleanup_result = temp.free(&mut pad.trampoline).await;
+                        match (main_result, cleanup_result) {
+                            (Ok(r), Ok(())) => Ok(r),
+                            (Err(e), _) => Err(e),
+                            (Ok(_), Err(e)) => Err(e),
+                        }
+                    }
+                };
+                let cleanup_result = pad.free().await;
+                match (main_result, cleanup_result) {
+                    (Ok(r), Ok(())) => Ok(r),
+                    (Err(e), _) => Err(e),
+                    (Ok(_), Err(e)) => Err(e),
+                }
+            }
+        };
+        return_result(result)
+    }
+
+    async fn return_statfs(&mut self, out_ptr: VPtr) -> isize {
+        let user_statfs = UserStatFs(abi::StatFs {
+            f_type: 0,
+            f_bsize: 0,
+            f_blocks: 0,
+            f_bfree: 0,
+            f_bavail: 0,
+            f_files: 0,
+            f_ffree: 0,
+            f_fsid: [0; 2],
+            f_namelen: 0,
+            f_frsize: 0,
+            f_flags: 0,
+            f_spare: [0; 4],
+        });
+        let mut tr = Trampoline::new(self.stopped_task);
+        let result = Scratchpad::new(&mut tr).await;
+        let result = match result {
+            Err(err) => Err(err),
+            Ok(mut pad) => {
+                let main_result = match TempRemoteFd::new(&mut pad).await {
+                    Err(err) => Err(err),
+                    Ok(temp) => {
+                        let main_result = temp
+                            .mem_write_bytes_exact(&mut pad, out_ptr, unsafe {
+                                plain::as_bytes(&user_statfs)
                             })
                             .await;
                         let cleanup_result = temp.free(&mut pad.trampoline).await;
@@ -273,6 +324,9 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_stat_result(arg_ptr(2), result).await
             }
 
+            nr::STATFS => self.return_statfs(arg_ptr(1)).await,
+            nr::FSTATFS => self.return_statfs(arg_ptr(1)).await,
+
             nr::ACCESS => ipc_call!(
                 self.stopped_task.task,
                 FromTask::FileAccess {
@@ -304,6 +358,8 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 ToTask::Reply(result),
                 return_result(result)
             ),
+
+            nr::FCHDIR => 0,
 
             nr::OPEN => ipc_call!(
                 self.stopped_task.task,

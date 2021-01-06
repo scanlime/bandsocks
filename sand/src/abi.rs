@@ -63,6 +63,24 @@ pub struct Stat {
     pub unused: [i64; 3],
 }
 
+// linux/include/uapi/asm-generic/statfs.h
+#[derive(Debug)]
+#[repr(C)]
+pub struct StatFs {
+    pub f_type: i64,
+    pub f_bsize: i64,
+    pub f_blocks: i64,
+    pub f_bfree: i64,
+    pub f_bavail: i64,
+    pub f_files: i64,
+    pub f_ffree: i64,
+    pub f_fsid: [u32; 2],
+    pub f_namelen: i64,
+    pub f_frsize: i64,
+    pub f_flags: i64,
+    pub f_spare: [i64; 4],
+}
+
 // POSIX dirent.h or linux fs_types.h
 pub const DT_UNKNOWN: u8 = 0;
 pub const DT_FIFO: u8 = 1;
