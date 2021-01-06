@@ -19,7 +19,6 @@ fn pull() {
     })
 }
 
-/*
 #[test]
 fn ubuntu_true() {
     Runtime::new().unwrap().block_on(async {
@@ -37,7 +36,6 @@ fn ubuntu_false() {
         assert_eq!(status.code(), Some(1));
     })
 }
- */
 
 #[test]
 fn ubuntu_ldso_true() {
@@ -136,12 +134,12 @@ fn ubuntu_ldso_auxv() {
             r"AT_HWCAP: +........\n",
             r"AT_PAGESZ: +4096\n",
             r"AT_CLKTCK: +100\n",
-            r"AT_PHDR: +0x2aa......040\n",
+            r"AT_PHDR: +0x555......040\n",
             r"AT_PHENT: +56\n",
             r"AT_PHNUM: +11\n",
-            r"AT_BASE: +0x2aa......000\n",
+            r"AT_BASE: +0x555......000\n",
             r"AT_FLAGS: +0x0\n",
-            r"AT_ENTRY: +0x2aa......0d0\n",
+            r"AT_ENTRY: +0x555......0d0\n",
             r"AT_UID: +0\n",
             r"AT_EUID: +0\n",
             r"AT_GID: +0\n",

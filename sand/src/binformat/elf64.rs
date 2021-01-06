@@ -6,11 +6,7 @@ use crate::{
         page::{page_offset, VPage},
         string::VStringRange,
     },
-    nolibc,
-    process::{
-        stack::{InitialStack, StackBuilder},
-        task::StoppedTask,
-    },
+    process::{stack::StackBuilder, task::StoppedTask},
     protocol::{abi::UserRegs, Errno, VPtr, VString},
     remote::{
         file::{LoadedSegment, MapLocation, RemoteFd, TempRemoteFd},
@@ -140,7 +136,17 @@ impl ElfFile {
         self.remote.free(trampoline).await
     }
 
-    async fn interp(
+    fn interp_segment(&self) -> Result<Option<Segment>, Errno> {
+        for idx in self.program_header_range() {
+            let phdr = self.program_header(idx)?;
+            if phdr.p_type == program_header::PT_INTERP {
+                return Ok(Some(elf_segment(&phdr)?));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn interp_file(
         &self,
         trampoline: &mut Trampoline<'_, '_, '_>,
     ) -> Result<Option<ExecFile>, Errno> {
@@ -164,18 +170,38 @@ impl ElfFile {
         }
     }
 
-    fn interp_segment(&self) -> Result<Option<Segment>, Errno> {
-        for idx in self.program_header_range() {
-            let phdr = self.program_header(idx)?;
-            if phdr.p_type == program_header::PT_INTERP {
-                return Ok(Some(elf_segment(&phdr)?));
+    async fn interp_elf(
+        &self,
+        trampoline: &mut Trampoline<'_, '_, '_>,
+    ) -> Result<Option<ElfFile>, Errno> {
+        match self.interp_file(trampoline).await? {
+            None => Ok(None),
+            Some(local) => {
+                let mut pad = Scratchpad::new(trampoline).await?;
+                let main_result = ElfFile::from_local(&mut pad, local).await;
+                let cleanup_result = pad.free().await;
+                let result = main_result?;
+                cleanup_result?;
+                Ok(Some(result))
             }
         }
-        Ok(None)
     }
 
     fn header(&self) -> &Header {
         elf_header(&self.local.header)
+    }
+
+    fn header_load_ptr(&self) -> Result<VPtr, Errno> {
+        let mut addr = 0;
+        // Same technique linux's elf loader uses: vaddr - offset for the first LOAD
+        for idx in self.program_header_range() {
+            let phdr = self.program_header(idx)?;
+            if phdr.p_type == program_header::PT_LOAD {
+                addr = (phdr.p_vaddr - phdr.p_offset) as usize;
+                break;
+            }
+        }
+        Ok(VPtr(addr))
     }
 
     fn program_header_range(&self) -> Range<u16> {
@@ -198,62 +224,90 @@ impl ElfFile {
         trampoline: &mut Trampoline<'_, '_, '_>,
         exec: Exec,
     ) -> Result<ElfEntry, Errno> {
-        let offset = self.determine_load_offset();
+        let interp = self.interp_elf(trampoline).await?;
+        let main_result = self.load_with_interp(trampoline, &interp, exec).await;
+        let cleanup_result = match interp {
+            None => Ok(()),
+            Some(interp) => interp.free(trampoline).await,
+        };
+        let result = main_result?;
+        cleanup_result?;
+        Ok(result)
+    }
+
+    async fn load_with_interp(
+        &self,
+        trampoline: &mut Trampoline<'_, '_, '_>,
+        interp: &Option<ElfFile>,
+        exec: Exec,
+    ) -> Result<ElfEntry, Errno> {
+        let offset = self.determine_load_offset(VPage::task_dyn_base());
         let header = self.header();
-        let header_ptr = self.locate_header()?;
+        let header_ptr = self.header_load_ptr()?;
+
+        let interp_offset = match interp {
+            None => offset,
+            Some(elf) => elf.determine_load_offset(VPage::task_unmapped_base()),
+        };
+        let interp_header = match interp {
+            None => header,
+            Some(elf) => elf.header(),
+        };
+        let interp_header_ptr = match interp {
+            None => header_ptr,
+            Some(elf) => elf.header_load_ptr()?,
+        };
+
         let elf_aux = ElfAux {
-            phdr: header_ptr + header.e_phoff as usize + offset,
+            phdr: header_ptr + header.e_phoff as usize + offset.ptr().0,
             phnum: header.e_phnum as usize,
-            base: header_ptr + offset,
-            entry: VPtr(header.e_entry as usize) + offset,
+            base: interp_header_ptr + interp_offset.ptr().0,
+            entry: VPtr(header.e_entry as usize) + offset.ptr().0,
             uid: 0,  // todo
             euid: 0, // todo
             gid: 0,  // todo
             egid: 0, // todo
         };
 
-        let mut pad = Scratchpad::new(trampoline).await?;
-        let stack = self.prepare_stack(&mut pad, exec, elf_aux).await;
-        let cleanup_result = pad.free().await;
-        let stack = stack?;
-        cleanup_result?;
+        let stack = {
+            let mut pad = Scratchpad::new(trampoline).await?;
+            let main_result = self.prepare_stack(&mut pad, exec, elf_aux).await;
+            let cleanup_result = pad.free().await;
+            let result = main_result?;
+            cleanup_result?;
+            result
+        };
 
         trampoline.unmap_all_userspace_mem().await;
-
         let stack = stack.load(trampoline).await?;
-        self.load_segments(trampoline, offset, &stack).await
+
+        let interp_segments = match interp {
+            None => VPage::null()..VPage::null(),
+            Some(elf) => elf.load_segments(trampoline, interp_offset).await?,
+        };
+        let segments = self.load_segments(trampoline, offset).await?;
+
+        Ok(ElfEntry {
+            brk_base: segments.end.max(interp_segments.end),
+            ip: VPtr(interp_header.e_entry as usize) + interp_offset.ptr().0,
+            sp: stack.sp,
+        })
     }
 
-    fn determine_load_offset(&self) -> usize {
+    fn determine_load_offset(&self, dyn_base: VPage) -> VPage {
         if self.header().e_type == header::ET_DYN {
-            let rnd_mask = ((1 << abi::MMAP_RND_BITS) - 1) & !(abi::PAGE_SIZE - 1);
-            abi::TASK_UNMAPPED_BASE + (nolibc::getrandom_usize() & rnd_mask)
+            dyn_base.randomize()
         } else {
-            0
+            VPage::null()
         }
-    }
-
-    fn locate_header(&self) -> Result<VPtr, Errno> {
-        let mut addr = 0;
-        // Same technique linux's elf loader uses: vaddr - offset for the first LOAD
-        for idx in self.program_header_range() {
-            let phdr = self.program_header(idx)?;
-            if phdr.p_type == program_header::PT_LOAD {
-                addr = (phdr.p_vaddr - phdr.p_offset) as usize;
-                break;
-            }
-        }
-        Ok(VPtr(addr))
     }
 
     async fn load_segments(
         &self,
         trampoline: &mut Trampoline<'_, '_, '_>,
-        offset: usize,
-        stack: &InitialStack,
-    ) -> Result<ElfEntry, Errno> {
-        let header = self.header();
-        let mut brk_base = VPage::null();
+        offset: VPage,
+    ) -> Result<Range<VPage>, Errno> {
+        let mut range = VPage::max()..VPage::null();
         for idx in self.program_header_range() {
             let phdr = self.program_header(idx)?;
             if phdr.p_type == program_header::PT_LOAD {
@@ -265,14 +319,11 @@ impl ElfFile {
                     &MapLocation::Offset(offset),
                 )
                 .await?;
-                brk_base = brk_base.max(loaded.segment().mem_pages().end);
+                let mem_pages = loaded.segment().mem_pages();
+                range = range.start.min(mem_pages.start)..range.end.max(mem_pages.end);
             }
         }
-        Ok(ElfEntry {
-            ip: VPtr(header.e_entry as usize) + offset,
-            sp: stack.sp,
-            brk_base,
-        })
+        Ok(range)
     }
 
     async fn prepare_stack(

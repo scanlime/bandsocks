@@ -326,12 +326,6 @@ pub const SOCK_STREAM: usize = 1;
 /// linux/arch/x86/include/asm/page_64_types.h
 pub const TASK_SIZE: usize = (1 << 47) - PAGE_SIZE;
 
-/// linux/arch/x86/include/asm/processor.h
-pub const TASK_UNMAPPED_BASE: usize = (TASK_SIZE / 3) & !(PAGE_SIZE - 1);
-
-/// linux/arch/x86/include/asm/elf.h
-pub const ELF_ET_DYN_BASE: usize = (TASK_SIZE / 3 * 2) & !(PAGE_SIZE - 1);
-
 // ELF x86_64 ABI spec, initial thread stack
 pub const ELF_STACK_ALIGN: usize = 16;
 pub const ELF_STACK_ALIGN_MASK: usize = ELF_STACK_ALIGN - 1;

@@ -1,4 +1,4 @@
-use crate::{abi, protocol::VPtr};
+use crate::{abi, nolibc, protocol::VPtr};
 use core::{
     fmt,
     ops::{Add, Range, Sub},
@@ -43,8 +43,25 @@ impl VPage {
         VPage::round_down(VPtr(usize::MAX))
     }
 
+    pub fn task_max() -> VPage {
+        VPage::round_down(VPtr(abi::TASK_SIZE))
+    }
+
+    pub fn task_unmapped_base() -> VPage {
+        VPage::round_down(VPtr(VPage::task_max().ptr().0 / 3))
+    }
+
+    pub fn task_dyn_base() -> VPage {
+        VPage::round_down(VPtr(VPage::task_unmapped_base().ptr().0 * 2))
+    }
+
     pub fn offset(ptr: VPtr) -> usize {
         page_offset(ptr.0)
+    }
+
+    pub fn randomize(&self) -> VPage {
+        const MASK: usize = ((1 << abi::MMAP_RND_BITS) - 1) & !(abi::PAGE_SIZE - 1);
+        VPage(self.ptr() + (nolibc::getrandom_usize() & MASK))
     }
 
     pub fn ptr(&self) -> VPtr {

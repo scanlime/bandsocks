@@ -462,7 +462,7 @@ pub async fn memzero(
 #[derive(Debug, Eq, PartialEq)]
 pub enum MapLocation {
     Arbitrary,
-    Offset(usize),
+    Offset(VPage),
 }
 
 #[derive(Debug)]
@@ -494,8 +494,8 @@ impl LoadedSegment {
                     .await?
                     .start,
             ),
-            MapLocation::Offset(offset) => {
-                let segment = segment.clone().offset(*offset);
+            MapLocation::Offset(page) => {
+                let segment = segment.clone().offset(page.ptr().0);
                 trampoline
                     .mmap_fixed(
                         &MappedPages::anonymous(segment.mem_pages()),
