@@ -193,18 +193,26 @@ impl<'s> Filesystem {
         path: &Path,
         follow_links: &FollowLinks,
     ) -> Result<VFile, VFSError> {
-        log::debug!("open({:?}, {:?})", dir, path);
         let mut limits = Limits::reset();
         let entry = self.resolve_path(&mut limits, dir.inode, path)?;
         let entry = match follow_links {
             FollowLinks::NoFollow => entry,
             FollowLinks::Follow => self.resolve_symlinks(&mut limits, entry)?,
         };
+        log::debug!(
+            "open({:?}, {:?}, {:?}) -> {:?}",
+            dir,
+            path,
+            follow_links,
+            entry
+        );
         Ok(VFile { inode: entry.child })
     }
 
     pub fn stat(&self, f: &VFile) -> Result<&FileStat, VFSError> {
-        Ok(&self.get_inode(f.inode)?.stat)
+        let stat = &self.get_inode(f.inode)?.stat;
+        log::debug!("stat({:?}) -> {:?}", f, stat);
+        Ok(stat)
     }
 
     pub async fn open_storage(
@@ -213,21 +221,23 @@ impl<'s> Filesystem {
         f: &VFile,
     ) -> Result<Arc<dyn AsRawFd + Sync + Send>, VFSError> {
         let node = self.get_inode(f.inode)?;
-        match &node.data {
-            Node::EmptyFile | Node::NormalDirectory(_) => Ok(Arc::new(
-                File::open("/dev/null").map_err(|_| VFSError::ImageStorageError)?,
-            )),
-            Node::FileStorage(key) => Ok(Arc::new(
+        let storage = match &node.data {
+            Node::EmptyFile | Node::NormalDirectory(_) => {
+                Arc::new(File::open("/dev/null").map_err(|_| VFSError::ImageStorageError)?)
+            }
+            Node::FileStorage(key) => Arc::new(
                 storage
                     .open_part(key)
                     .await
                     .ok()
                     .flatten()
                     .ok_or(VFSError::ImageStorageError)?,
-            )),
-            Node::SharedStream(stream) => stream.vfile_open(),
-            _ => Err(VFSError::FileExpected),
-        }
+            ),
+            Node::SharedStream(stream) => stream.vfile_open()?,
+            _ => return Err(VFSError::FileExpected),
+        };
+        log::debug!("open_storage({:?}) -> {:?}", f, storage.as_raw_fd());
+        Ok(storage)
     }
 
     pub fn is_directory(&self, f: &VFile) -> Result<bool, VFSError> {

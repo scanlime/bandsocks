@@ -5,17 +5,13 @@ use crate::{
 };
 use std::path::Path;
 
-fn user_string(process: &mut Process, s: &VString) -> Result<String, Errno> {
-    process.read_string(*s).map_err(|_| Errno(-libc::EFAULT))
-}
-
 pub async fn change_working_dir(
     process: &mut Process,
     _filesystem: &Filesystem,
     path: &VString,
 ) -> Result<(), Errno> {
-    let path = user_string(process, path)?;
-    log::debug!("change_working_dir({:?})", path);
+    let path = process.read_user_string(path)?;
+    log::warn!("change_working_dir({:?})", path);
     Ok(())
 }
 
@@ -24,18 +20,19 @@ pub async fn get_working_dir(
     _filesystem: &Filesystem,
     buffer: &VStringBuffer,
 ) -> Result<usize, Errno> {
-    log::debug!("get_working_dir({:x?})", buffer);
+    log::warn!("get_working_dir({:x?})", buffer);
     Ok(0)
 }
 
 pub async fn readlink(
-    _process: &mut Process,
+    process: &mut Process,
     _filesystem: &Filesystem,
     path: &VString,
     buffer: &VStringBuffer,
 ) -> Result<usize, Errno> {
-    log::debug!("readlink({:x?}, {:x?})", path, buffer);
-    Ok(0)
+    let path = process.read_user_string(path)?;
+    log::warn!("readlink({:x?}, {:x?})", path, buffer);
+    Err(Errno(-libc::EINVAL))
 }
 
 pub async fn file_open(
@@ -46,7 +43,7 @@ pub async fn file_open(
     flags: i32,
     mode: i32,
 ) -> Result<VFile, Errno> {
-    let path_str = user_string(process, path)?;
+    let path_str = process.read_user_string(path)?;
     let path = Path::new(&path_str);
     let dir = match dir {
         Some(dir) => &dir,
@@ -76,7 +73,7 @@ pub async fn file_stat(
 ) -> Result<(VFile, FileStat), Errno> {
     let path = match path {
         Some(path) => {
-            let path_str = user_string(process, path)?;
+            let path_str = process.read_user_string(path)?;
             let path = Path::new(&path_str);
             Some(path.to_owned())
         }

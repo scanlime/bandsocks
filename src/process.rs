@@ -1,6 +1,6 @@
 use crate::{
     errors::RuntimeError,
-    sand::protocol::{ProcessHandle, SysFd, SysPid, VFile, VPtr, VString},
+    sand::protocol::{Errno, ProcessHandle, SysFd, SysPid, VFile, VPtr, VString},
 };
 use regex::Regex;
 use std::{
@@ -74,12 +74,16 @@ impl Process {
         read_bytes(&self.mem_file, vptr, buf)
     }
 
-    pub fn read_string(&self, vstr: VString) -> Result<String, RuntimeError> {
+    pub fn read_string(&self, vstr: &VString) -> Result<String, RuntimeError> {
         read_string(&self.mem_file, vstr)
     }
 
+    pub fn read_user_string(&self, vstr: &VString) -> Result<String, Errno> {
+        self.read_string(vstr).map_err(|_| Errno(-libc::EFAULT))
+    }
+
     #[allow(dead_code)]
-    pub fn read_string_os(&self, vstr: VString) -> Result<OsString, RuntimeError> {
+    pub fn read_string_os(&self, vstr: &VString) -> Result<OsString, RuntimeError> {
         read_string_os(&self.mem_file, vstr)
     }
 }
@@ -90,13 +94,13 @@ fn read_bytes(mem_file: &File, vptr: VPtr, buf: &mut [u8]) -> Result<(), Runtime
         .map_err(|_| RuntimeError::MemAccess)
 }
 
-fn read_string(mem_file: &File, vstr: VString) -> Result<String, RuntimeError> {
+fn read_string(mem_file: &File, vstr: &VString) -> Result<String, RuntimeError> {
     read_string_os(mem_file, vstr)?
         .into_string()
         .map_err(|_| RuntimeError::StringDecoding)
 }
 
-fn read_string_os(mem_file: &File, vstr: VString) -> Result<OsString, RuntimeError> {
+fn read_string_os(mem_file: &File, vstr: &VString) -> Result<OsString, RuntimeError> {
     let mut ptr = vstr.0;
     let mut result = OsString::new();
     let mut page_buffer = Vec::with_capacity(*PAGE_SIZE);
@@ -199,21 +203,21 @@ mod tests {
 
         // First test a few edge cases around the memory hole, with all zeroes in the
         // mapping still
-        assert_eq!(read_string(&self_mem, VString(map_addr)).unwrap(), "");
+        assert_eq!(read_string(&self_mem, &VString(map_addr)).unwrap(), "");
         assert_eq!(
-            read_string(&self_mem, VString(map_addr + (hole_offset - 1))).unwrap(),
+            read_string(&self_mem, &VString(map_addr + (hole_offset - 1))).unwrap(),
             ""
         );
         assert!(is_memaccess_err(read_string(
             &self_mem,
-            VString(map_addr + hole_offset)
+            &VString(map_addr + hole_offset)
         )));
         assert!(is_memaccess_err(read_string(
             &self_mem,
-            VString(map_addr + (hole_offset + hole_size - 1))
+            &VString(map_addr + (hole_offset + hole_size - 1))
         )));
         assert_eq!(
-            read_string(&self_mem, VString(map_addr + (hole_offset + hole_size))).unwrap(),
+            read_string(&self_mem, &VString(map_addr + (hole_offset + hole_size))).unwrap(),
             ""
         );
 
@@ -227,7 +231,7 @@ mod tests {
                 let offset_end = offset + test_str.len();
                 map_slice[offset..offset_end].copy_from_slice(test_str.as_bytes());
                 map_slice[offset_end] = b'\0';
-                let readback = read_string(&self_mem, VString(map_addr + offset)).unwrap();
+                let readback = read_string(&self_mem, &VString(map_addr + offset)).unwrap();
                 assert_eq!(test_str, readback);
             }
         }
