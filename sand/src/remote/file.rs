@@ -1,12 +1,13 @@
 use crate::{
     abi,
     abi::{CMsgHdr, IOVec, MsgHdr},
-    protocol::{Errno, SysFd, VPtr},
-    remote::{
-        mem::{fault_or, read_value, write_padded_bytes, write_padded_value},
-        scratchpad::Scratchpad,
-        trampoline::Trampoline,
+    mem::{
+        maps::{MappedPages, MemFlags, Segment},
+        page::VPage,
+        rw::{read_value, write_padded_bytes, write_padded_value},
     },
+    protocol::{Errno, SysFd, VPtr},
+    remote::{scratchpad::Scratchpad, trampoline::Trampoline},
 };
 use core::{mem::size_of, pin::Pin, ptr};
 use sc::{nr, syscall};
@@ -16,25 +17,24 @@ use sc::{nr, syscall};
 pub struct RemoteFd(pub u32);
 
 impl RemoteFd {
+    pub fn invalid() -> RemoteFd {
+        RemoteFd(!0)
+    }
+
     pub async fn memfd_create(
         scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
         name: &[u8],
         flags: isize,
     ) -> Result<RemoteFd, Errno> {
-        if name.len() > abi::PAGE_SIZE - size_of::<usize>() {
+        let name_start = scratchpad.mem_range.start.ptr();
+        let name_end = name_start + name.len();
+        if name_end >= scratchpad.mem_range.end.ptr() {
             return Err(Errno(-abi::EINVAL));
         }
-        fault_or(write_padded_bytes(
-            scratchpad.trampoline.stopped_task,
-            scratchpad.page_ptr,
-            name,
-        ))?;
+        write_padded_bytes(scratchpad.trampoline.stopped_task, name_start, name)?;
         let result = scratchpad
             .trampoline
-            .syscall(
-                nr::MEMFD_CREATE,
-                &[scratchpad.page_ptr.0 as isize, flags as isize],
-            )
+            .syscall(nr::MEMFD_CREATE, &[name_start.0 as isize, flags as isize])
             .await;
         if result >= 0 {
             Ok(RemoteFd(result as u32))
@@ -109,19 +109,18 @@ impl RemoteFd {
             &mut local_pin.as_mut().get_mut().cmsg as *mut CMsg as *mut usize;
         local_pin.as_mut().get_mut().iov.base = local_pin.as_mut().get_mut().msg.as_mut_ptr();
 
-        remote_layout.hdr.msg_iov =
-            scratchpad.page_ptr.add(offset_of!(Layout, iov)).0 as *mut IOVec;
+        remote_layout.hdr.msg_iov = (scratchpad.ptr() + offset_of!(Layout, iov)).0 as *mut IOVec;
         remote_layout.hdr.msg_control =
-            scratchpad.page_ptr.add(offset_of!(Layout, cmsg)).0 as *mut usize;
-        remote_layout.iov.base = scratchpad.page_ptr.add(offset_of!(Layout, msg)).0 as *mut u8;
+            (scratchpad.ptr() + offset_of!(Layout, cmsg)).0 as *mut usize;
+        remote_layout.iov.base = (scratchpad.ptr() + offset_of!(Layout, msg)).0 as *mut u8;
 
-        fault_or(unsafe {
+        unsafe {
             write_padded_value(
                 scratchpad.trampoline.stopped_task,
-                scratchpad.page_ptr,
+                scratchpad.ptr(),
                 &remote_layout,
             )
-        })?;
+        }?;
 
         let local_flags = abi::MSG_DONTWAIT;
         let remote_flags = 0isize;
@@ -138,7 +137,7 @@ impl RemoteFd {
                 nr::RECVMSG,
                 &[
                     remote_socket_fd as isize,
-                    scratchpad.page_ptr.0 as isize,
+                    scratchpad.ptr().0 as isize,
                     remote_flags,
                 ],
             )
@@ -147,12 +146,12 @@ impl RemoteFd {
             return Err(Errno(remote_result as i32));
         }
 
-        let remote_cmsg: CMsg = fault_or(unsafe {
+        let remote_cmsg: CMsg = unsafe {
             read_value(
                 scratchpad.trampoline.stopped_task,
-                scratchpad.page_ptr.add(offset_of!(Layout, cmsg)),
+                scratchpad.ptr() + offset_of!(Layout, cmsg),
             )
-        })?;
+        }?;
         if remote_cmsg.hdr == BASE_LAYOUT.cmsg.hdr {
             Ok(RemoteFd(remote_cmsg.fd))
         } else {
@@ -208,44 +207,18 @@ impl RemoteFd {
         }
     }
 
-    pub async fn write_bytes_exact(
-        &self,
-        scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
-        bytes: &[u8],
-    ) -> Result<(), Errno> {
-        if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
-            return Err(Errno(-abi::EINVAL));
-        }
-        fault_or(write_padded_bytes(
-            scratchpad.trampoline.stopped_task,
-            scratchpad.page_ptr,
-            bytes,
-        ))?;
-        self.write_vptr_exact(scratchpad.trampoline, scratchpad.page_ptr, bytes.len())
-            .await
-    }
-
     pub async fn pwrite_bytes_exact(
         &self,
         scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
         bytes: &[u8],
         offset: usize,
     ) -> Result<(), Errno> {
-        if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
+        if bytes.len() > scratchpad.len() - size_of::<usize>() {
             return Err(Errno(-abi::EINVAL));
         }
-        fault_or(write_padded_bytes(
-            scratchpad.trampoline.stopped_task,
-            scratchpad.page_ptr,
-            bytes,
-        ))?;
-        self.pwrite_vptr_exact(
-            scratchpad.trampoline,
-            scratchpad.page_ptr,
-            bytes.len(),
-            offset,
-        )
-        .await
+        write_padded_bytes(scratchpad.trampoline.stopped_task, scratchpad.ptr(), bytes)?;
+        self.pwrite_vptr_exact(scratchpad.trampoline, scratchpad.ptr(), bytes.len(), offset)
+            .await
     }
 
     pub async fn pwrite_vptr(
@@ -286,38 +259,6 @@ impl RemoteFd {
             Err(e) => Err(e),
         }
     }
-
-    pub async fn write_vptr(
-        &self,
-        tr: &mut Trampoline<'_, '_, '_>,
-        addr: VPtr,
-        length: usize,
-    ) -> Result<usize, Errno> {
-        let result = tr
-            .syscall(
-                sc::nr::WRITE,
-                &[self.0 as isize, addr.0 as isize, length as isize],
-            )
-            .await;
-        if result >= 0 {
-            Ok(result as usize)
-        } else {
-            Err(Errno(result as i32))
-        }
-    }
-
-    pub async fn write_vptr_exact(
-        &self,
-        tr: &mut Trampoline<'_, '_, '_>,
-        addr: VPtr,
-        length: usize,
-    ) -> Result<(), Errno> {
-        match self.write_vptr(tr, addr, length).await {
-            Ok(actual) if actual == length => Ok(()),
-            Ok(_) => Err(Errno(-abi::EIO)),
-            Err(e) => Err(e),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -326,7 +267,7 @@ pub struct EmptyTempRemoteFd(TempRemoteFd);
 impl EmptyTempRemoteFd {
     pub async fn new(scratchpad: &mut Scratchpad<'_, '_, '_, '_>) -> Result<Self, Errno> {
         Ok(EmptyTempRemoteFd(TempRemoteFd(
-            RemoteFd::memfd_create(scratchpad, b"bandsocks-temp", 0).await?,
+            RemoteFd::memfd_create(scratchpad, b"bandsocks-temp\0", 0).await?,
         )))
     }
 }
@@ -336,7 +277,7 @@ pub struct TempRemoteFd(pub RemoteFd);
 
 impl Drop for TempRemoteFd {
     fn drop(&mut self) {
-        panic!("leaking remote temp file")
+        panic!("leaking remote temp fd {:?}", self)
     }
 }
 
@@ -364,7 +305,7 @@ impl TempRemoteFd {
         result
     }
 
-    /// unlike mem::write_padded_bytes, this can be an unaligned buffer of
+    /// unlike write_padded_bytes, this can be an unaligned buffer of
     /// unaligned length
     pub async fn mem_write_bytes_exact(
         &self,
@@ -372,21 +313,12 @@ impl TempRemoteFd {
         addr: VPtr,
         bytes: &[u8],
     ) -> Result<(), Errno> {
-        if bytes.len() > abi::PAGE_SIZE - size_of::<usize>() {
+        if bytes.len() > scratchpad.len() - size_of::<usize>() {
             return Err(Errno(-abi::EINVAL));
         }
-        fault_or(write_padded_bytes(
-            scratchpad.trampoline.stopped_task,
-            scratchpad.page_ptr,
-            bytes,
-        ))?;
-        self.memmove(
-            scratchpad.trampoline,
-            addr,
-            scratchpad.page_ptr,
-            bytes.len(),
-        )
-        .await
+        write_padded_bytes(scratchpad.trampoline.stopped_task, scratchpad.ptr(), bytes)?;
+        self.memmove(scratchpad.trampoline, addr, scratchpad.ptr(), bytes.len())
+            .await
     }
 }
 
@@ -447,11 +379,11 @@ pub async fn fd_copy_via_buffer(
 ) -> Result<usize, Errno> {
     let mut transferred = 0;
     while byte_count > 0 {
-        let part_size = byte_count.min(abi::PAGE_SIZE);
+        let part_size = byte_count.min(scratchpad.len());
         let read_len = src_fd
             .pread_vptr(
                 scratchpad.trampoline,
-                scratchpad.page_ptr,
+                scratchpad.ptr(),
                 part_size,
                 src_offset,
             )
@@ -460,7 +392,7 @@ pub async fn fd_copy_via_buffer(
             let write_len = dest_fd
                 .pwrite_vptr(
                     scratchpad.trampoline,
-                    scratchpad.page_ptr,
+                    scratchpad.ptr(),
                     read_len,
                     dest_offset,
                 )
@@ -500,5 +432,110 @@ pub async fn fd_copy_exact(
         Ok(())
     } else {
         Err(Errno(-abi::EIO))
+    }
+}
+
+pub async fn memzero(
+    trampoline: &mut Trampoline<'_, '_, '_>,
+    addr: VPtr,
+    len: usize,
+) -> Result<(), Errno> {
+    let mut pad = Scratchpad::new(trampoline).await?;
+    let main_result = match ZeroRemoteFd::new(&mut pad).await {
+        Err(err) => Err(err),
+        Ok(mut zerofd) => {
+            let main_result = zerofd.memzero(&mut pad, addr, len).await;
+            let cleanup_result = zerofd.free(&mut pad.trampoline).await;
+            match (main_result, cleanup_result) {
+                (Ok(r), Ok(())) => Ok(r),
+                (Err(e), _) => Err(e),
+                (Ok(_), Err(e)) => Err(e),
+            }
+        }
+    };
+    let cleanup_result = pad.free().await;
+    main_result?;
+    cleanup_result?;
+    Ok(())
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum MapLocation {
+    Arbitrary,
+    Offset(usize),
+}
+
+#[derive(Debug)]
+pub struct LoadedSegment(Segment);
+
+impl LoadedSegment {
+    pub async fn new(
+        trampoline: &mut Trampoline<'_, '_, '_>,
+        file: &RemoteFd,
+        segment: &Segment,
+        location: &MapLocation,
+    ) -> Result<LoadedSegment, Errno> {
+        let mem_flags = MemFlags {
+            protect: segment.protect.clone(),
+            mayshare: false,
+        };
+        // Map anonymous memory to allocate the full region, and relocate as requested
+        let segment = match location {
+            MapLocation::Arbitrary => segment.clone().set_page_start(
+                trampoline
+                    .mmap(
+                        &MappedPages::anonymous(
+                            segment.clone().set_page_start(VPage::null()).mem_pages(),
+                        ),
+                        &RemoteFd::invalid(),
+                        &mem_flags,
+                        abi::MAP_ANONYMOUS,
+                    )
+                    .await?
+                    .start,
+            ),
+            MapLocation::Offset(offset) => {
+                let segment = segment.clone().offset(*offset);
+                trampoline
+                    .mmap_fixed(
+                        &MappedPages::anonymous(segment.mem_pages()),
+                        &RemoteFd::invalid(),
+                        &mem_flags,
+                        abi::MAP_ANONYMOUS | abi::MAP_FIXED_NOREPLACE,
+                    )
+                    .await?;
+                segment
+            }
+        };
+        if !segment.mem_pages().is_empty() {
+            let mapped_range = &segment.mapped_range;
+            let mapped_pages = segment.mapped_pages();
+
+            // Map the page-aligned region around the file contents
+            trampoline
+                .mmap_fixed(&mapped_pages, file, &mem_flags, abi::MAP_FIXED)
+                .await?;
+
+            // Might need to additionally zero the tail end of the file mapping, at the
+            // boundary between rwdata and bss segments
+            if segment.protect.write && mapped_range.mem.end < mapped_pages.mem_pages().end.ptr() {
+                memzero(
+                    trampoline,
+                    mapped_range.mem.end,
+                    mapped_pages.mem_pages().end.ptr().0 - mapped_range.mem.end.0,
+                )
+                .await?;
+            }
+        }
+
+        Ok(LoadedSegment(segment))
+    }
+
+    pub async fn free(self, trampoline: &mut Trampoline<'_, '_, '_>) -> Result<(), Errno> {
+        trampoline.munmap(&self.0.mem_pages()).await
+    }
+
+    pub fn segment(&self) -> &Segment {
+        &self.0
     }
 }

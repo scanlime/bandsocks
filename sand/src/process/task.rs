@@ -1,16 +1,14 @@
 use crate::{
     abi,
-    nolibc::File,
-    process::{
-        maps::print_maps_dump, syscall::SyscallEmulator, table::FileTable, Event, EventSource,
-        MessageSender,
-    },
+    mem::{kernel::KernelMemIterator, page::VPage, rw::print_stack_dump},
+    nolibc::{getrandom_usize, File},
+    process::{syscall::SyscallEmulator, table::FileTable, Event, EventSource, MessageSender},
     protocol::{
         abi::{Syscall, UserRegs},
         FromTask, LogLevel, LogMessage, ProcessHandle, SysPid, ToTask, TracerSettings, VPid, VPtr,
     },
     ptrace,
-    remote::{file::RemoteFd, mem::print_stack_dump},
+    remote::file::RemoteFd,
 };
 use core::fmt::{self, Debug, Formatter};
 
@@ -24,7 +22,15 @@ pub struct TaskSocketPair {
 pub struct TaskMemManagement {
     // brk is emulated, since the real kernel's brk_start can't be changed without privileges
     pub brk: VPtr,
-    pub brk_start: VPtr,
+    pub brk_start: VPage,
+}
+
+impl TaskMemManagement {
+    pub fn randomize_brk(&mut self, brk_base: VPage) {
+        let brk = brk_base + (getrandom_usize() & abi::BRK_RND_MASK);
+        self.brk_start = brk;
+        self.brk = brk.ptr();
+    }
 }
 
 #[derive(Debug)]
@@ -199,7 +205,7 @@ impl<'q> Task<'q> {
 
         if signal == abi::SIGSEGV || signal == abi::SIGSYS {
             println!("task state:\n{:x?}", stopped_task.regs);
-            print_maps_dump(&mut stopped_task);
+            KernelMemIterator::print_maps(&mut stopped_task);
             print_stack_dump(&mut stopped_task);
             panic!("*** signal {} inside sandbox ***", signal);
         }
@@ -279,7 +285,7 @@ async fn unexpected_event_panic<'q, 's, 't>(
         sys_pid, stopped_task, regs
     );
     if let Some(stopped_task) = stopped_task {
-        print_maps_dump(stopped_task);
+        KernelMemIterator::print_maps(stopped_task);
         print_stack_dump(stopped_task);
     }
     panic!(

@@ -1,6 +1,6 @@
 use crate::{nolibc::File, protocol::InitArgsHeader};
-use sc::syscall;
 use alloc::vec::Vec;
+use sc::syscall;
 
 fn read_header(file: &File) -> InitArgsHeader {
     let mut header: InitArgsHeader = Default::default();
@@ -12,7 +12,10 @@ pub fn with_args_file(file: &File) -> ! {
     let header = read_header(file);
 
     let mut bytes = Vec::<u8>::new();
-    bytes.resize(header.dir_len + header.filename_len + header.argv_len + header.envp_len, 0);
+    bytes.resize(
+        header.dir_len + header.filename_len + header.argv_len + header.envp_len,
+        0,
+    );
 
     file.read_exact(&mut bytes).unwrap();
     file.close().unwrap();

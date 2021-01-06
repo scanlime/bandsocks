@@ -106,7 +106,7 @@ fn read_string_os(mem_file: &File, vstr: VString) -> Result<OsString, RuntimeErr
         match page_buffer.iter().position(|i| *i == 0) {
             None => {
                 result.push(OsStr::from_bytes(&page_buffer));
-                ptr = ptr.add(page_buffer.len());
+                ptr = ptr + page_buffer.len();
             }
             Some(index) => {
                 result.push(OsStr::from_bytes(&page_buffer[0..index]));
@@ -188,7 +188,7 @@ mod tests {
         // ptrace reads without checking map permission. Instead, make a hole and rely
         // on it to stay empty. This is racy, and not something that is generally
         // reliable! But uh... unit tests yay.
-        unsafe { libc::munmap(map_addr.add(hole_offset).0 as *mut libc::c_void, hole_size) };
+        unsafe { libc::munmap((map_addr + hole_offset).0 as *mut libc::c_void, hole_size) };
 
         fn is_memaccess_err<T>(result: Result<T, RuntimeError>) -> bool {
             match result {
@@ -201,19 +201,19 @@ mod tests {
         // mapping still
         assert_eq!(read_string(&self_mem, VString(map_addr)).unwrap(), "");
         assert_eq!(
-            read_string(&self_mem, VString(map_addr.add(hole_offset - 1))).unwrap(),
+            read_string(&self_mem, VString(map_addr + (hole_offset - 1))).unwrap(),
             ""
         );
         assert!(is_memaccess_err(read_string(
             &self_mem,
-            VString(map_addr.add(hole_offset))
+            VString(map_addr + hole_offset)
         )));
         assert!(is_memaccess_err(read_string(
             &self_mem,
-            VString(map_addr.add(hole_offset + hole_size - 1))
+            VString(map_addr + (hole_offset + hole_size - 1))
         )));
         assert_eq!(
-            read_string(&self_mem, VString(map_addr.add(hole_offset + hole_size))).unwrap(),
+            read_string(&self_mem, VString(map_addr + (hole_offset + hole_size))).unwrap(),
             ""
         );
 
@@ -227,7 +227,7 @@ mod tests {
                 let offset_end = offset + test_str.len();
                 map_slice[offset..offset_end].copy_from_slice(test_str.as_bytes());
                 map_slice[offset_end] = b'\0';
-                let readback = read_string(&self_mem, VString(map_addr.add(offset))).unwrap();
+                let readback = read_string(&self_mem, VString(map_addr + offset)).unwrap();
                 assert_eq!(test_str, readback);
             }
         }

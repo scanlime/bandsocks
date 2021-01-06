@@ -21,12 +21,15 @@ extern crate alloc;
 #[macro_use]
 mod nolibc;
 
+#[macro_use]
+mod process;
+
 mod abi;
 mod binformat;
 mod init;
 mod ipc;
+mod mem;
 mod parser;
-mod process;
 mod ptrace;
 mod remote;
 mod seccomp;

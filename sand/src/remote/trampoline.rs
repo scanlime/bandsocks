@@ -1,14 +1,16 @@
 use crate::{
     abi,
-    process::{
-        maps::{KernelMemAreas, MapsIterator},
-        task::StoppedTask,
-        Event,
+    mem::{
+        kernel::{KernelMemAreas, KernelMemIterator},
+        maps::{MappedPages, MemFlags},
+        page::VPage,
     },
+    process::{task::StoppedTask, Event},
     protocol::{abi::Syscall, Errno, LogLevel, LogMessage, VPtr},
     ptrace,
     remote::file::RemoteFd,
 };
+use core::ops::Range;
 
 #[derive(Debug)]
 pub struct Trampoline<'q, 's, 't> {
@@ -28,14 +30,17 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
     pub async fn unmap_all_userspace_mem(&mut self) {
         loop {
             let mut to_unmap = None;
-            for area in MapsIterator::new(self.stopped_task) {
+            for area in KernelMemIterator::new(self.stopped_task) {
                 if self.kernel_mem.is_userspace_area(&area) {
                     to_unmap = Some(area);
                     break;
                 }
             }
             match to_unmap {
-                Some(area) => self.munmap(area.vptr(), area.len()).await.unwrap(),
+                Some(area) => self
+                    .munmap(&area.pages.mem_pages())
+                    .await
+                    .expect("unmap userspace"),
                 None => return,
             }
         }
@@ -103,55 +108,60 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
 
     pub async fn mmap(
         &mut self,
-        addr: VPtr,
-        length: usize,
-        prot: isize,
-        flags: isize,
+        mapped_pages: &MappedPages,
         fd: &RemoteFd,
-        offset: usize,
-    ) -> Result<VPtr, Errno> {
+        mem_flags: &MemFlags,
+        map_flags: isize,
+    ) -> Result<Range<VPage>, Errno> {
+        let len = mapped_pages.mem_range().end.0 - mapped_pages.mem_range().start.0;
         let result = self
             .syscall(
                 sc::nr::MMAP,
                 &[
-                    addr.0 as isize,
-                    length as isize,
-                    prot,
-                    flags,
+                    mapped_pages.mem_pages().start.ptr().0 as isize,
+                    len as isize,
+                    mem_flags.protect.prot_flags(),
+                    mem_flags.map_flags() | map_flags,
                     fd.0 as isize,
-                    offset as isize,
+                    mapped_pages.file_start() as isize,
                 ],
             )
             .await;
         if result < 0 {
             Err(Errno(result as i32))
         } else {
-            Ok(VPtr(result as usize))
+            let result = VPtr(result as usize);
+            VPage::parse_range(&(result..(result + len))).map_err(|()| Errno(-abi::EINVAL))
         }
     }
 
-    pub async fn mmap_anonymous_noreplace(
+    pub async fn mmap_fixed(
         &mut self,
-        addr: VPtr,
-        length: usize,
-        prot: isize,
+        mapped_pages: &MappedPages,
+        fd: &RemoteFd,
+        mem_flags: &MemFlags,
+        map_flags: isize,
     ) -> Result<(), Errno> {
-        let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS | abi::MAP_FIXED_NOREPLACE;
-        let result = self
-            .mmap(addr, length, prot, flags, &RemoteFd(0), 0)
-            .await?;
-        if result == addr {
+        let expected = mapped_pages.mem_pages();
+        let result = self.mmap(mapped_pages, fd, mem_flags, map_flags).await?;
+        if expected == result {
             Ok(())
         } else {
-            // kernel might not understand MAP_FIXED_NOREPLACE, it moved the mapping. undo.
-            self.munmap(result, length).await?;
-            Err(Errno(-abi::EEXIST))
+            // Unexpected location, unmap the unwanted mapping before failing.
+            self.munmap(&result).await?;
+            Err(Errno(-abi::EINVAL))
         }
     }
 
-    pub async fn munmap(&mut self, addr: VPtr, length: usize) -> Result<(), Errno> {
+    pub async fn munmap(&mut self, pages: &Range<VPage>) -> Result<(), Errno> {
         let result = self
-            .syscall(sc::nr::MUNMAP, &[addr.0 as isize, length as isize])
+            .syscall(
+                sc::nr::MUNMAP,
+                &[
+                    pages.start.ptr().0 as isize,
+                    (pages.end.ptr().0 - pages.start.ptr().0) as isize,
+                ],
+            )
             .await;
         if result == 0 {
             Ok(())
@@ -162,20 +172,26 @@ impl<'q, 's, 't> Trampoline<'q, 's, 't> {
 
     pub async fn mremap(
         &mut self,
-        addr: VPtr,
-        old_length: usize,
+        pages: &Range<VPage>,
         new_length: usize,
-    ) -> Result<(), Errno> {
+    ) -> Result<Range<VPage>, Errno> {
         let result = self
             .syscall(
                 sc::nr::MREMAP,
-                &[addr.0 as isize, old_length as isize, new_length as isize, 0],
+                &[
+                    pages.start.ptr().0 as isize,
+                    (pages.end.ptr().0 - pages.start.ptr().0) as isize,
+                    new_length as isize,
+                    0,
+                ],
             )
             .await;
-        if result as usize == addr.0 {
-            Ok(())
-        } else {
+        if result < 0 {
             Err(Errno(result as i32))
+        } else {
+            let new_addr = VPtr(result as usize);
+            VPage::parse_range(&(new_addr..(new_addr + new_length)))
+                .map_err(|()| Errno(-abi::EINVAL))
         }
     }
 

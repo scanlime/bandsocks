@@ -31,6 +31,17 @@ macro_rules! println {
     });
 }
 
+#[macro_export]
+macro_rules! dbg {
+    ($($arg:expr),*) => ({
+        $crate::print!("dbg:");
+        $(
+            $crate::print!(" {:?},", $arg);
+        )*
+        $crate::println!();
+    });
+}
+
 pub fn write_stderr(msg: fmt::Arguments) {
     if fmt::write(&mut File::stderr(), msg).is_err() {
         exit(crate::EXIT_IO_ERROR);
@@ -39,6 +50,15 @@ pub fn write_stderr(msg: fmt::Arguments) {
 
 pub const PROC_SELF_EXE: &[u8] = b"/proc/self/exe\0";
 pub const PROC_SELF_FD: &[u8] = b"/proc/self/fd\0";
+
+#[derive(Debug)]
+pub struct TempFile(pub File);
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        self.0.close().expect("temp fd close");
+    }
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct File {
@@ -309,18 +329,27 @@ pub unsafe fn munmap(addr: usize, length: usize) -> Result<(), Errno> {
 
 pub struct PageAllocator;
 
+fn page_round_up(len: usize) -> usize {
+    let offset_mask = abi::PAGE_SIZE - 1;
+    if 0 == (len & offset_mask) {
+        len
+    } else {
+        abi::PAGE_SIZE + (len & !offset_mask)
+    }
+}
+
 unsafe impl GlobalAlloc for PageAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         self.alloc_zeroed(layout)
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let mapping_size = abi::page_round_up(layout.size());
+        let mapping_size = page_round_up(layout.size());
         munmap(ptr as usize, mapping_size).unwrap()
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let mapping_size = abi::page_round_up(layout.size());
+        let mapping_size = page_round_up(layout.size());
         assert!(layout.align() < abi::PAGE_SIZE);
         let prot = abi::PROT_READ | abi::PROT_WRITE;
         let flags = abi::MAP_PRIVATE | abi::MAP_ANONYMOUS;
@@ -332,8 +361,8 @@ unsafe impl GlobalAlloc for PageAllocator {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        let from_size = abi::page_round_up(layout.size());
-        let to_size = abi::page_round_up(new_size);
+        let from_size = page_round_up(layout.size());
+        let to_size = page_round_up(new_size);
         if from_size == to_size {
             ptr
         } else {

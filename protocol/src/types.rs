@@ -1,4 +1,8 @@
-use core::{default::Default, fmt};
+use core::{
+    default::Default,
+    fmt,
+    ops::{Add, Sub},
+};
 
 /// Exit codes returned by the sand process
 pub mod exit {
@@ -95,9 +99,21 @@ impl VPtr {
     pub fn null() -> VPtr {
         VPtr(0)
     }
+}
 
-    pub fn add(&self, count: usize) -> VPtr {
+impl Add<usize> for VPtr {
+    type Output = Self;
+
+    fn add(self, count: usize) -> VPtr {
         VPtr(self.0 + count)
+    }
+}
+
+impl Sub<usize> for VPtr {
+    type Output = Self;
+
+    fn sub(self, count: usize) -> VPtr {
+        VPtr(self.0 - count)
     }
 }
 

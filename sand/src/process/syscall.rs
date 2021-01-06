@@ -1,6 +1,12 @@
 use crate::{
     abi,
-    process::{loader::Loader, task::StoppedTask},
+    binformat::Exec,
+    mem::{
+        maps::{MappedPages, MemFlags},
+        page::VPage,
+        string::VStringArray,
+    },
+    process::task::StoppedTask,
     protocol::{
         abi::Syscall, Errno, FileStat, FollowLinks, FromTask, LogLevel, LogMessage, SysFd, ToTask,
         VFile, VPtr, VString,
@@ -63,10 +69,14 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         let mut tr = Trampoline::new(self.stopped_task);
         let result = match Scratchpad::new(&mut tr).await {
             Err(err) => Err(err),
-            Ok(mut scratchpad) => {
-                let result = RemoteFd::from_local(&mut scratchpad, &sys_fd).await;
-                scratchpad.free().await.expect("leaking scratchpad page");
-                result
+            Ok(mut pad) => {
+                let main_result = RemoteFd::from_local(&mut pad, &sys_fd).await;
+                let cleanup_result = pad.free().await;
+                match (main_result, cleanup_result) {
+                    (Ok(r), Ok(())) => Ok(r),
+                    (Err(e), _) => Err(e),
+                    (Ok(_), Err(e)) => Err(e),
+                }
             }
         };
         match result {
@@ -107,23 +117,29 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         let result = Scratchpad::new(&mut tr).await;
         let result = match result {
             Err(err) => Err(err),
-            Ok(mut scratchpad) => {
-                let result = match TempRemoteFd::new(&mut scratchpad).await {
+            Ok(mut pad) => {
+                let main_result = match TempRemoteFd::new(&mut pad).await {
                     Err(err) => Err(err),
                     Ok(temp) => {
-                        let result = temp
-                            .mem_write_bytes_exact(&mut scratchpad, out_ptr, unsafe {
+                        let main_result = temp
+                            .mem_write_bytes_exact(&mut pad, out_ptr, unsafe {
                                 plain::as_bytes(&user_stat)
                             })
                             .await;
-                        temp.free(&mut scratchpad.trampoline)
-                            .await
-                            .expect("leaking memfd");
-                        result
+                        let cleanup_result = temp.free(&mut pad.trampoline).await;
+                        match (main_result, cleanup_result) {
+                            (Ok(r), Ok(())) => Ok(r),
+                            (Err(e), _) => Err(e),
+                            (Ok(_), Err(e)) => Err(e),
+                        }
                     }
                 };
-                scratchpad.free().await.expect("leaking scratchpad page");
-                result
+                let cleanup_result = pad.free().await;
+                match (main_result, cleanup_result) {
+                    (Ok(r), Ok(())) => Ok(r),
+                    (Err(e), _) => Err(e),
+                    (Ok(_), Err(e)) => Err(e),
+                }
             }
         };
         return_result(result)
@@ -160,7 +176,13 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::BRK => return_vptr_result(do_brk(self.stopped_task, arg_ptr(0)).await),
 
             nr::EXECVE => return_result(
-                Loader::execve(self.stopped_task, arg_string(0), arg_ptr(1), arg_ptr(2)).await,
+                Exec {
+                    filename: arg_string(0),
+                    argv: VStringArray(arg_ptr(1)),
+                    envp: VStringArray(arg_ptr(2)),
+                }
+                .load(self.stopped_task)
+                .await,
             ),
 
             nr::UNAME => return_result(do_uname(self.stopped_task, arg_ptr(0)).await),
@@ -352,51 +374,63 @@ async fn do_uname<'q, 's, 't>(
 ) -> Result<(), Errno> {
     let mut tr = Trampoline::new(stopped_task);
     let mut pad = Scratchpad::new(&mut tr).await?;
-    let temp = TempRemoteFd::new(&mut pad).await?;
-    let result = Ok(());
-    let result = result.and(
-        temp.mem_write_bytes_exact(
-            &mut pad,
-            dest.add(offset_of!(abi::UtsName, sysname)),
-            b"Linux\0",
-        )
-        .await,
-    );
-    let result = result.and(
-        temp.mem_write_bytes_exact(
-            &mut pad,
-            dest.add(offset_of!(abi::UtsName, nodename)),
-            b"host\0",
-        )
-        .await,
-    );
-    let result = result.and(
-        temp.mem_write_bytes_exact(
-            &mut pad,
-            dest.add(offset_of!(abi::UtsName, release)),
-            b"4.0.0-bandsocks\0",
-        )
-        .await,
-    );
-    let result = result.and(
-        temp.mem_write_bytes_exact(
-            &mut pad,
-            dest.add(offset_of!(abi::UtsName, version)),
-            b"#1 SMP\0",
-        )
-        .await,
-    );
-    let result = result.and(
-        temp.mem_write_bytes_exact(
-            &mut pad,
-            dest.add(offset_of!(abi::UtsName, machine)),
-            abi::PLATFORM_NAME_BYTES,
-        )
-        .await,
-    );
-    pad.free().await?;
-    temp.free(&mut tr).await?;
-    result
+    let main_result = match TempRemoteFd::new(&mut pad).await {
+        Err(err) => Err(err),
+        Ok(temp) => {
+            let main_result = Ok(());
+            let main_result = main_result.and(
+                temp.mem_write_bytes_exact(
+                    &mut pad,
+                    dest + offset_of!(abi::UtsName, sysname),
+                    b"Linux\0",
+                )
+                .await,
+            );
+            let main_result = main_result.and(
+                temp.mem_write_bytes_exact(
+                    &mut pad,
+                    dest + offset_of!(abi::UtsName, nodename),
+                    b"host\0",
+                )
+                .await,
+            );
+            let main_result = main_result.and(
+                temp.mem_write_bytes_exact(
+                    &mut pad,
+                    dest + offset_of!(abi::UtsName, release),
+                    b"4.0.0-bandsocks\0",
+                )
+                .await,
+            );
+            let main_result = main_result.and(
+                temp.mem_write_bytes_exact(
+                    &mut pad,
+                    dest + offset_of!(abi::UtsName, version),
+                    b"#1 SMP\0",
+                )
+                .await,
+            );
+            let main_result = main_result.and(
+                temp.mem_write_bytes_exact(
+                    &mut pad,
+                    dest + offset_of!(abi::UtsName, machine),
+                    abi::PLATFORM_NAME_BYTES,
+                )
+                .await,
+            );
+
+            let cleanup_result = temp.free(&mut pad.trampoline).await;
+            match (main_result, cleanup_result) {
+                (Ok(r), Ok(())) => Ok(r),
+                (Err(e), _) => Err(e),
+                (Ok(_), Err(e)) => Err(e),
+            }
+        }
+    };
+    let cleanup_result = pad.free().await;
+    main_result?;
+    cleanup_result?;
+    Ok(())
 }
 
 /// brk() is emulated using mmap because we can't change the host kernel's per
@@ -408,29 +442,31 @@ async fn do_brk<'q, 's, 't>(
     if new_brk.0 != 0 {
         let old_brk = stopped_task.task.task_data.mm.brk;
         let brk_start = stopped_task.task.task_data.mm.brk_start;
-        let old_brk_page = VPtr(abi::page_round_up(brk_start.max(old_brk).0));
-        let new_brk_page = VPtr(abi::page_round_up(brk_start.max(new_brk).0));
+        let old_brk_page = VPage::round_up(brk_start.ptr().max(old_brk));
+        let new_brk_page = VPage::round_up(brk_start.ptr().max(new_brk));
+
         if new_brk_page != old_brk_page {
             let mut tr = Trampoline::new(stopped_task);
+
             if new_brk_page == brk_start {
-                tr.munmap(brk_start, old_brk_page.0 - brk_start.0).await?;
+                tr.munmap(&(brk_start..old_brk_page)).await?;
             } else if old_brk_page == brk_start {
-                tr.mmap_anonymous_noreplace(
-                    brk_start,
-                    new_brk_page.0 - brk_start.0,
-                    abi::PROT_READ | abi::PROT_WRITE,
+                tr.mmap(
+                    &MappedPages::anonymous(brk_start..new_brk_page),
+                    &RemoteFd::invalid(),
+                    &MemFlags::rw(),
+                    abi::MAP_ANONYMOUS,
                 )
                 .await?;
             } else {
                 tr.mremap(
-                    brk_start,
-                    old_brk_page.0 - brk_start.0,
-                    new_brk_page.0 - brk_start.0,
+                    &(brk_start..old_brk_page),
+                    new_brk_page.ptr().0 - brk_start.ptr().0,
                 )
                 .await?;
             }
         }
-        stopped_task.task.task_data.mm.brk = brk_start.max(new_brk);
+        stopped_task.task.task_data.mm.brk = brk_start.ptr().max(new_brk);
     }
     Ok(stopped_task.task.task_data.mm.brk)
 }

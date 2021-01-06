@@ -1,6 +1,7 @@
 use crate::{
     abi,
     ipc::Socket,
+    mem::page::VPage,
     nolibc::PROC_SELF_EXE,
     process::{
         table::{FileTable, ProcessTable},
@@ -66,8 +67,8 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
                 let sys_pid = SysPid(result as u32);
                 let parent = None;
                 let mm = TaskMemManagement {
-                    brk: VPtr(0),
-                    brk_start: VPtr(0),
+                    brk: VPtr::null(),
+                    brk_start: VPage::null(),
                 };
                 let file_table = FileTable::new();
                 self.process_table
