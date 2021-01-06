@@ -203,6 +203,8 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
             nr::SET_TID_ADDRESS => 0,
 
+            nr::WAIT4 => return_result(Err(Errno(-abi::ECHILD))),
+
             nr::FORK => panic!("fork"),
             nr::CLONE => panic!("clone"),
 

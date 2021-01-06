@@ -138,6 +138,7 @@ pub fn policy_for_loader() {
             nr::STAT,
             nr::SYSINFO,
             nr::UNAME,
+            nr::WAIT4,
         ],
         &[ret(SECCOMP_RET_TRACE)],
     );
