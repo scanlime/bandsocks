@@ -131,7 +131,7 @@ fn busybox_stat_root() {
             output.stdout_str(),
             concat!(
                 "  File: /\n",
-                "  Size: 0         \tBlocks: 0          IO Block: 512    directory\n",
+                "  Size: 0         \tBlocks: 0          IO Block: 4096   directory\n",
                 "Device: 0h/0d\tInode: 0           Links: 10\n",
                 "Access: (0755/drwxr-xr-x)  Uid: (    0/    root)   Gid: (    0/    root)\n",
                 "Access: 1970-01-01 00:00:00.000000000 +0000\n",
@@ -157,7 +157,7 @@ fn busybox_stat_sh() {
             output.stdout_str(),
             concat!(
                 "  File: /bin/sh\n",
-                "  Size: 1165544   \tBlocks: 2277       IO Block: 512    regular file\n",
+                "  Size: 1165544   \tBlocks: 2277       IO Block: 4096   regular file\n",
                 "Device: 0h/0d\tInode: 2           Links: 393\n",
                 "Access: (0755/-rwxr-xr-x)  Uid: (    0/    root)   Gid: (    0/    root)\n",
                 "Access: 1970-01-01 00:00:00.000000000 +0000\n",

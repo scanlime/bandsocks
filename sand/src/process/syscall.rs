@@ -103,7 +103,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             pad0: 0,
             st_rdev: file_stat.st_rdev,
             st_size: file_stat.st_size,
-            st_blksize: 512,
+            st_blksize: 4096,
             st_blocks: (file_stat.st_size + 511) / 512,
             st_atime: file_stat.st_atime,
             st_atime_nsec: file_stat.st_atime_nsec,
