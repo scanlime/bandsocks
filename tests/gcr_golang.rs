@@ -18,6 +18,8 @@ fn pull() {
 }
 
 /*
+fixme: needs clone()
+
 #[test]
 fn gcr_hello() {
     Runtime::new().unwrap().block_on(async {

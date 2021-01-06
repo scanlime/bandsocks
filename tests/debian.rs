@@ -1,8 +1,7 @@
 use bandsocks::{Container, ContainerBuilder};
 use tokio::runtime::Runtime;
 
-const IMAGE: &str =
-    "alpine@sha256:d7342993700f8cd7aba8496c2d0e57be0666e80b4c441925fc6f9361fa81d10e";
+const IMAGE: &str = "debian:stable@sha256:12f327b8fe74c597b30a7a2aad24c7711f80b9de3b0fa4d53f20bd00592c7728";
 
 async fn common() -> ContainerBuilder {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -19,7 +18,7 @@ fn pull() {
 }
 
 #[test]
-fn alpine_true() {
+fn debian_true() {
     Runtime::new().unwrap().block_on(async {
         let container = common().await.arg("/bin/true").spawn().unwrap();
         let status = container.wait().await.unwrap();
@@ -28,10 +27,28 @@ fn alpine_true() {
 }
 
 #[test]
-fn alpine_false() {
+fn debian_false() {
     Runtime::new().unwrap().block_on(async {
         let container = common().await.arg("/bin/false").spawn().unwrap();
         let status = container.wait().await.unwrap();
         assert_eq!(status.code(), Some(1));
+    })
+}
+
+#[test]
+fn debian_echo() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common()
+            .await
+            .arg("/bin/echo")
+            .arg("hello")
+            .arg("world")
+            .spawn()
+            .unwrap();
+        let output = container.output().await.unwrap();
+        println!("{:?}", output);
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(output.stdout_str(), "hello world\n");
     })
 }

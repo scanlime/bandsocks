@@ -32,12 +32,12 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::SOCKETPAIR,
             nr::EXIT_GROUP,
             nr::EXIT,
-            nr::FORK,
             nr::COPY_FILE_RANGE,
             nr::DUP2,
             nr::RT_SIGPROCMASK,
             nr::RT_SIGACTION,
             nr::RT_SIGRETURN,
+            nr::SIGALTSTACK,
             nr::SENDFILE,
             nr::MMAP,
             nr::TIME,
@@ -58,6 +58,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::PRCTL,
             // fixme: only allow pid==0 case
             nr::SCHED_GETAFFINITY,
+            nr::PRLIMIT64,
         ],
         &[ret(SECCOMP_RET_ALLOW)],
     );
@@ -81,6 +82,7 @@ pub fn policy_for_tracer() {
             nr::RT_SIGRETURN,
             // need this to get to the next stage
             // xxx: drop this privilege as soon as we initialize the tracer
+            nr::FORK,
             nr::EXECVE,
             // xxx: can't allow this, use a different attach mechanism?
             nr::KILL,
@@ -107,6 +109,8 @@ pub fn policy_for_loader() {
             nr::CLOSE,
             nr::EXECVE,
             nr::FSTAT,
+            nr::FORK,
+            nr::CLONE,
             nr::GETCWD,
             nr::GETDENTS64,
             nr::GETEGID,
@@ -117,9 +121,12 @@ pub fn policy_for_loader() {
             nr::GETPPID,
             nr::GETPGID,
             nr::GETUID,
+            nr::GETTID,
             nr::IOCTL,
             nr::LSTAT,
             nr::NEWFSTATAT,
+            nr::STATFS,
+            nr::FSTATFS,
             nr::OPEN,
             nr::OPENAT,
             nr::RECVMSG,

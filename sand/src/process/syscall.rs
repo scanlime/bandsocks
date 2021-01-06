@@ -188,6 +188,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::UNAME => return_result(do_uname(self.stopped_task, arg_ptr(0)).await),
 
             nr::GETPID => self.stopped_task.task.task_data.vpid.0 as isize,
+            nr::GETTID => self.stopped_task.task.task_data.vpid.0 as isize,
 
             nr::GETPPID => 1,
             nr::GETUID => 0,
@@ -201,6 +202,9 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             nr::SYSINFO => 0,
 
             nr::SET_TID_ADDRESS => 0,
+
+            nr::FORK => panic!("fork"),
+            nr::CLONE => panic!("clone"),
 
             nr::IOCTL => {
                 let _fd = arg_fd(0);
