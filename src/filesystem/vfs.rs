@@ -10,6 +10,7 @@ use std::{
     collections::BTreeMap,
     ffi::{CStr, CString, OsStr, OsString},
     fs::File,
+    io::Write,
     os::unix::io::AsRawFd,
     path::Path,
     sync::Arc,
@@ -234,23 +235,13 @@ impl<'s> Filesystem {
         f: &VFile,
     ) -> Result<Arc<dyn AsRawFd + Sync + Send>, VFSError> {
         let node = self.get_inode(f.inode)?;
-        let storage = match &node.data {
-            Node::EmptyFile | Node::NormalDirectory(_) => {
-                Arc::new(File::open("/dev/null").map_err(|_| VFSError::ImageStorageError)?)
-            }
-            Node::FileStorage(key) => Arc::new(
-                storage
-                    .open_part(key)
-                    .await
-                    .ok()
-                    .flatten()
-                    .ok_or(VFSError::ImageStorageError)?,
-            ),
-            Node::SharedStream(stream) => stream.vfile_open()?,
+        match &node.data {
+            Node::EmptyFile => open_null(),
+            Node::NormalDirectory(dir) => open_directory(&mut dir.iter()),
+            Node::SharedStream(stream) => stream.vfile_open(),
+            Node::FileStorage(key) => open_storage_part(storage, key).await,
             _ => return Err(VFSError::FileExpected),
-        };
-        log::debug!("open_storage({:?}) -> {:?}", f, storage.as_raw_fd());
-        Ok(storage)
+        }
     }
 
     pub fn is_directory(&self, f: &VFile) -> Result<bool, VFSError> {
@@ -503,4 +494,53 @@ impl<'f> VFSWriter<'f> {
             })
         }
     }
+}
+
+fn open_null() -> Result<Arc<dyn AsRawFd + Sync + Send>, VFSError> {
+    Ok(Arc::new(
+        File::open("/dev/null").map_err(|_| VFSError::ImageStorageError)?,
+    ))
+}
+
+async fn open_storage_part(
+    storage: &FileStorage,
+    key: &StorageKey,
+) -> Result<Arc<dyn AsRawFd + Sync + Send>, VFSError> {
+    Ok(Arc::new(
+        storage
+            .open_part(key)
+            .await
+            .ok()
+            .flatten()
+            .ok_or(VFSError::ImageStorageError)?,
+    ))
+}
+
+fn open_directory<'a, T: Iterator<Item = (&'a OsString, &'a INodeNum)>>(
+    iter: &mut T,
+) -> Result<Arc<dyn AsRawFd + Sync + Send>, VFSError> {
+    let memfd = memfd::MemfdOptions::default()
+        .allow_sealing(true)
+        .create("bandsocks-dir")
+        .map_err(|_| VFSError::ImageStorageError)?;
+    for (_name, _inode) in iter {
+        memfd
+            .as_file()
+            .write_all(b"")
+            .map_err(|_| VFSError::ImageStorageError)?;
+    }
+    memfd
+        .add_seals(
+            &[
+                memfd::FileSeal::SealWrite,
+                memfd::FileSeal::SealShrink,
+                memfd::FileSeal::SealGrow,
+                memfd::FileSeal::SealSeal,
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+        )
+        .map_err(|_| VFSError::ImageStorageError)?;
+    Ok(Arc::new(memfd.into_file()))
 }
