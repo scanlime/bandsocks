@@ -1,9 +1,9 @@
 use crate::{
     filesystem::vfs::Filesystem,
     process::Process,
-    sand::protocol::{Errno, FileStat, FollowLinks, VFile, VString, VStringBuffer},
+    sand::protocol::{Errno, FileStat, FollowLinks, VFile, VString},
 };
-use std::path::Path;
+use std::{ffi::CString, path::Path};
 
 pub async fn change_working_dir(
     process: &mut Process,
@@ -18,21 +18,18 @@ pub async fn change_working_dir(
 pub async fn get_working_dir(
     _process: &mut Process,
     _filesystem: &Filesystem,
-    buffer: &VStringBuffer,
-) -> Result<usize, Errno> {
-    log::warn!("get_working_dir({:x?})", buffer);
-    Ok(0)
+) -> Result<CString, Errno> {
+    Ok(CString::new("working dir goes here").unwrap())
 }
 
 pub async fn readlink(
     process: &mut Process,
     _filesystem: &Filesystem,
     path: &VString,
-    buffer: &VStringBuffer,
-) -> Result<usize, Errno> {
+) -> Result<CString, Errno> {
     let path = process.mem.read_user_string(path)?;
-    log::warn!("readlink({:x?}, {:x?})", path, buffer);
-    Err(Errno(-libc::EINVAL))
+    log::warn!("readlink({:x?})", path);
+    Ok(CString::new("readlink goes here").unwrap())
 }
 
 pub async fn file_open(

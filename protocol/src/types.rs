@@ -4,6 +4,8 @@ use core::{
     ops::{Add, Sub},
 };
 
+pub const MEMFD_TEMP_NAME: &[u8] = b"bandsocks-temp\0";
+
 /// Exit codes returned by the sand process
 pub mod exit {
     pub const EXIT_OK: usize = 0;
@@ -120,7 +122,3 @@ impl Sub<usize> for VPtr {
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct VString(pub VPtr);
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-#[repr(C)]
-pub struct VStringBuffer(pub VString, pub usize);

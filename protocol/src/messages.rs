@@ -70,7 +70,7 @@ pub enum ToTask {
     OpenProcessReply(ProcessHandle),
     FileReply(Result<(VFile, SysFd), Errno>),
     FileStatReply(Result<(VFile, FileStat), Errno>),
-    SizeReply(Result<usize, Errno>),
+    BytesReply(Result<(SysFd, usize), Errno>),
     Reply(Result<(), Errno>),
 }
 
@@ -94,10 +94,10 @@ pub enum FromTask {
         path: Option<VString>,
         follow_links: FollowLinks,
     },
-    ReadLink(VString, VStringBuffer),
+    ReadLink(VString),
     ProcessKill(VPid, Signal),
     ChangeWorkingDir(VString),
-    GetWorkingDir(VStringBuffer),
+    GetWorkingDir,
     Exited(i32),
     Log(LogLevel, LogMessage),
 }

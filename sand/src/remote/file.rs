@@ -6,7 +6,7 @@ use crate::{
         page::VPage,
         rw::{read_value, write_padded_bytes, write_padded_value},
     },
-    protocol::{Errno, SysFd, VPtr},
+    protocol::{Errno, SysFd, VPtr, MEMFD_TEMP_NAME},
     remote::{scratchpad::Scratchpad, trampoline::Trampoline},
 };
 use core::{mem::size_of, pin::Pin, ptr};
@@ -267,7 +267,7 @@ pub struct EmptyTempRemoteFd(TempRemoteFd);
 impl EmptyTempRemoteFd {
     pub async fn new(scratchpad: &mut Scratchpad<'_, '_, '_, '_>) -> Result<Self, Errno> {
         Ok(EmptyTempRemoteFd(TempRemoteFd(
-            RemoteFd::memfd_create(scratchpad, b"bandsocks-temp\0", 0).await?,
+            RemoteFd::memfd_create(scratchpad, MEMFD_TEMP_NAME, 0).await?,
         )))
     }
 }
@@ -435,25 +435,27 @@ pub async fn fd_copy_exact(
     }
 }
 
-pub async fn memzero(
+pub async fn memzero_with_trampoline(
     trampoline: &mut Trampoline<'_, '_, '_>,
     addr: VPtr,
     len: usize,
 ) -> Result<(), Errno> {
     let mut pad = Scratchpad::new(trampoline).await?;
-    let main_result = match ZeroRemoteFd::new(&mut pad).await {
-        Err(err) => Err(err),
-        Ok(mut zerofd) => {
-            let main_result = zerofd.memzero(&mut pad, addr, len).await;
-            let cleanup_result = zerofd.free(&mut pad.trampoline).await;
-            match (main_result, cleanup_result) {
-                (Ok(r), Ok(())) => Ok(r),
-                (Err(e), _) => Err(e),
-                (Ok(_), Err(e)) => Err(e),
-            }
-        }
-    };
+    let main_result = memzero_with_scratchpad(&mut pad, addr, len).await;
     let cleanup_result = pad.free().await;
+    main_result?;
+    cleanup_result?;
+    Ok(())
+}
+
+pub async fn memzero_with_scratchpad(
+    scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
+    addr: VPtr,
+    len: usize,
+) -> Result<(), Errno> {
+    let mut zerofd = ZeroRemoteFd::new(scratchpad).await?;
+    let main_result = zerofd.memzero(scratchpad, addr, len).await;
+    let cleanup_result = zerofd.free(&mut scratchpad.trampoline).await;
     main_result?;
     cleanup_result?;
     Ok(())
@@ -519,7 +521,7 @@ impl LoadedSegment {
             // Might need to additionally zero the tail end of the file mapping, at the
             // boundary between rwdata and bss segments
             if segment.protect.write && mapped_range.mem.end < mapped_pages.mem_pages().end.ptr() {
-                memzero(
+                memzero_with_trampoline(
                     trampoline,
                     mapped_range.mem.end,
                     mapped_pages.mem_pages().end.ptr().0 - mapped_range.mem.end.0,

@@ -6,13 +6,16 @@ use crate::{
     sand,
     sand::protocol::{
         buffer, buffer::IPCBuffer, exit::*, Errno, FileStat, FromTask, MessageFromSand,
-        MessageToSand, SysFd, ToTask, TracerSettings, VFile, VPid,
+        MessageToSand, SysFd, ToTask, TracerSettings, VFile, VPid, MEMFD_TEMP_NAME,
     },
     taskcall,
 };
 use fd_queue::{tokio::UnixStream, EnqueueFd};
 use std::{
     collections::HashMap,
+    ffi::{CStr, CString},
+    fs::File,
+    io::Write,
     os::{
         raw::c_int,
         unix::{io::AsRawFd, prelude::RawFd},
@@ -55,6 +58,14 @@ async fn send_message(
     stream.write_all(buffer.as_slice().bytes).await?;
     stream.flush().await?;
     Ok(())
+}
+
+fn memfd_from_bytes(bytes: &[u8]) -> Result<File, RuntimeError> {
+    let name = MEMFD_TEMP_NAME;
+    let name = CStr::from_bytes_with_nul(name).unwrap().to_str().unwrap();
+    let mut file = memfd::MemfdOptions::default().create(name)?.into_file();
+    file.write_all(bytes)?;
+    Ok(file)
 }
 
 impl IPCServer {
@@ -184,19 +195,6 @@ impl IPCServer {
         Ok(None)
     }
 
-    async fn task_size_reply(
-        &mut self,
-        task: VPid,
-        result: Result<usize, Errno>,
-    ) -> Result<Option<ExitStatus>, RuntimeError> {
-        self.send_message(&MessageToSand::Task {
-            task,
-            op: ToTask::SizeReply(result),
-        })
-        .await?;
-        Ok(None)
-    }
-
     async fn task_stat_reply(
         &mut self,
         task: VPid,
@@ -235,6 +233,41 @@ impl IPCServer {
         Ok(None)
     }
 
+    async fn task_bytes_reply(
+        &mut self,
+        task: VPid,
+        result: Result<&[u8], Errno>,
+    ) -> Result<Option<ExitStatus>, RuntimeError> {
+        let (_storage, reply) = match result {
+            Err(e) => (None, Err(e)),
+            Ok(bytes) => match memfd_from_bytes(bytes) {
+                Err(_) => (None, Err(Errno(-libc::EFAULT))),
+                Ok(file) => {
+                    let sys_fd = SysFd(file.as_raw_fd() as u32);
+                    (Some(file), Ok((sys_fd, bytes.len())))
+                }
+            },
+        };
+        self.send_message(&MessageToSand::Task {
+            task,
+            op: ToTask::BytesReply(reply),
+        })
+        .await?;
+        Ok(None)
+    }
+
+    async fn task_cstring_reply(
+        &mut self,
+        task: VPid,
+        result: Result<CString, Errno>,
+    ) -> Result<Option<ExitStatus>, RuntimeError> {
+        let result = match &result {
+            Err(e) => Err(*e),
+            Ok(cstring) => Ok(cstring.as_bytes_with_nul()),
+        };
+        self.task_bytes_reply(task, result).await
+    }
+
     async fn handle_task_message(
         &mut self,
         task: VPid,
@@ -268,11 +301,11 @@ impl IPCServer {
                 }
             }
 
-            FromTask::GetWorkingDir(buffer) => match self.process_table.get_mut(&task) {
+            FromTask::GetWorkingDir => match self.process_table.get_mut(&task) {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
-                    let result = taskcall::get_working_dir(process, &self.filesystem, buffer).await;
-                    self.task_size_reply(task, result).await
+                    let result = taskcall::get_working_dir(process, &self.filesystem).await;
+                    self.task_cstring_reply(task, result).await
                 }
             },
 
@@ -285,11 +318,11 @@ impl IPCServer {
                 }
             },
 
-            FromTask::ReadLink(path, buffer) => match self.process_table.get_mut(&task) {
+            FromTask::ReadLink(path) => match self.process_table.get_mut(&task) {
                 None => Err(RuntimeError::WrongProcessState)?,
                 Some(process) => {
-                    let result = taskcall::readlink(process, &self.filesystem, path, buffer).await;
-                    self.task_size_reply(task, result).await
+                    let result = taskcall::readlink(process, &self.filesystem, path).await;
+                    self.task_cstring_reply(task, result).await
                 }
             },
 
