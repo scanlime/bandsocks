@@ -36,10 +36,15 @@ pub struct ProcessStatus {
 }
 
 #[derive(Debug)]
+pub struct MemFile(File);
+
+#[derive(Debug)]
+pub struct MapsFile(File);
+
+#[derive(Debug)]
 pub struct Process {
-    sys_pid: SysPid,
-    mem_file: File,
-    maps_file: File,
+    pub mem: MemFile,
+    pub maps: MapsFile,
     pub status: ProcessStatus,
 }
 
@@ -51,84 +56,69 @@ impl Process {
     ) -> Result<Process, RuntimeError> {
         // Check before and after opening the file, to prevent PID races
         check_can_open(sys_pid, tracer)?;
-        let mem_file = open_mem_file(sys_pid)?;
-        let maps_file = open_maps_file(sys_pid)?;
+        let mem = MemFile::open(sys_pid)?;
+        let maps = MapsFile::open(sys_pid)?;
         check_can_open(sys_pid, tracer)?;
-        Ok(Process {
-            sys_pid,
-            mem_file,
-            maps_file,
-            status,
-        })
+        Ok(Process { mem, maps, status })
     }
 
     pub fn to_handle(&self) -> ProcessHandle {
         ProcessHandle {
-            mem: SysFd(self.mem_file.as_raw_fd() as u32),
-            maps: SysFd(self.maps_file.as_raw_fd() as u32),
+            mem: SysFd(self.mem.0.as_raw_fd() as u32),
+            maps: SysFd(self.maps.0.as_raw_fd() as u32),
         }
     }
+}
 
-    #[allow(dead_code)]
+impl MemFile {
     pub fn read_bytes(&self, vptr: VPtr, buf: &mut [u8]) -> Result<(), RuntimeError> {
-        read_bytes(&self.mem_file, vptr, buf)
-    }
-
-    pub fn read_string(&self, vstr: &VString) -> Result<String, RuntimeError> {
-        read_string(&self.mem_file, vstr)
+        self.0
+            .read_exact_at(buf, vptr.0 as u64)
+            .map_err(|_| RuntimeError::MemAccess)
     }
 
     pub fn read_user_string(&self, vstr: &VString) -> Result<String, Errno> {
         self.read_string(vstr).map_err(|_| Errno(-libc::EFAULT))
     }
 
-    #[allow(dead_code)]
-    pub fn read_string_os(&self, vstr: &VString) -> Result<OsString, RuntimeError> {
-        read_string_os(&self.mem_file, vstr)
+    pub fn read_string(&self, vstr: &VString) -> Result<String, RuntimeError> {
+        self.read_string_os(vstr)?
+            .into_string()
+            .map_err(|_| RuntimeError::StringDecoding)
     }
-}
 
-fn read_bytes(mem_file: &File, vptr: VPtr, buf: &mut [u8]) -> Result<(), RuntimeError> {
-    mem_file
-        .read_exact_at(buf, vptr.0 as u64)
-        .map_err(|_| RuntimeError::MemAccess)
-}
-
-fn read_string(mem_file: &File, vstr: &VString) -> Result<String, RuntimeError> {
-    read_string_os(mem_file, vstr)?
-        .into_string()
-        .map_err(|_| RuntimeError::StringDecoding)
-}
-
-fn read_string_os(mem_file: &File, vstr: &VString) -> Result<OsString, RuntimeError> {
-    let mut ptr = vstr.0;
-    let mut result = OsString::new();
-    let mut page_buffer = Vec::with_capacity(*PAGE_SIZE);
-    loop {
-        page_buffer.resize(page_remaining(ptr), 0u8);
-        read_bytes(mem_file, ptr, &mut page_buffer[..])?;
-        match page_buffer.iter().position(|i| *i == 0) {
-            None => {
-                result.push(OsStr::from_bytes(&page_buffer));
-                ptr = ptr + page_buffer.len();
-            }
-            Some(index) => {
-                result.push(OsStr::from_bytes(&page_buffer[0..index]));
-                break Ok(result);
+    pub fn read_string_os(&self, vstr: &VString) -> Result<OsString, RuntimeError> {
+        let mut ptr = vstr.0;
+        let mut result = OsString::new();
+        let mut page_buffer = Vec::with_capacity(*PAGE_SIZE);
+        loop {
+            page_buffer.resize(page_remaining(ptr), 0u8);
+            self.read_bytes(ptr, &mut page_buffer[..])?;
+            match page_buffer.iter().position(|i| *i == 0) {
+                None => {
+                    result.push(OsStr::from_bytes(&page_buffer));
+                    ptr = ptr + page_buffer.len();
+                }
+                Some(index) => {
+                    result.push(OsStr::from_bytes(&page_buffer[0..index]));
+                    break Ok(result);
+                }
             }
         }
     }
+
+    fn open(sys_pid: SysPid) -> Result<Self, RuntimeError> {
+        // open for read only, write is not portable enough
+        let path = format!("/proc/{}/mem", sys_pid.0);
+        Ok(MemFile(File::open(path)?))
+    }
 }
 
-fn open_mem_file(sys_pid: SysPid) -> Result<File, RuntimeError> {
-    // open for read only, write is not portable enough
-    let path = format!("/proc/{}/mem", sys_pid.0);
-    Ok(File::open(path)?)
-}
-
-fn open_maps_file(sys_pid: SysPid) -> Result<File, RuntimeError> {
-    let path = format!("/proc/{}/maps", sys_pid.0);
-    Ok(File::open(path)?)
+impl MapsFile {
+    fn open(sys_pid: SysPid) -> Result<Self, RuntimeError> {
+        let path = format!("/proc/{}/maps", sys_pid.0);
+        Ok(MapsFile(File::open(path)?))
+    }
 }
 
 fn read_proc_status(sys_pid: SysPid) -> Result<String, RuntimeError> {
@@ -165,7 +155,7 @@ mod tests {
     #[test]
     fn string_read_from_self() {
         let self_pid = SysPid(unsafe { libc::getpid() as u32 });
-        let self_mem = open_mem_file(self_pid).unwrap();
+        let self_mem = MemFile::open(self_pid).unwrap();
 
         let page_size = *PAGE_SIZE;
         let map_total_size = 5 * page_size;
@@ -203,21 +193,23 @@ mod tests {
 
         // First test a few edge cases around the memory hole, with all zeroes in the
         // mapping still
-        assert_eq!(read_string(&self_mem, &VString(map_addr)).unwrap(), "");
+        assert_eq!(self_mem.read_string(&VString(map_addr)).unwrap(), "");
         assert_eq!(
-            read_string(&self_mem, &VString(map_addr + (hole_offset - 1))).unwrap(),
+            self_mem
+                .read_string(&VString(map_addr + (hole_offset - 1)))
+                .unwrap(),
             ""
         );
-        assert!(is_memaccess_err(read_string(
-            &self_mem,
-            &VString(map_addr + hole_offset)
-        )));
-        assert!(is_memaccess_err(read_string(
-            &self_mem,
-            &VString(map_addr + (hole_offset + hole_size - 1))
-        )));
+        assert!(is_memaccess_err(
+            self_mem.read_string(&VString(map_addr + hole_offset))
+        ));
+        assert!(is_memaccess_err(self_mem.read_string(&VString(
+            map_addr + (hole_offset + hole_size - 1)
+        ))));
         assert_eq!(
-            read_string(&self_mem, &VString(map_addr + (hole_offset + hole_size))).unwrap(),
+            self_mem
+                .read_string(&VString(map_addr + (hole_offset + hole_size)))
+                .unwrap(),
             ""
         );
 
@@ -231,7 +223,7 @@ mod tests {
                 let offset_end = offset + test_str.len();
                 map_slice[offset..offset_end].copy_from_slice(test_str.as_bytes());
                 map_slice[offset_end] = b'\0';
-                let readback = read_string(&self_mem, &VString(map_addr + offset)).unwrap();
+                let readback = self_mem.read_string(&VString(map_addr + offset)).unwrap();
                 assert_eq!(test_str, readback);
             }
         }

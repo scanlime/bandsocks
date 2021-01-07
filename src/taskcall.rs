@@ -10,7 +10,7 @@ pub async fn change_working_dir(
     _filesystem: &Filesystem,
     path: &VString,
 ) -> Result<(), Errno> {
-    let path = process.read_user_string(path)?;
+    let path = process.mem.read_user_string(path)?;
     log::warn!("change_working_dir({:?})", path);
     Ok(())
 }
@@ -30,7 +30,7 @@ pub async fn readlink(
     path: &VString,
     buffer: &VStringBuffer,
 ) -> Result<usize, Errno> {
-    let path = process.read_user_string(path)?;
+    let path = process.mem.read_user_string(path)?;
     log::warn!("readlink({:x?}, {:x?})", path, buffer);
     Err(Errno(-libc::EINVAL))
 }
@@ -43,7 +43,7 @@ pub async fn file_open(
     flags: i32,
     mode: i32,
 ) -> Result<VFile, Errno> {
-    let path_str = process.read_user_string(path)?;
+    let path_str = process.mem.read_user_string(path)?;
     let path = Path::new(&path_str);
     let dir = match dir {
         Some(dir) => &dir,
@@ -73,7 +73,7 @@ pub async fn file_stat(
 ) -> Result<(VFile, FileStat), Errno> {
     let path = match path {
         Some(path) => {
-            let path_str = process.read_user_string(path)?;
+            let path_str = process.mem.read_user_string(path)?;
             let path = Path::new(&path_str);
             Some(path.to_owned())
         }
