@@ -24,7 +24,7 @@ it's highly experimental and doesn't actually work yet!
 [actions-badge]: https://github.com/scanlime/bandsocks/workflows/Tests/badge.svg
 [actions-url]: https://github.com/scanlime/bandsocks/actions?query=workflow%3ATests+branch%3Amaster
 
-Takes inspiration from gaol, User Mode Linux, gvisor, chromium, and podman. The goal is to add an extra level of isolation to compute workloads we run as non-root within containers which are already somewhat locked down. This means that most high-powered kernel features like KVM and even user namespaces are off the table. The approach this project uses is based on seccomp to restrict system calls, and an emulated filesystem.
+Takes inspiration from User Mode Linux, gvisor, and podman. The goal is to add an extra level of isolation to compute workloads we run as non-root within containers which are already somewhat locked down. This means that most high-powered kernel features like KVM and even user namespaces are off the table. The approach this project uses is based on seccomp to restrict system calls, and an emulated filesystem.
 
 The intended API for this package is fairly high-level:
 
