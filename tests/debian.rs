@@ -70,6 +70,22 @@ fn debian_uname() {
 }
 
 #[test]
+fn debian_readlink_sh() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common()
+            .await
+            .arg("readlink")
+            .arg("/bin/sh")
+            .spawn()
+            .unwrap();
+        let output = container.output().await.unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(output.stdout_str(), "dash\n");
+    })
+}
+
+#[test]
 fn super_cow_powers() {
     Runtime::new().unwrap().block_on(async {
         let container = common().await.arg("apt").arg("moo").spawn().unwrap();

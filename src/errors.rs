@@ -1,5 +1,6 @@
 //! Error types you might see while setting up or running a container
 
+use crate::sand::protocol::Errno;
 use thiserror::Error;
 
 /// Errors during container image preparation
@@ -12,6 +13,9 @@ pub enum ImageError {
     /// storage io error
     #[error("storage io error: {0}")]
     Storage(#[from] std::io::Error),
+
+    #[error("utf8 path conversion error")]
+    Utf8Error(#[from] std::str::Utf8Error),
 
     /// json error
     #[error("json error: {0}")]
@@ -212,6 +216,9 @@ pub enum VFSError {
     #[error("expected a file, found another node type")]
     FileExpected,
 
+    #[error("expected a symlink, found another node type")]
+    LinkExpected,
+
     #[error("unallocated node")]
     UnallocNode,
 
@@ -226,6 +233,9 @@ pub enum VFSError {
 
     #[error("inode reference count error")]
     INodeRefCountError,
+
+    #[error("utf8 path conversion error")]
+    Utf8Error(#[from] std::str::Utf8Error),
 }
 
 impl VFSError {
@@ -233,14 +243,22 @@ impl VFSError {
     pub fn to_errno(&self) -> libc::c_int {
         match self {
             VFSError::ImageStorageError => libc::EIO,
+            VFSError::Utf8Error(_) => libc::EINVAL,
             VFSError::IO => libc::EIO,
             VFSError::DirectoryExpected => libc::ENOTDIR,
             VFSError::FileExpected => libc::EISDIR,
+            VFSError::LinkExpected => libc::EINVAL,
             VFSError::UnallocNode => libc::ENOENT,
             VFSError::NotFound => libc::ENOENT,
             VFSError::PathSegmentLimitExceeded => libc::ENAMETOOLONG,
             VFSError::SymbolicLinkLimitExceeded => libc::ELOOP,
             VFSError::INodeRefCountError => libc::ENOMEM,
         }
+    }
+}
+
+impl From<VFSError> for Errno {
+    fn from(err: VFSError) -> Self {
+        Errno(-err.to_errno())
     }
 }

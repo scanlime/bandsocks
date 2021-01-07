@@ -24,12 +24,16 @@ pub async fn get_working_dir(
 
 pub async fn readlink(
     process: &mut Process,
-    _filesystem: &Filesystem,
+    filesystem: &Filesystem,
     path: &VString,
 ) -> Result<CString, Errno> {
-    let path = process.mem.read_user_string(path)?;
-    log::warn!("readlink({:x?})", path);
-    Ok(CString::new("readlink goes here").unwrap())
+    let path_str = process.mem.read_user_string(path)?;
+    let path = Path::new(&path_str);
+    let dir = &process.status.current_dir;
+    let vfile = filesystem.lookup(dir, &path, &FollowLinks::NoFollow)?;
+    let cstr = filesystem.readlink(&vfile)?;
+    log::debug!("readlink({:?}) -> {:?}", path, cstr);
+    Ok(cstr.to_owned())
 }
 
 pub async fn file_open(
@@ -46,19 +50,9 @@ pub async fn file_open(
         Some(dir) => &dir,
         None => &process.status.current_dir,
     };
-    let result = filesystem.lookup(&dir, &path, &FollowLinks::Follow);
-    log::debug!(
-        "file_open({:?}, {:?}, {:?}, {:?}) -> {:?}",
-        dir,
-        path,
-        flags,
-        mode,
-        result
-    );
-    match result {
-        Err(e) => Err(Errno(-e.to_errno())),
-        Ok(vfile) => Ok(vfile),
-    }
+    let vfile = filesystem.lookup(&dir, &path, &FollowLinks::Follow)?;
+    log::debug!("file_open{:?} -> {:?}", (dir, path, flags, mode), vfile);
+    Ok(vfile)
 }
 
 pub async fn file_stat(
@@ -82,22 +76,13 @@ pub async fn file_stat(
     };
     let file = match &path {
         None => file.to_owned(),
-        Some(path) => match filesystem.lookup(file, path, follow_links) {
-            Ok(file) => file,
-            Err(e) => return Err(Errno(-e.to_errno())),
-        },
+        Some(path) => filesystem.lookup(file, path, follow_links)?,
     };
-    let stat = match filesystem.stat(&file) {
-        Ok(stat) => stat.to_owned(),
-        Err(e) => return Err(Errno(-e.to_errno())),
-    };
+    let stat = filesystem.stat(&file)?.to_owned();
     log::debug!(
-        "file_stat({:?}, {:?}, {:?}) -> {:?}, {:?}",
-        file,
-        path,
-        follow_links,
-        file,
-        stat
+        "file_stat{:?} -> {:?}",
+        (path, follow_links),
+        (&file, &stat)
     );
     Ok((file, stat))
 }

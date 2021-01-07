@@ -8,10 +8,10 @@ use crate::{
 };
 use std::{
     collections::BTreeMap,
-    ffi::{OsStr, OsString},
+    ffi::{CStr, CString, OsStr, OsString},
     fs::File,
     os::unix::io::AsRawFd,
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
 };
 
@@ -43,7 +43,7 @@ enum Node {
     FileStorage(StorageKey),
     SharedStream(SharedStream),
     EmptyFile,
-    SymbolicLink(PathBuf),
+    SymbolicLink(CString),
     Char(u32, u32),
     Block(u32, u32),
     Fifo,
@@ -119,10 +119,14 @@ impl<'s> Filesystem {
         mut limits: &mut Limits,
         mut entry: DirEntryRef,
     ) -> Result<DirEntryRef, VFSError> {
-        while let Node::SymbolicLink(path) = &self.get_inode(entry.child)?.data {
-            log::trace!("following symlink, {:?} -> {:?}", entry, path);
+        while let Node::SymbolicLink(cstr) = &self.get_inode(entry.child)?.data {
+            log::trace!("following symlink, {:?} -> {:?}", entry, cstr);
             limits.take_symbolic_link()?;
-            entry = self.resolve_path(&mut limits, entry.parent, path)?;
+            entry = self.resolve_path(
+                &mut limits,
+                entry.parent,
+                Path::new(cstr.as_c_str().to_str()?),
+            )?;
         }
         Ok(entry)
     }
@@ -213,6 +217,15 @@ impl<'s> Filesystem {
         let stat = &self.get_inode(f.inode)?.stat;
         log::debug!("stat({:?}) -> {:?}", f, stat);
         Ok(stat)
+    }
+
+    pub fn readlink(&self, f: &VFile) -> Result<&CStr, VFSError> {
+        let cstr = match &self.get_inode(f.inode)?.data {
+            Node::SymbolicLink(path) => path.as_c_str(),
+            _ => return Err(VFSError::LinkExpected),
+        };
+        log::debug!("readlink({:?}) -> {:?}", f, cstr);
+        Ok(cstr)
     }
 
     pub async fn open_storage(
@@ -412,9 +425,9 @@ impl<'f> VFSWriter<'f> {
         &mut self,
         path: &Path,
         stat: FileStat,
-        link_to: &Path,
+        link_to: CString,
     ) -> Result<(), VFSError> {
-        self.write_node_file(path, stat, Node::SymbolicLink(link_to.to_path_buf()))
+        self.write_node_file(path, stat, Node::SymbolicLink(link_to))
     }
 
     pub fn write_hardlink(&mut self, path: &Path, link_to: &Path) -> Result<(), VFSError> {

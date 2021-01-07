@@ -218,7 +218,7 @@ impl IPCServer {
         let (_storage, reply) = match result {
             Err(e) => (None, Err(e)),
             Ok(vfile) => match self.filesystem.open_storage(&self.storage, &vfile).await {
-                Err(e) => (None, Err(Errno(-e.to_errno()))),
+                Err(e) => (None, Err(e.into())),
                 Ok(file) => {
                     let sys_fd = SysFd(file.as_raw_fd() as u32);
                     (Some(file), Ok((vfile, sys_fd)))
