@@ -1,7 +1,6 @@
 use crate::{
     abi,
-    abi::LinuxDirentHeader,
-    protocol::{Errno, SysFd},
+    protocol::{abi::DirentHeader, Errno, SysFd},
 };
 use core::{
     alloc::{GlobalAlloc, Layout},
@@ -400,7 +399,10 @@ pub struct Dirent<'a> {
     pub d_name: &'a [u8],
 }
 
-unsafe impl Plain for LinuxDirentHeader {}
+#[repr(C)]
+struct PlainDirentHeader(DirentHeader);
+
+unsafe impl Plain for PlainDirentHeader {}
 
 impl<'f, S: ArrayLength<u8>, F: Fn(Dirent<'_>) -> V, V> Iterator for DirIterator<'f, S, F, V> {
     type Item = Result<V, Errno>;
@@ -422,22 +424,22 @@ impl<'f, S: ArrayLength<u8>, F: Fn(Dirent<'_>) -> V, V> Iterator for DirIterator
         if self.buf_position == self.buf.len() {
             None
         } else {
-            let mut header: LinuxDirentHeader = unsafe { mem::zeroed() };
+            let mut header: PlainDirentHeader = unsafe { mem::zeroed() };
             let raw_bytes = &self.buf[self.buf_position..];
             plain::copy_from_bytes(&mut header, raw_bytes).expect("dirent header");
-            let reclen = header.d_reclen as usize;
-            assert!(reclen >= size_of::<LinuxDirentHeader>());
+            let reclen = header.0.d_reclen as usize;
+            assert!(reclen >= size_of::<DirentHeader>());
             assert!(raw_bytes.len() >= reclen);
             self.buf_position += reclen;
-            let d_name = &raw_bytes[offset_of!(LinuxDirentHeader, d_name)..];
+            let d_name = &raw_bytes[offset_of!(DirentHeader, d_name)..];
             let d_name = d_name
                 .split(|b| *b == 0)
                 .next()
                 .expect("dirent nul termination");
             let dirent = Dirent {
-                d_ino: header.d_ino,
-                d_off: header.d_off,
-                d_type: header.d_type,
+                d_ino: header.0.d_ino,
+                d_off: header.0.d_off,
+                d_type: header.0.d_type,
                 d_name,
             };
             let value = (self.callback)(dirent);
@@ -459,7 +461,7 @@ pub fn sleep(duration: &abi::TimeSpec) -> Result<(), Errno> {
 #[cfg(test)]
 mod test {
     use super::{DirIterator, Dirent, File};
-    use crate::abi;
+    use crate::{abi, protocol};
     use std::{
         collections::HashSet,
         fs,
@@ -493,10 +495,10 @@ mod test {
 
         for result in &mut iter {
             let (d_type, d_name) = result.unwrap();
-            if d_type == abi::DT_DIR {
+            if d_type == protocol::abi::DT_DIR {
                 assert!(d_name == "." || d_name == "..");
             } else {
-                assert_eq!(d_type, abi::DT_LNK);
+                assert_eq!(d_type, protocol::abi::DT_LNK);
                 let fd: RawFd = d_name.parse().unwrap();
                 assert!(fds_seen.insert(fd));
                 if fds_created.contains(&fd) {
@@ -515,10 +517,10 @@ mod test {
         let iter = DirIterator::<U64, _, _>::new(&fds_dir, callback);
         for result in iter {
             let (d_type, d_name) = result.unwrap();
-            if d_type == abi::DT_DIR {
+            if d_type == protocol::abi::DT_DIR {
                 assert!(d_name == "." || d_name == "..");
             } else {
-                assert_eq!(d_type, abi::DT_LNK);
+                assert_eq!(d_type, protocol::abi::DT_LNK);
                 let fd: RawFd = d_name.parse().unwrap();
                 assert!(fds_seen.contains(&fd));
                 assert!(!fds_closed.contains(&fd));

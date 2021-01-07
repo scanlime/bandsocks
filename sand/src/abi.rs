@@ -25,17 +25,6 @@ pub const F_SEAL_SHRINK: usize = 2;
 pub const F_SEAL_GROW: usize = 4;
 pub const F_SEAL_WRITE: usize = 8;
 
-// getdents(2)
-#[derive(Debug)]
-#[repr(C)]
-pub struct LinuxDirentHeader {
-    pub d_ino: u64,
-    pub d_off: i64,
-    pub d_reclen: u16,
-    pub d_type: u8,
-    pub d_name: u8,
-}
-
 // linux/arch/x86/include/uapi/asm/stat.h
 #[derive(Debug)]
 #[repr(C)]
@@ -80,17 +69,6 @@ pub struct StatFs {
     pub f_flags: i64,
     pub f_spare: [i64; 4],
 }
-
-// POSIX dirent.h or linux fs_types.h
-pub const DT_UNKNOWN: u8 = 0;
-pub const DT_FIFO: u8 = 1;
-pub const DT_CHR: u8 = 2;
-pub const DT_DIR: u8 = 4;
-pub const DT_BLK: u8 = 6;
-pub const DT_REG: u8 = 8;
-pub const DT_LNK: u8 = 10;
-pub const DT_SOCK: u8 = 12;
-pub const DT_WHT: u8 = 14;
 
 // ptrace
 // linux/include/uapi/linux/ptrace.h

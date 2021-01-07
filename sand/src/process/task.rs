@@ -2,13 +2,14 @@ use crate::{
     abi,
     mem::{kernel::KernelMemIterator, page::VPage, rw::print_stack_dump},
     nolibc::{getrandom_usize, File},
-    process::{syscall::SyscallEmulator, table::FileTable, Event, EventSource, MessageSender},
+    process::{table::FileTable, Event, EventSource, MessageSender},
     protocol::{
         abi::{Syscall, UserRegs},
         FromTask, LogLevel, LogMessage, ProcessHandle, SysPid, ToTask, TracerSettings, VPid, VPtr,
     },
     ptrace,
     remote::file::RemoteFd,
+    syscall::SyscallEmulator,
 };
 use core::fmt::{self, Debug, Formatter};
 

@@ -12,7 +12,6 @@ macro_rules! ipc_call {
 }
 
 pub mod stack;
-pub mod syscall;
 pub mod table;
 pub mod task;
 

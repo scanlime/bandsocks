@@ -33,6 +33,7 @@ mod parser;
 mod ptrace;
 mod remote;
 mod seccomp;
+mod syscall;
 mod tracer;
 
 pub use bandsocks_protocol as protocol;
@@ -156,8 +157,8 @@ fn close_all_except(allowed: &[&File]) {
     let is_allowed = |f: &File| f == &dir || allowed.contains(&f);
 
     for result in nolibc::DirIterator::<typenum::U512, _, _>::new(&dir, |dirent| {
-        assert!(dirent.d_type == abi::DT_DIR || dirent.d_type == abi::DT_LNK);
-        if dirent.d_type == abi::DT_LNK {
+        assert!(dirent.d_type == protocol::abi::DT_DIR || dirent.d_type == protocol::abi::DT_LNK);
+        if dirent.d_type == protocol::abi::DT_LNK {
             Some(File::new(SysFd(
                 str::from_utf8(dirent.d_name)
                     .expect("proc fd utf8")
@@ -165,7 +166,7 @@ fn close_all_except(allowed: &[&File]) {
                     .expect("proc fd number"),
             )))
         } else {
-            assert_eq!(dirent.d_type, abi::DT_DIR);
+            assert_eq!(dirent.d_type, protocol::abi::DT_DIR);
             assert!(dirent.d_name == b".." || dirent.d_name == b".");
             None
         }

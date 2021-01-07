@@ -1,31 +1,18 @@
 use crate::{
     abi,
     binformat::Exec,
-    mem::{
-        maps::{MappedPages, MemFlags},
-        page::VPage,
-        string::VStringArray,
-    },
+    mem::string::VStringArray,
     process::task::StoppedTask,
     protocol::{
         abi::Syscall, Errno, FileStat, FollowLinks, FromTask, LogLevel, LogMessage, SysFd, ToTask,
-        VFile, VPid, VPtr, VString,
+        VFile, VPtr, VString,
     },
-    remote::{
-        file::{RemoteFd, TempRemoteFd},
-        scratchpad::Scratchpad,
-        trampoline::Trampoline,
-    },
+    remote::{file::RemoteFd, trampoline::Trampoline},
+    syscall,
+    syscall::result::SyscallResult,
 };
-use core::convert::From;
 use plain::Plain;
 use sc::nr;
-
-#[derive(Debug)]
-pub struct SyscallEmulator<'q, 's, 't> {
-    stopped_task: &'t mut StoppedTask<'q, 's>,
-    call: Syscall,
-}
 
 #[repr(C)]
 struct UserStat(abi::Stat);
@@ -36,115 +23,10 @@ struct UserStatFs(abi::StatFs);
 unsafe impl Plain for UserStat {}
 unsafe impl Plain for UserStatFs {}
 
-struct SyscallResult(isize);
-
-impl From<Errno> for SyscallResult {
-    fn from(err: Errno) -> Self {
-        let result = SyscallResult(err.0 as isize);
-        assert!(result.0 < 0);
-        result
-    }
-}
-
-impl<T: Into<SyscallResult>, U: Into<SyscallResult>> From<Result<T, U>> for SyscallResult {
-    fn from(result: Result<T, U>) -> SyscallResult {
-        match result {
-            Ok(r) => r.into(),
-            Err(r) => r.into(),
-        }
-    }
-}
-
-impl From<()> for SyscallResult {
-    fn from(_: ()) -> Self {
-        SyscallResult(0)
-    }
-}
-
-impl From<VPtr> for SyscallResult {
-    fn from(ptr: VPtr) -> Self {
-        let result = SyscallResult(ptr.0 as isize);
-        assert!(result.0 >= 0);
-        result
-    }
-}
-
-impl From<VPid> for SyscallResult {
-    fn from(pid: VPid) -> Self {
-        let result = SyscallResult(pid.0 as isize);
-        assert!(result.0 >= 0);
-        result
-    }
-}
-
-impl From<RemoteFd> for SyscallResult {
-    fn from(fd: RemoteFd) -> Self {
-        let result = SyscallResult(fd.0 as isize);
-        assert!(result.0 >= 0);
-        result
-    }
-}
-
-impl From<usize> for SyscallResult {
-    fn from(s: usize) -> Self {
-        let result = SyscallResult(s as isize);
-        assert!(result.0 >= 0);
-        result
-    }
-}
-
-async fn return_file(
-    trampoline: &mut Trampoline<'_, '_, '_>,
-    fd: &SysFd,
-) -> Result<RemoteFd, Errno> {
-    let mut pad = Scratchpad::new(trampoline).await?;
-    let main_result = RemoteFd::from_local(&mut pad, fd).await;
-    let cleanup_result = pad.free().await;
-    let result = main_result?;
-    cleanup_result?;
-    Ok(result)
-}
-
-async fn return_sysfd_bytes(
-    trampoline: &mut Trampoline<'_, '_, '_>,
-    from_fd: &SysFd,
-    to_ptr: VPtr,
-    len: usize,
-) -> Result<(), Errno> {
-    let remote_fd = return_file(trampoline, from_fd).await?;
-    let main_result = remote_fd.pread_vptr_exact(trampoline, to_ptr, len, 0).await;
-    let cleanup_result = remote_fd.close(trampoline).await;
-    main_result?;
-    cleanup_result?;
-    Ok(())
-}
-
-async fn return_local_bytes(
-    trampoline: &mut Trampoline<'_, '_, '_>,
-    bytes: &[u8],
-    to_ptr: VPtr,
-) -> Result<(), Errno> {
-    let mut pad = Scratchpad::new(trampoline).await?;
-    let main_result = return_local_bytes_with_scratchpad(&mut pad, bytes, to_ptr).await;
-    let cleanup_result = pad.free().await;
-    main_result?;
-    cleanup_result?;
-    Ok(())
-}
-
-async fn return_local_bytes_with_scratchpad(
-    scratchpad: &mut Scratchpad<'_, '_, '_, '_>,
-    bytes: &[u8],
-    to_ptr: VPtr,
-) -> Result<(), Errno> {
-    let remote_fd = TempRemoteFd::new(scratchpad).await?;
-    let main_result = remote_fd
-        .mem_write_bytes_exact(scratchpad, to_ptr, bytes)
-        .await;
-    let cleanup_result = remote_fd.free(&mut scratchpad.trampoline).await;
-    main_result?;
-    cleanup_result?;
-    Ok(())
+#[derive(Debug)]
+pub struct SyscallEmulator<'q, 's, 't> {
+    stopped_task: &'t mut StoppedTask<'q, 's>,
+    call: Syscall,
 }
 
 impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
@@ -155,7 +37,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
     async fn return_file(&mut self, vfile: VFile, sys_fd: &SysFd) -> Result<RemoteFd, Errno> {
         let mut tr = Trampoline::new(self.stopped_task);
-        let result = return_file(&mut tr, sys_fd).await;
+        let result = syscall::result::file(&mut tr, sys_fd).await;
         if let Ok(fd) = &result {
             self.stopped_task
                 .task
@@ -168,7 +50,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
     async fn return_local_bytes(&mut self, bytes: &[u8], to_ptr: VPtr) -> Result<(), Errno> {
         let mut tr = Trampoline::new(self.stopped_task);
-        return_local_bytes(&mut tr, bytes, to_ptr).await
+        syscall::result::local_bytes(&mut tr, bytes, to_ptr).await
     }
 
     async fn return_sysfd_bytes(
@@ -178,7 +60,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         len: usize,
     ) -> Result<(), Errno> {
         let mut tr = Trampoline::new(self.stopped_task);
-        return_sysfd_bytes(&mut tr, from_fd, to_ptr, len).await
+        syscall::result::sysfd_bytes(&mut tr, from_fd, to_ptr, len).await
     }
 
     async fn return_stat(
@@ -272,7 +154,9 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         let arg_fd = |idx| RemoteFd(arg_u32(idx));
         let mut log_level = LogLevel::Debug;
         let result: SyscallResult = match self.call.nr as usize {
-            nr::BRK => do_brk(self.stopped_task, arg_ptr(0)).await.into(),
+            nr::BRK => syscall::user::do_brk(self.stopped_task, arg_ptr(0))
+                .await
+                .into(),
 
             nr::EXECVE => Exec {
                 filename: arg_string(0),
@@ -283,7 +167,9 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             .await
             .into(),
 
-            nr::UNAME => do_uname(self.stopped_task, arg_ptr(0)).await.into(),
+            nr::UNAME => syscall::user::do_uname(self.stopped_task, arg_ptr(0))
+                .await
+                .into(),
 
             nr::GETPID => self.stopped_task.task.task_data.vpid.into(),
             nr::GETTID => self.stopped_task.task.task_data.vpid.into(),
@@ -313,13 +199,6 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 SyscallResult(0)
             }
 
-            nr::GETDENTS64 => {
-                let _fd = arg_fd(0);
-                let _dirent = arg_ptr(1);
-                let _count = arg_u32(2);
-                SyscallResult(0)
-            }
-
             nr::STAT => ipc_call!(
                 self.stopped_task.task,
                 FromTask::FileStat {
@@ -332,7 +211,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             ),
 
             nr::FSTAT => {
-                let result = do_fstat(self.stopped_task, arg_fd(0)).await;
+                let result = syscall::fs::do_fstat(self.stopped_task, arg_fd(0)).await;
                 self.return_stat_result(arg_ptr(1), result).await.into()
             }
 
@@ -403,6 +282,11 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                     .into()
             ),
 
+            nr::GETDENTS64 => {
+                syscall::fs::do_getdents(self.stopped_task, arg_fd(0), arg_ptr(1), arg_usize(2))
+                    .await
+            }
+
             nr::CHDIR => ipc_call!(
                 self.stopped_task.task,
                 FromTask::ChangeWorkingDir(arg_string(0)),
@@ -424,7 +308,9 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_file_result(result).await.into()
             ),
 
-            nr::CLOSE => do_close(self.stopped_task, arg_fd(0)).await.into(),
+            nr::CLOSE => syscall::fs::do_close(self.stopped_task, arg_fd(0))
+                .await
+                .into(),
 
             nr::OPENAT if arg_i32(0) == abi::AT_FDCWD => {
                 let fd = arg_i32(0);
@@ -456,134 +342,4 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 .log(log_level, LogMessage::Emulated(self.call.clone()))
         }
     }
-}
-
-async fn do_fstat<'q, 's, 't>(
-    stopped_task: &'t mut StoppedTask<'q, 's>,
-    fd: RemoteFd,
-) -> Result<(VFile, FileStat), Errno> {
-    let file = stopped_task.task.task_data.file_table.get(&fd)?;
-    ipc_call!(
-        stopped_task.task,
-        FromTask::FileStat {
-            file: Some(file.clone()),
-            path: None,
-            follow_links: FollowLinks::Follow,
-        },
-        ToTask::FileStatReply(result),
-        result
-    )
-}
-
-async fn do_close<'q, 's, 't>(
-    stopped_task: &'t mut StoppedTask<'q, 's>,
-    fd: RemoteFd,
-) -> Result<(), Errno> {
-    // Note that the fd will be closed even if close() also reports an error
-    stopped_task.task.task_data.file_table.close(&fd);
-    let mut tr = Trampoline::new(stopped_task);
-    fd.close(&mut tr).await
-}
-
-async fn do_uname<'q, 's, 't>(
-    stopped_task: &'t mut StoppedTask<'q, 's>,
-    dest: VPtr,
-) -> Result<(), Errno> {
-    let mut tr = Trampoline::new(stopped_task);
-    let mut pad = Scratchpad::new(&mut tr).await?;
-    let main_result = match TempRemoteFd::new(&mut pad).await {
-        Err(err) => Err(err),
-        Ok(temp) => {
-            let main_result = Ok(());
-            let main_result = main_result.and(
-                temp.mem_write_bytes_exact(
-                    &mut pad,
-                    dest + offset_of!(abi::UtsName, sysname),
-                    b"Linux\0",
-                )
-                .await,
-            );
-            let main_result = main_result.and(
-                temp.mem_write_bytes_exact(
-                    &mut pad,
-                    dest + offset_of!(abi::UtsName, nodename),
-                    b"host\0",
-                )
-                .await,
-            );
-            let main_result = main_result.and(
-                temp.mem_write_bytes_exact(
-                    &mut pad,
-                    dest + offset_of!(abi::UtsName, release),
-                    b"4.0.0-bandsocks\0",
-                )
-                .await,
-            );
-            let main_result = main_result.and(
-                temp.mem_write_bytes_exact(
-                    &mut pad,
-                    dest + offset_of!(abi::UtsName, version),
-                    b"#1 SMP\0",
-                )
-                .await,
-            );
-            let main_result = main_result.and(
-                temp.mem_write_bytes_exact(
-                    &mut pad,
-                    dest + offset_of!(abi::UtsName, machine),
-                    abi::PLATFORM_NAME_BYTES,
-                )
-                .await,
-            );
-
-            let cleanup_result = temp.free(&mut pad.trampoline).await;
-            match (main_result, cleanup_result) {
-                (Ok(r), Ok(())) => Ok(r),
-                (Err(e), _) => Err(e),
-                (Ok(_), Err(e)) => Err(e),
-            }
-        }
-    };
-    let cleanup_result = pad.free().await;
-    main_result?;
-    cleanup_result?;
-    Ok(())
-}
-
-/// brk() is emulated using mmap because we can't change the host kernel's per
-/// process brk pointer from our loader without extra privileges.
-async fn do_brk<'q, 's, 't>(
-    stopped_task: &'t mut StoppedTask<'q, 's>,
-    new_brk: VPtr,
-) -> Result<VPtr, Errno> {
-    if new_brk.0 != 0 {
-        let old_brk = stopped_task.task.task_data.mm.brk;
-        let brk_start = stopped_task.task.task_data.mm.brk_start;
-        let old_brk_page = VPage::round_up(brk_start.ptr().max(old_brk));
-        let new_brk_page = VPage::round_up(brk_start.ptr().max(new_brk));
-
-        if new_brk_page != old_brk_page {
-            let mut tr = Trampoline::new(stopped_task);
-
-            if new_brk_page == brk_start {
-                tr.munmap(&(brk_start..old_brk_page)).await?;
-            } else if old_brk_page == brk_start {
-                tr.mmap(
-                    &MappedPages::anonymous(brk_start..new_brk_page),
-                    &RemoteFd::invalid(),
-                    &MemFlags::rw(),
-                    abi::MAP_ANONYMOUS,
-                )
-                .await?;
-            } else {
-                tr.mremap(
-                    &(brk_start..old_brk_page),
-                    new_brk_page.ptr().0 - brk_start.ptr().0,
-                )
-                .await?;
-            }
-        }
-        stopped_task.task.task_data.mm.brk = brk_start.ptr().max(new_brk);
-    }
-    Ok(stopped_task.task.task_data.mm.brk)
 }
