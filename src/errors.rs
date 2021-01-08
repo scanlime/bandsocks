@@ -234,6 +234,9 @@ pub enum VFSError {
     #[error("inode reference count error")]
     INodeRefCountError,
 
+    #[error("name too long")]
+    NameTooLong,
+
     #[error("utf8 path conversion error")]
     Utf8Error(#[from] std::str::Utf8Error),
 }
@@ -253,6 +256,7 @@ impl VFSError {
             VFSError::PathSegmentLimitExceeded => libc::ENAMETOOLONG,
             VFSError::SymbolicLinkLimitExceeded => libc::ELOOP,
             VFSError::INodeRefCountError => libc::ENOMEM,
+            VFSError::NameTooLong => libc::ENAMETOOLONG,
         }
     }
 }

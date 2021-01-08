@@ -4,14 +4,16 @@ use crate::{
         socket::SharedStream,
         storage::{FileStorage, StorageKey},
     },
-    sand::protocol::{abi, FileStat, FollowLinks, INodeNum, VFile},
+    sand::protocol::{abi, abi::DirentHeader, FileStat, FollowLinks, INodeNum, VFile},
 };
+use plain::Plain;
 use std::{
     collections::BTreeMap,
+    convert::TryInto,
     ffi::{CStr, CString, OsStr, OsString},
     fs::File,
-    io::Write,
-    os::unix::io::AsRawFd,
+    io::{BufWriter, Seek, SeekFrom, Write},
+    os::unix::{ffi::OsStrExt, io::AsRawFd},
     path::Path,
     sync::Arc,
 };
@@ -49,6 +51,11 @@ enum Node {
     Block(u32, u32),
     Fifo,
 }
+
+#[repr(C)]
+struct PlainDirentHeader(DirentHeader);
+
+unsafe impl Plain for PlainDirentHeader {}
 
 #[derive(Debug)]
 struct Limits {
@@ -237,7 +244,7 @@ impl<'s> Filesystem {
         let node = self.get_inode(f.inode)?;
         match &node.data {
             Node::EmptyFile => open_null(),
-            Node::NormalDirectory(dir) => open_directory(&mut dir.iter()),
+            Node::NormalDirectory(dir) => self.open_directory(dir),
             Node::SharedStream(stream) => stream.vfile_open(),
             Node::FileStorage(key) => open_storage_part(storage, key).await,
             _ => return Err(VFSError::FileExpected),
@@ -250,6 +257,32 @@ impl<'s> Filesystem {
             Node::NormalDirectory(_) => Ok(true),
             _ => Ok(false),
         }
+    }
+
+    fn dir_entry_type(&self, inode: INodeNum) -> Result<u8, VFSError> {
+        let stat = &self.get_inode(inode)?.stat;
+        Ok(match stat.st_mode & abi::S_IFMT {
+            abi::S_IFSOCK => abi::DT_SOCK,
+            abi::S_IFLNK => abi::DT_LNK,
+            abi::S_IFREG => abi::DT_REG,
+            abi::S_IFBLK => abi::DT_BLK,
+            abi::S_IFDIR => abi::DT_DIR,
+            abi::S_IFCHR => abi::DT_CHR,
+            abi::S_IFIFO => abi::DT_FIFO,
+            _ => abi::DT_UNKNOWN,
+        })
+    }
+
+    fn open_directory(
+        &self,
+        dir: &BTreeMap<OsString, INodeNum>,
+    ) -> Result<Arc<dyn AsRawFd + Sync + Send>, VFSError> {
+        let mut builder = DirectoryFileBuilder::new()?;
+        for (name, inode) in dir.iter() {
+            let file_type = self.dir_entry_type(*inode)?;
+            builder.append(name.as_bytes(), *inode as u64, file_type)?;
+        }
+        builder.finish()
     }
 }
 
@@ -516,31 +549,70 @@ async fn open_storage_part(
     ))
 }
 
-fn open_directory<'a, T: Iterator<Item = (&'a OsString, &'a INodeNum)>>(
-    iter: &mut T,
-) -> Result<Arc<dyn AsRawFd + Sync + Send>, VFSError> {
-    let memfd = memfd::MemfdOptions::default()
-        .allow_sealing(true)
-        .create("bandsocks-dir")
-        .map_err(|_| VFSError::ImageStorageError)?;
-    for (_name, _inode) in iter {
-        memfd
-            .as_file()
-            .write_all(b"")
+struct DirectoryFileBuilder {
+    buf: BufWriter<File>,
+    offset: i64,
+}
+
+impl DirectoryFileBuilder {
+    fn new() -> Result<Self, VFSError> {
+        let memfd = memfd::MemfdOptions::default()
+            .allow_sealing(true)
+            .create("bandsocks-dir")
             .map_err(|_| VFSError::ImageStorageError)?;
+        let buf = BufWriter::new(memfd.into_file());
+        Ok(DirectoryFileBuilder { offset: 0, buf })
     }
-    memfd
-        .add_seals(
-            &[
-                memfd::FileSeal::SealWrite,
-                memfd::FileSeal::SealShrink,
-                memfd::FileSeal::SealGrow,
-                memfd::FileSeal::SealSeal,
-            ]
-            .iter()
-            .cloned()
-            .collect(),
-        )
-        .map_err(|_| VFSError::ImageStorageError)?;
-    Ok(Arc::new(memfd.into_file()))
+
+    fn finish(self) -> Result<Arc<dyn AsRawFd + Sync + Send>, VFSError> {
+        let memfd = self
+            .buf
+            .into_inner()
+            .map_err(|_| VFSError::ImageStorageError)?;
+        let memfd = memfd::Memfd::try_from_file(memfd).left().unwrap();
+        memfd
+            .add_seals(
+                &[
+                    memfd::FileSeal::SealWrite,
+                    memfd::FileSeal::SealShrink,
+                    memfd::FileSeal::SealGrow,
+                    memfd::FileSeal::SealSeal,
+                ]
+                .iter()
+                .cloned()
+                .collect(),
+            )
+            .map_err(|_| VFSError::ImageStorageError)?;
+        let mut memfd = memfd.into_file();
+        memfd
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| VFSError::ImageStorageError)?;
+        Ok(Arc::new(memfd))
+    }
+
+    fn append(&mut self, name: &[u8], d_ino: u64, d_type: u8) -> Result<(), VFSError> {
+        let header_len = offset_of!(DirentHeader, d_name);
+        let d_reclen: u16 = (header_len + name.len() + 1)
+            .try_into()
+            .map_err(|_| VFSError::NameTooLong)?;
+        let d_off = self.offset + d_reclen as i64;
+        let header = PlainDirentHeader(DirentHeader {
+            d_ino,
+            d_type,
+            d_off,
+            d_reclen,
+            d_name: 0,
+        });
+        for part in &[
+            &unsafe { plain::as_bytes(&header) }[..header_len],
+            name,
+            &[0],
+        ] {
+            self.buf
+                .write_all(part)
+                .map_err(|_| VFSError::ImageStorageError)?;
+        }
+        self.offset = d_off;
+        Ok(())
+    }
 }
