@@ -378,3 +378,7 @@ pub unsafe extern "C" fn sigreturn() -> ! {
 }
 
 pub const SYSCALL_INSTRUCTION: [u8; 2] = [0x0f, 0x05];
+
+pub fn breakpoint() {
+    unsafe { asm!("int 3") }
+}

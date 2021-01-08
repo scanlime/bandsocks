@@ -86,8 +86,6 @@ pub fn policy_for_tracer() {
             // xxx: drop this privilege as soon as we initialize the tracer
             nr::FORK,
             nr::EXECVE,
-            // xxx: can't allow this, use a different attach mechanism?
-            nr::KILL,
         ],
         &[ret(SECCOMP_RET_ALLOW)],
     );

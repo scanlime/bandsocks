@@ -92,17 +92,20 @@ impl<'q> Task<'q> {
         task_data: TaskData,
     ) -> Task<'q> {
         ptrace::setoptions(task_data.sys_pid);
+
+        // Wait for ptrace attach breakpoint
         expect_event_or_panic(
             &mut events,
             task_data.sys_pid,
             Event::Signal {
                 sig: abi::SIGCHLD as u32,
                 code: abi::CLD_TRAPPED,
-                status: abi::SIGSTOP as u32,
+                status: abi::SIGTRAP as u32,
             },
         )
         .await;
 
+        // Wait for exec of the loader process
         ptrace::cont(task_data.sys_pid);
         expect_event_or_panic(
             &mut events,

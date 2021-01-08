@@ -25,7 +25,7 @@ pub unsafe fn be_the_child_process(args: &RawExecArgs) -> ! {
     }
 
     // Let the tracer attach before we exec.
-    syscall!(KILL, syscall!(GETPID), abi::SIGSTOP);
+    abi::breakpoint();
 
     let result = syscall!(
         EXECVE,
