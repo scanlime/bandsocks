@@ -1,7 +1,7 @@
 use crate::{
     errors::VFSError,
     filesystem::{mount::Mount, vfs::Filesystem},
-    sand::protocol::FileStat,
+    sand::protocol::{abi, FileStat},
 };
 use std::{
     fmt, io,
@@ -51,7 +51,10 @@ impl AsRawFd for SharedStream {
 impl Mount for SharedStream {
     fn mount(&self, fs: &mut Filesystem, path: &Path) -> Result<(), VFSError> {
         let mut writer = fs.writer();
-        let stat: FileStat = Default::default();
+        let stat: FileStat = FileStat {
+            st_mode: abi::S_IFSOCK | 0o666,
+            ..Default::default()
+        };
         writer.write_shared_stream(path, stat, self.clone())
     }
 }
