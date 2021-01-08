@@ -591,22 +591,32 @@ impl DirectoryFileBuilder {
     }
 
     fn append(&mut self, name: &[u8], d_ino: u64, d_type: u8) -> Result<(), VFSError> {
+        const ALIGN: usize = 16;
+        const ZERO: [u8; 16] = [0; 16];
+
         let header_len = offset_of!(DirentHeader, d_name);
-        let d_reclen: u16 = (header_len + name.len() + 1)
-            .try_into()
-            .map_err(|_| VFSError::NameTooLong)?;
+        let record_len = header_len + name.len() + 1;
+        let padded_len = if (record_len % ALIGN) == 0 {
+            record_len
+        } else {
+            record_len + ALIGN - (record_len % ALIGN)
+        };
+        let zeros_len = padded_len - header_len - name.len();
+        let d_reclen: u16 = padded_len.try_into().map_err(|_| VFSError::NameTooLong)?;
         let d_off = self.offset + d_reclen as i64;
-        let header = PlainDirentHeader(DirentHeader {
-            d_ino,
-            d_type,
-            d_off,
-            d_reclen,
-            d_name: 0,
-        });
+
         for part in &[
-            &unsafe { plain::as_bytes(&header) }[..header_len],
+            &unsafe {
+                plain::as_bytes(&PlainDirentHeader(DirentHeader {
+                    d_ino,
+                    d_type,
+                    d_off,
+                    d_reclen,
+                    d_name: 0,
+                }))
+            }[..header_len],
             name,
-            &[0],
+            &ZERO[..zeros_len],
         ] {
             self.buf
                 .write_all(part)
