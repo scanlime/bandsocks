@@ -43,6 +43,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::TIME,
             nr::FUTEX,
             nr::SELECT,
+            nr::PSELECT6,
             nr::POLL,
             nr::MPROTECT,
             nr::MUNMAP,
