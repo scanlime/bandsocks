@@ -154,7 +154,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
         let arg_fd = |idx| RemoteFd(arg_u32(idx));
         let mut log_level = LogLevel::Debug;
         let result: SyscallResult = match self.call.nr as usize {
-            nr::BRK => syscall::user::do_brk(self.stopped_task, arg_ptr(0))
+            nr::BRK => syscall::user::brk(self.stopped_task, arg_ptr(0))
                 .await
                 .into(),
 
@@ -167,7 +167,13 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             .await
             .into(),
 
-            nr::UNAME => syscall::user::do_uname(self.stopped_task, arg_ptr(0))
+            nr::UNAME => syscall::user::uname(self.stopped_task, arg_ptr(0))
+                .await
+                .into(),
+
+            nr::DUP => syscall::fs::dup(self.stopped_task, arg_fd(0)).await.into(),
+
+            nr::DUP2 => syscall::fs::dup2(self.stopped_task, arg_fd(0), arg_fd(1))
                 .await
                 .into(),
 
@@ -211,7 +217,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             ),
 
             nr::FSTAT => {
-                let result = syscall::fs::do_fstat(self.stopped_task, arg_fd(0)).await;
+                let result = syscall::fs::fstat(self.stopped_task, arg_fd(0)).await;
                 self.return_stat_result(arg_ptr(1), result).await.into()
             }
 
@@ -283,7 +289,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
             ),
 
             nr::GETDENTS64 => {
-                syscall::fs::do_getdents(self.stopped_task, arg_fd(0), arg_ptr(1), arg_usize(2))
+                syscall::fs::getdents(self.stopped_task, arg_fd(0), arg_ptr(1), arg_usize(2))
                     .await
             }
 
@@ -308,7 +314,7 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 self.return_file_result(result).await.into()
             ),
 
-            nr::CLOSE => syscall::fs::do_close(self.stopped_task, arg_fd(0))
+            nr::CLOSE => syscall::fs::close(self.stopped_task, arg_fd(0))
                 .await
                 .into(),
 

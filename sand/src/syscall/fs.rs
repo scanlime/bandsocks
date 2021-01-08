@@ -5,8 +5,8 @@ use crate::{
     syscall::result::SyscallResult,
 };
 
-pub async fn do_getdents<'q, 's, 't>(
-    stopped_task: &'t mut StoppedTask<'q, 's>,
+pub async fn getdents(
+    stopped_task: &mut StoppedTask<'_, '_>,
     fd: RemoteFd,
     out_ptr: VPtr,
     len: usize,
@@ -23,8 +23,34 @@ pub async fn do_getdents<'q, 's, 't>(
     )
 }
 
-pub async fn do_fstat<'q, 's, 't>(
-    stopped_task: &'t mut StoppedTask<'q, 's>,
+pub async fn dup(stopped_task: &mut StoppedTask<'_, '_>, src_fd: RemoteFd) -> Result<RemoteFd, Errno> {
+    let mut tr = Trampoline::new(stopped_task);
+    let result = tr.syscall(sc::nr::DUP, &[src_fd.0 as isize]).await;
+    if result < 0 {
+        Err(Errno(result as i32))
+    } else {
+        let table = &mut stopped_task.task.task_data.file_table;
+        let dest_fd = RemoteFd(result as u32);
+        table.dup(&src_fd, &dest_fd)?;
+        Ok(dest_fd)
+    }
+}
+
+pub async fn dup2(stopped_task: &mut StoppedTask<'_, '_>, src_fd: RemoteFd, dest_fd: RemoteFd) -> Result<RemoteFd, Errno> {
+    let mut tr = Trampoline::new(stopped_task);
+    let result = tr.syscall(sc::nr::DUP2, &[src_fd.0 as isize, dest_fd.0 as isize]).await;
+    if result < 0 {
+        Err(Errno(result as i32))
+    } else {
+        assert_eq!(result, dest_fd.0 as isize);
+        let table = &mut stopped_task.task.task_data.file_table;
+        table.dup(&src_fd, &dest_fd)?;
+        Ok(dest_fd)
+    }
+}
+
+pub async fn fstat(
+    stopped_task: &mut StoppedTask<'_, '_>,
     fd: RemoteFd,
 ) -> Result<(VFile, FileStat), Errno> {
     let file = stopped_task.task.task_data.file_table.get(&fd)?;
@@ -40,12 +66,10 @@ pub async fn do_fstat<'q, 's, 't>(
     )
 }
 
-pub async fn do_close<'q, 's, 't>(
-    stopped_task: &'t mut StoppedTask<'q, 's>,
-    fd: RemoteFd,
-) -> Result<(), Errno> {
+pub async fn close(stopped_task: &mut StoppedTask<'_, '_>, fd: RemoteFd) -> Result<(), Errno> {
     // Note that the fd will be closed even if close() also reports an error
-    stopped_task.task.task_data.file_table.close(&fd);
+    let table = &mut stopped_task.task.task_data.file_table;
+    table.close(&fd);
     let mut tr = Trampoline::new(stopped_task);
     fd.close(&mut tr).await
 }

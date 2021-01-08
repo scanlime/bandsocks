@@ -148,4 +148,10 @@ impl FileTable {
             .cloned()
             .ok_or(Errno(-abi::EBADF))
     }
+
+    pub fn dup(&mut self, src_fd: &RemoteFd, dest_fd: &RemoteFd) -> Result<(), Errno> {
+        let vfile = self.get(src_fd)?;
+        self.open(dest_fd.clone(), vfile);
+        Ok(())
+    }
 }

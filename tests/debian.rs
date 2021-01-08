@@ -195,3 +195,42 @@ fn debian_ls_l_etc() {
         );
     })
 }
+
+#[test]
+fn debian_cat_etc_shadow() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common()
+            .await
+            .arg("cat")
+            .arg("/etc/shadow")
+            .spawn()
+            .unwrap();
+        let output = container.output().await.unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            output.stdout_str(),
+            concat!(
+                "root:*:18605:0:99999:7:::\n",
+                "daemon:*:18605:0:99999:7:::\n",
+                "bin:*:18605:0:99999:7:::\n",
+                "sys:*:18605:0:99999:7:::\n",
+                "sync:*:18605:0:99999:7:::\n",
+                "games:*:18605:0:99999:7:::\n",
+                "man:*:18605:0:99999:7:::\n",
+                "lp:*:18605:0:99999:7:::\n",
+                "mail:*:18605:0:99999:7:::\n",
+                "news:*:18605:0:99999:7:::\n",
+                "uucp:*:18605:0:99999:7:::\n",
+                "proxy:*:18605:0:99999:7:::\n",
+                "www-data:*:18605:0:99999:7:::\n",
+                "backup:*:18605:0:99999:7:::\n",
+                "list:*:18605:0:99999:7:::\n",
+                "irc:*:18605:0:99999:7:::\n",
+                "gnats:*:18605:0:99999:7:::\n",
+                "nobody:*:18605:0:99999:7:::\n",
+                "_apt:*:18605:0:99999:7:::\n",
+            )
+        );
+    })
+}

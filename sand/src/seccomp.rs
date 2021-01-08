@@ -56,6 +56,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
             nr::FCNTL,
             nr::ARCH_PRCTL,
             nr::PRCTL,
+            nr::FADVISE64,
             // fixme: only allow pid==0 case
             nr::SCHED_GETAFFINITY,
             nr::PRLIMIT64,

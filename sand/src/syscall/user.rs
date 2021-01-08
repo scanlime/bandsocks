@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-pub async fn do_uname<'q, 's, 't>(
+pub async fn uname<'q, 's, 't>(
     stopped_task: &'t mut StoppedTask<'q, 's>,
     dest: VPtr,
 ) -> Result<(), Errno> {
@@ -80,7 +80,7 @@ pub async fn do_uname<'q, 's, 't>(
 
 /// brk() is emulated using mmap because we can't change the host kernel's per
 /// process brk pointer from our loader without extra privileges.
-pub async fn do_brk<'q, 's, 't>(
+pub async fn brk<'q, 's, 't>(
     stopped_task: &'t mut StoppedTask<'q, 's>,
     new_brk: VPtr,
 ) -> Result<VPtr, Errno> {
