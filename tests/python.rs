@@ -39,3 +39,28 @@ print(os.__file__)
         assert_eq!(output.stdout_str(), "/usr/local/lib/python3.10/os.py\n");
     })
 }
+
+#[test]
+fn python_os_listdir() {
+    Runtime::new().unwrap().block_on(async {
+        let container = common()
+            .await
+            .arg("python")
+            .arg("-c")
+            .arg(
+                r"
+import os
+print(os.listdir('/'))
+",
+            )
+            .spawn()
+            .unwrap();
+        let output = container.output().await.unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(output.stdout_str(), concat!(
+            "['bin', 'boot', 'dev', 'etc', 'home', 'lib', 'lib64', 'media', 'mnt', 'opt', 'proc', 'root', 'run', ",
+            "'sbin', 'srv', 'sys', 'tmp', 'usr', 'var']\n"
+        ));
+    })
+}
