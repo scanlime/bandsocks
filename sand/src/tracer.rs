@@ -13,6 +13,7 @@ use crate::{
     },
     ptrace,
     ptrace::RawExecArgs,
+    seccomp,
 };
 use core::{future::Future, ptr::null, task::Poll};
 use heapless::{consts::*, String};
@@ -64,6 +65,8 @@ impl<'t, F: Future<Output = ()>> Tracer<'t, F> {
             result if result == 0 => unsafe { ptrace::be_the_child_process(&exec_args) },
             result if result < 0 => panic!("fork error"),
             result => {
+                seccomp::policy_for_tracer_after_init();
+
                 let sys_pid = SysPid(result as u32);
                 let parent = None;
                 let mm = TaskMemManagement {

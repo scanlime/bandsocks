@@ -64,7 +64,7 @@ pub unsafe fn c_main(argv: &[*const u8], envp: &[*const u8]) -> usize {
 
         RunMode::Tracer(socket_file) => {
             stdio_for_tracer(&socket_file);
-            seccomp::policy_for_tracer();
+            seccomp::policy_for_tracer_init();
             Box::new(Tracer::new(
                 Socket::new(socket_file),
                 process::task::task_fn,

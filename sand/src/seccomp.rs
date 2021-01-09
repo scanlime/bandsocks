@@ -23,36 +23,35 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
     // to do: explicitly whitelist constants on functions like seek and mmap
     p.if_any_eq(
         &[
-            nr::READ,
-            nr::WRITE,
-            nr::PREAD64,
-            nr::PWRITE64,
-            nr::READV,
-            nr::WRITEV,
-            nr::LSEEK,
-            nr::SOCKETPAIR,
-            nr::EXIT_GROUP,
-            nr::EXIT,
             nr::COPY_FILE_RANGE,
-            nr::RT_SIGPROCMASK,
-            nr::RT_SIGACTION,
-            nr::RT_SIGRETURN,
-            nr::SIGALTSTACK,
-            nr::SENDFILE,
-            nr::MMAP,
-            nr::TIME,
+            nr::EXIT,
+            nr::EXIT_GROUP,
             nr::FUTEX,
-            nr::SELECT,
-            nr::PSELECT6,
-            nr::POLL,
-            nr::MPROTECT,
-            nr::MUNMAP,
-            nr::MREMAP,
-            nr::NANOSLEEP,
             nr::GETRANDOM,
-            nr::MEMFD_CREATE,
-            nr::SET_ROBUST_LIST,
             nr::GETRLIMIT,
+            nr::LSEEK,
+            nr::MEMFD_CREATE,
+            nr::MMAP,
+            nr::MPROTECT,
+            nr::MREMAP,
+            nr::MUNMAP,
+            nr::NANOSLEEP,
+            nr::POLL,
+            nr::PREAD64,
+            nr::PSELECT6,
+            nr::PWRITE64,
+            nr::READ,
+            nr::READV,
+            nr::RT_SIGACTION,
+            nr::RT_SIGPROCMASK,
+            nr::RT_SIGRETURN,
+            nr::SELECT,
+            nr::SENDFILE,
+            nr::SET_ROBUST_LIST,
+            nr::SIGALTSTACK,
+            nr::TIME,
+            nr::WRITE,
+            nr::WRITEV,
             // fixme: only allow some operations
             nr::FCNTL,
             nr::ARCH_PRCTL,
@@ -67,7 +66,7 @@ fn base_rules_for_all_policies() -> ProgramBuffer {
     p
 }
 
-pub fn policy_for_tracer() {
+pub fn base_rules_for_tracer() -> ProgramBuffer {
     let mut p = base_rules_for_all_policies();
 
     // these are emulated inside the sandbox, but the tracer is allowed to use them
@@ -80,18 +79,31 @@ pub fn policy_for_tracer() {
             nr::WAITID,
             nr::PTRACE,
             nr::GETPID,
-            nr::RT_SIGACTION,
-            nr::RT_SIGRETURN,
-            // need this to get to the next stage
-            // xxx: drop this privilege as soon as we initialize the tracer
-            nr::FORK,
-            nr::EXECVE,
+            nr::SOCKETPAIR,
         ],
         &[ret(SECCOMP_RET_ALLOW)],
     );
 
+    p
+}
+
+pub fn policy_for_tracer_init() {
+    let mut p = base_rules_for_tracer();
+
+    // During init, we need the tracer to make one real non-emulated fork and exec,
+    // which will subsequently be disallowed/emulated.
+    p.if_any_eq(&[nr::FORK, nr::EXECVE], &[ret(SECCOMP_RET_ALLOW)]);
+
     // There is no tracer yet, but we want to allow tracing later.
     // With no tracer attached this blocks the syscall with ENOSYS.
+    p.inst(ret(SECCOMP_RET_TRACE));
+
+    p.activate();
+}
+
+pub fn policy_for_tracer_after_init() {
+    let mut p = base_rules_for_tracer();
+
     p.inst(ret(SECCOMP_RET_TRACE));
 
     p.activate();
