@@ -11,6 +11,7 @@ use crate::{
         scratchpad::Scratchpad,
         trampoline::Trampoline,
     },
+    syscall::result::SyscallResult,
 };
 
 pub async fn uname<'q, 's, 't>(
@@ -114,4 +115,16 @@ pub async fn brk<'q, 's, 't>(
         stopped_task.task.task_data.mm.brk = brk_start.ptr().max(new_brk);
     }
     Ok(stopped_task.task.task_data.mm.brk)
+}
+
+pub async fn fork(stopped_task: &mut StoppedTask<'_, '_>) -> SyscallResult {
+    let mut tr = Trampoline::new(stopped_task);
+    // to do:
+    //   pid translate, allocate task
+    //   expect ptrace fork event
+    //     probably requires lower-level trampoline remote syscall interface
+    //
+    // current test case:
+    // $ cargo run --release busybox:musl -- sh -c "true&"
+    SyscallResult(tr.syscall(sc::nr::FORK, &[]).await)
 }

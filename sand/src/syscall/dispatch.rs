@@ -158,6 +158,8 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
                 .await
                 .into(),
 
+            nr::FORK => syscall::user::fork(self.stopped_task).await.into(),
+
             nr::EXECVE => Exec {
                 filename: arg_string(0),
                 argv: VStringArray(arg_ptr(1)),
@@ -195,7 +197,6 @@ impl<'q, 's, 't> SyscallEmulator<'q, 's, 't> {
 
             nr::WAIT4 => Errno(-abi::ECHILD).into(),
 
-            nr::FORK => panic!("fork"),
             nr::CLONE => panic!("clone"),
 
             nr::IOCTL => {
