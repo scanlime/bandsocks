@@ -2,7 +2,6 @@
 #![feature(asm)]
 #![feature(naked_functions)]
 #![feature(negative_impls)]
-#![feature(const_in_array_repeat_expressions)]
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 compile_error!("bandsocks only works on linux or android");

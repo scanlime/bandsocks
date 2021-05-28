@@ -70,7 +70,7 @@ impl RemoteFd {
             cmsg: CMsg,
             iov: IOVec,
             msg: [u8; 1],
-        };
+        }
 
         const BASE_LAYOUT: Layout = Layout {
             hdr: MsgHdr {
